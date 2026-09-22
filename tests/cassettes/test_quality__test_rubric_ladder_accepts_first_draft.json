@@ -1,0 +1,12 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:ce3817102bab9a7f": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"readability\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"Sentences are broken, run on, or mix languages mid-sentence.\",\"1\":\"Readable, but the reader has to re-read to get the point.\",\"2\":\"Each paragraph makes its point on the first read.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"coherence\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"Disconnected paragraphs with no thread between them.\",\"1\":\"A loose sequence; connections are implied but not stated.\",\"2\":\"The paragraphs build on each other toward a point about `line`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"unsupported_statement\":{\"type\":\"noul\",\"noul\":0.1}}}"
+ },
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:a051648085179834": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"chatcmpl-synthetic\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"qwen3.8-max\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"レポート本文 [1]。\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40,\"total_tokens\":160}}"
+ }
+}

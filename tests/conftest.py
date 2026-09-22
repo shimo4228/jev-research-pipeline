@@ -35,15 +35,16 @@ def cassette(request: pytest.FixtureRequest) -> ClientFactory:
     name = current.replace("[", "__").replace("]", "").replace("/", "_")
     path = CASSETTES / f"{request.path.stem}__{name}.json"
 
-    # Synthesis starts from an empty file once per test, even if the test makes several clients.
-    if os.environ.get(SYNTHETIC_ENV) == "1":
+    # Synthesis starts from an empty file once per test; every client the test makes
+    # (e.g. one for Jev, one for Qwen) records into the same Cassette object.
+    synthetic = os.environ.get(SYNTHETIC_ENV) == "1"
+    if synthetic:
         path.unlink(missing_ok=True)
+    shared = Cassette(path)
 
     def make(fake: Handler) -> httpx2.AsyncClient:
-        if os.environ.get(SYNTHETIC_ENV) == "1":
-            transport = CassetteTransport(
-                Cassette(path), record=True, upstream=httpx2.MockTransport(fake)
-            )
+        if synthetic:
+            transport = CassetteTransport(shared, record=True, upstream=httpx2.MockTransport(fake))
             return httpx2.AsyncClient(transport=transport)
         if os.environ.get(RECORD_ENV) == "1":
             return cassette_client(CASSETTES / "live" / path.name)
