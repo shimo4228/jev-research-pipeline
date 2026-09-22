@@ -65,7 +65,9 @@ state (filter state in code), adversarial text (treat as data).
 
 5. **Two label sources, combined.** (a) **Gold = the author's ⭕❌**: each claim carries
    a checkbox; ticks made while reading are harvested by the next run's first stage
-   (code) from the vault file into the decision log; unticked = no gold. (b) **Dense =
+   (code) from the vault file into the decision log. Encoding (one line per claim):
+   `- [x]` = ⭕ correct, `- [-]` = ❌ incorrect, `- [ ]` = no gold. Anything else on the
+   line is ignored by the harvester. (b) **Dense =
    Jev rubric scores** on the same claim (the rubric-eval row above), recorded for every
    claim every day. Combination rules:
    - Jev rubric is **validated against gold**: per rubric axis, agreement with ⭕❌ is a
@@ -91,9 +93,11 @@ state (filter state in code), adversarial text (treat as data).
 ### Failure policy, testing
 
 8. Jev timeout/error → item to an "unjudged" section (no fail-open into the body).
-   Qwen validation fails N times → source stays "fetched, unextracted", retried next
-   rotation. Qwen synthesis fails → template report always written. Cost cap → partial
-   report. Idempotent: stage outputs keyed by content hash; re-run skips done stages.
+   Qwen query candidates fail validation N times → that adapter runs this line-run on
+   code-built fallback queries (line concept names / alternateName), flagged in the
+   operations section. Qwen synthesis fails → template report always written. Cost cap →
+   partial report. (Corrected 2026-09-22 by the build session: Qwen does not extract —
+   units are cut by code and judged by Jev — so there is no "unextracted" state.) Idempotent: stage outputs keyed by content hash; re-run skips done stages.
    Every report ends with an operations section (numbers above).
 9. **Regression = record/replay cassettes** for adapter fetches and Jev/Qwen responses
    (input hash → response). verify.sh runs offline, no API keys. Weekly drift job replays
@@ -113,8 +117,8 @@ state (filter state in code), adversarial text (treat as data).
     to Pydantic AI `XaiModel` if the author buys credits.
 12. **Reports go to the Obsidian vault as today** (`$VAULT/daily-research/`, vault = iCloud
     Obsidian). New pipeline writes to a **separate subfolder** during parallel running.
-13. **New repo** `~/MyAI_Lab/<kebab-name>` (proposed: `jev-research-pipeline`), uv +
-    Python ≥3.10, `verify-bootstrap` first. **Parallel run** with the existing
+13. **New repo** `~/MyAI_Lab/jev-research-pipeline`, uv + Python ≥3.12,
+    `verify-bootstrap` first (done 2026-09-22; gate record in `.claude/verify.md`). **Parallel run** with the existing
     daily-research; the author stops the old one when the new fill rate exceeds the old.
 
 ### Non-goals (explicit)
@@ -139,9 +143,11 @@ LLM-as-judge with another LLM as the truth source.
 
 1. Repo bootstrap: uv project, `verify-bootstrap` → `.claude/verify.sh` (ruff, pyright
    strict, pytest, bandit, deptry). Golden/cassette dir layout.
-2. Types first: Pydantic models for Line, SourceItem, Unit, Claim, Judgment (per Jev
-   function, with raw probabilities), Decision, Label, Report; JSON-LD serialization with
-   `@id` scheme aligned to line graphs.
+2. Types first (done 2026-09-22, `src/jev_research_pipeline/model/`): Line,
+   QueryCandidate, SourceItem, Unit, Claim, Judgment (per Jev function, raw
+   probabilities), Decision, Label, Report; JSON-LD serialization with content-derived
+   `@id` under STORE_NS, Line `@id` = the line graph's IRI byte-identical.
+   Cassette/golden layout deferred to step 4 (mechanism chosen there).
 3. Store + index: JSON-LD content graph on disk, BM25 (rank_bm25 or sqlite FTS5) derived
    index, rotation cursor, idempotent stage cache by content hash.
 4. Adapters: one typed adapter per source with cassette recording; start with arXiv + HF
