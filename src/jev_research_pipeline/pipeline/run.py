@@ -56,6 +56,7 @@ from jev_research_pipeline.qwen import (
     query_candidates,
     qwen_model,
 )
+from jev_research_pipeline.qwen.prose import prose_timeout_s
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import ClaimEntry, render_report, write_note
 from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input_sha256
@@ -208,7 +209,12 @@ class LineRun:
                 (c, await query_selection.judge(self.jev, self.ctx, c, now=self.now))
                 for c in candidates
             ]
-            for c, d in zip(candidates, query_selection.rank(pairs), strict=True):
+            decisions = query_selection.rank(pairs)
+            if any(d.policy == query_selection.FLOOR_FALLBACK_POLICY for d in decisions):
+                self.st.notes.append(
+                    f"{kind}: query 選択は floor fallback (どの候補も floor 未満のため上位を採用)"
+                )
+            for c, d in zip(candidates, decisions, strict=True):
                 if self._decide(d, f"query: {c.text}").outcome == "accept":
                     kept.append(c)
         return kept
@@ -353,9 +359,13 @@ class LineRun:
             claims=[c.text for c, _ in ordered],
             meter=self.meters[MAX],
             now=self.now,
+            timeout_s=prose_timeout_s(self.env),
         )
         self.st.decisions += list(rendering.rubric)
         self.st.nodes += drafts
+        for i, attempt in enumerate(rendering.drafts, start=1):
+            state = "生成" if attempt.prose else f"失敗 ({attempt.failure})"
+            self.st.notes.append(f"prose 第{i}稿: {state} {attempt.seconds:.1f}s")
         return rendering
 
     async def _rubric_claims(

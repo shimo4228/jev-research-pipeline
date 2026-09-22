@@ -2,7 +2,9 @@
 with the validation fallback (decision 8) and the rewrite → template ladder."""
 
 import json
+from collections.abc import Mapping
 
+import httpx2
 import pytest
 
 from jev_research_pipeline.jev.context import LineContext
@@ -105,6 +107,12 @@ async def test_prose_is_written_from_ordered_claims(cassette: ClientFactory):
     assert meter.requests == 1
 
 
+async def test_prose_records_how_long_it_took(cassette: ClientFactory):
+    model = qwen_model(MAX, cassette(fake_qwen("本文。")), api_key="replay")
+    result = await write_prose(model, CTX, [b.claim().text], feedback=None, meter=GenerationMeter())
+    assert result.seconds >= 0.0
+
+
 async def test_prose_failure_is_none_not_exception(cassette: ClientFactory):
     model = qwen_model(MAX, cassette(fake_qwen(None, status=400)), api_key="replay")
     result = await write_prose(model, CTX, [b.claim().text], feedback=None, meter=GenerationMeter())
@@ -152,7 +160,7 @@ def _script(*proses: str | None):
 
     async def write(feedback: str | None) -> ProseResult:
         calls.append(feedback)
-        return ProseResult(prose=queue.pop(0), failure=None)
+        return ProseResult(prose=queue.pop(0), failure=None, seconds=1.5)
 
     return write, calls
 
@@ -192,5 +200,25 @@ async def test_ladder(
     result = await render(write, _grader(*outcomes))
     assert (result.rendering, result.prose) == (rendering, prose)
     assert len(result.rubric) == len(outcomes)
+    assert [d.seconds for d in result.drafts] == [1.5] * len(proses)  # every draft timed
     if len(calls) == 2:
         assert calls[0] is None and calls[1]  # the rewrite carries feedback
+
+
+async def test_prose_failure_reaches_the_rendering(cassette: ClientFactory):
+    model = qwen_model(MAX, cassette(fake_qwen(None, status=400)), api_key="replay")
+    result = await write_prose(model, CTX, [b.claim().text], feedback=None, meter=GenerationMeter())
+    assert result.failure is not None
+    assert result.seconds > 0.0
+
+
+def test_prose_agent_carries_a_long_per_request_timeout():
+    # First live run: 37 claims → 30s client timeout → 92s of retries → ModelAPIError.
+    # ModelSettings.timeout is passed per request and overrides the client default.
+    from jev_research_pipeline.qwen.prose import PROSE_TIMEOUT_ENV, prose_agent, prose_timeout_s
+
+    agent = prose_agent(qwen_model(MAX, httpx2.AsyncClient(), api_key="replay"), timeout_s=300.0)
+    settings: Mapping[str, object] = agent.model_settings or {}  # pyright: ignore[reportAssignmentType]
+    assert settings["timeout"] == 300.0
+    assert prose_timeout_s({}) == 300.0
+    assert prose_timeout_s({PROSE_TIMEOUT_ENV: "600"}) == 600.0

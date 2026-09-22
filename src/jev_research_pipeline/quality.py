@@ -22,6 +22,7 @@ from .jev.core import score, threshold
 from .model import AxisMeter, Decision, Judgment, Label, Operations, Report, RubricAxis
 from .model.jsonld import Value
 from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
+from .qwen.prose import PROSE_TIMEOUT_S
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -102,6 +103,7 @@ async def rubric_ladder(
     claims: list[str],
     meter: GenerationMeter,
     now: AwareDatetime,
+    timeout_s: float = PROSE_TIMEOUT_S,
 ) -> tuple[Rendering, list[Judgment]]:
     """`claims` = accepted claim texts in report_ordering order.
 
@@ -112,7 +114,9 @@ async def rubric_ladder(
     judged: list[Judgment] = []
 
     async def write(feedback: str | None) -> ProseResult:
-        return await write_prose(model, ctx, claims, feedback=feedback, meter=meter)
+        return await write_prose(
+            model, ctx, claims, feedback=feedback, meter=meter, timeout_s=timeout_s
+        )
 
     async def evaluate(prose: str) -> Decision:
         result = await rubric_report.judge(

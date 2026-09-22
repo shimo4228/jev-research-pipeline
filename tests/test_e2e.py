@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import httpx2
 import pytest
 
 from jev_research_pipeline.model import Label, Report
@@ -130,3 +131,21 @@ def test_cli_uses_a_local_aware_now():
     source = inspect.getsource(cli._run)  # pyright: ignore[reportPrivateUsage]
     assert "datetime.now().astimezone()" in source
     assert "datetime.now(UTC)" not in source
+
+
+async def test_operations_show_prose_time_and_failure(cassette: ClientFactory, env: dict[str, str]):
+    """The first live run's 30s timeout left no trace in the report."""
+
+    async def no_prose(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "dashscope-intl.aliyuncs.com":
+            model = json.loads(request.content)["model"]
+            if model == "qwen3.8-max":
+                return httpx2.Response(400, json={"error": {"message": "Request timed out"}})
+        return await fake_world()(request)
+
+    (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(no_prose), pacing=False)
+    assert outcome.report.rendering == "template"
+    prose_lines = [ln for ln in outcome.operations if ln.startswith("prose 第")]
+    assert prose_lines and "失敗" in prose_lines[0]
+    assert "s" in prose_lines[0].rsplit(" ", 1)[1]
+    assert any("prose 第" in ln for ln in outcome.note.read_text(encoding="utf-8").splitlines())
