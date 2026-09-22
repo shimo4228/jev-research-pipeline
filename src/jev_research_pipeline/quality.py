@@ -43,14 +43,21 @@ def _position(j: Judgment, axis: RubricAxis) -> float:
     return score(j, axis).expected_position
 
 
+def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment]:
+    """One rubric_claim judgment per (claim, report): current bundle wording, latest judged.
+    Re-runs and rewordings must not count one labeled pair more than once."""
+    latest: dict[tuple[str, str], Judgment] = {}
+    for j in sorted(judgments, key=lambda j: (j.judged_at, j.id)):
+        if j.function == "rubric_claim" and j.bundle_sha256 == rubric_claim.BUNDLE.sha256:
+            latest[(j.subjects[0], j.subjects[1])] = j
+    return latest
+
+
 def agreement(judgments: list[Judgment], labels: list[Label]) -> dict[RubricAxis, AxisAgreement]:
-    """Pairs = rubric_claim judgments whose (claim, report) subjects have a Label."""
+    """Pairs = labeled (claim, report) with a current rubric_claim judgment, counted once."""
     gold = {(lb.claim, lb.report): lb.verdict == "correct" for lb in labels}
     counts: dict[RubricAxis, list[int]] = {axis: [0, 0] for axis in rubric_claim.AXES}
-    for j in judgments:
-        if j.function != "rubric_claim":
-            continue
-        key = (j.subjects[0], j.subjects[1])
+    for key, j in _current_rubric(judgments).items():
         if key not in gold:
             continue
         for axis in rubric_claim.AXES:
@@ -77,11 +84,11 @@ def axis_meters(
     today: list[Judgment], agreements: dict[RubricAxis, AxisAgreement]
 ) -> tuple[AxisMeter, ...]:
     """Operations rubric line: today's mean score per axis + cumulative gold agreement."""
-    rubric = [j for j in today if j.function == "rubric_claim"]
+    rubric = list(_current_rubric(today).values())
     meters: list[AxisMeter] = []
     for axis in rubric_claim.AXES:
         values = [_position(j, axis) for j in rubric]
-        mean = sum(values) / len(values) if values else 0.0
+        mean = sum(values) / len(values) if values else None  # no data ≠ worst score
         meters.append(AxisMeter(axis=axis, mean_score=mean, gold_agreement=agreements[axis].rate))
     return tuple(meters)
 
@@ -95,8 +102,14 @@ async def rubric_ladder(
     claims: list[str],
     meter: GenerationMeter,
     now: AwareDatetime,
-) -> Rendering:
-    """`claims` = accepted claim texts in report_ordering order."""
+) -> tuple[Rendering, list[Judgment]]:
+    """`claims` = accepted claim texts in report_ordering order.
+
+    Returns the rendering and every draft's rubric_report Judgment (dense labels; each
+    draft's prose differs, so each Judgment has its own @id). The Decisions of both drafts
+    share one @id (same report, bundle, policy): storing them keeps the final draft's
+    decision, which is the report's — the per-draft evidence lives in the Judgments."""
+    judged: list[Judgment] = []
 
     async def write(feedback: str | None) -> ProseResult:
         return await write_prose(model, ctx, claims, feedback=feedback, meter=meter)
@@ -105,9 +118,11 @@ async def rubric_ladder(
         result = await rubric_report.judge(
             jev, report_id, rubric_report.state(ctx, prose, claims), now=now
         )
+        if isinstance(result, Judgment):
+            judged.append(result)
         return rubric_report.decision(result)
 
-    return await render(write, evaluate)
+    return await render(write, evaluate), judged
 
 
 def build_report(

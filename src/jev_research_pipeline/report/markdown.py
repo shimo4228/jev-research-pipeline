@@ -20,6 +20,7 @@ safe_url() (http(s) only, markdown-breaking characters percent-encoded).
 """
 
 import json
+import re
 from typing import Final
 from urllib.parse import quote
 
@@ -66,6 +67,8 @@ def safe_url(url: str) -> str | None:
     """http(s) URL with markdown-breaking characters percent-encoded; None for anything else."""
     if not url.startswith(("https://", "http://")):
         return None
+    # A % not starting a valid escape is encoded, so no %% (an Obsidian comment) can appear.
+    url = re.sub(r"%(?![0-9A-Fa-f]{2})", "%25", url)
     return quote(url, safe=":/?#@!&=+,;%~-._*'")
 
 

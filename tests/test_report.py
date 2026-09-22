@@ -233,3 +233,8 @@ def test_harvest_keeps_only_claims_of_the_report(tmp_path: Path):
     path.write_text(path.read_text(encoding="utf-8").replace("- [ ] ", "- [x] "), encoding="utf-8")
     result = harvest_note(path, now=b.T0, report_claims=frozenset({mine.claim.id}))
     assert [lb.claim for lb in result.labels] == [mine.claim.id]
+
+
+def test_safe_url_encodes_bare_percent():
+    url = safe_url("https://x.org/a%%b%41")
+    assert url is not None and "%%" not in url and url.endswith("%41")

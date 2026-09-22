@@ -520,7 +520,8 @@ class AxisMeter(Value):
     """Rubric axis for one report: mean Jev score and agreement with gold (None = no ticks yet)."""
 
     axis: RubricAxis
-    mean_score: Probability
+    mean_score: Probability | None
+    """None = no rubric judgment that day (distinct from a 0.0 = worst score)."""
     gold_agreement: Probability | None
 
 

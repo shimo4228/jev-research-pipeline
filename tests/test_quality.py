@@ -125,7 +125,7 @@ async def test_rubric_ladder_accepts_first_draft(cassette: ClientFactory):
     from jev_research_pipeline.jev import JevClient
 
     jev = JevClient(cassette(fake_jev({"unsupported_statement": 0.1})), api_key="replay")
-    rendering = await rubric_ladder(
+    rendering, _ = await rubric_ladder(
         jev=jev,
         model=qwen_model(MAX, client, api_key="replay"),
         ctx=CTX,
@@ -143,7 +143,7 @@ async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFact
     from jev_research_pipeline.jev import JevClient
 
     jev = JevClient(cassette(fake_jev({"unsupported_statement": 0.9})), api_key="replay")
-    rendering = await rubric_ladder(
+    rendering, _ = await rubric_ladder(
         jev=jev,
         model=qwen_model(MAX, cassette(fake_qwen("一稿。", "二稿。")), api_key="replay"),
         ctx=CTX,
@@ -169,3 +169,44 @@ def test_build_report_maps_rendering_and_operations():
         operations=b.report().operations,
     )
     assert (report.rendering, report.prose, report.id) == ("rewritten", "本文", b.report().id)
+
+
+# --- review fixes (96b0d22) ------------------------------------------------------------------
+
+
+def test_agreement_counts_one_judgment_per_labeled_pair():
+    c1 = _claim(1)
+    first = _rubric(c1, {"grounded": 0.0})
+    later = _rubric(c1, {"grounded": 1.0}).model_copy(update={"judged_at": b.T0.replace(hour=9)})
+    # Different state → a second Judgment for the same (claim, report); only the latest counts.
+    later = later.model_copy(update={"id": later.id.replace(later.id[-4:], "ffff")})
+    result = agreement([first, later], [_label(c1, "correct")])
+    assert result["grounded"] == AxisAgreement(axis="grounded", n=1, agreed=1)
+
+
+def test_agreement_ignores_judgments_from_other_bundle_wording():
+    c1 = _claim(1)
+    stale = _rubric(c1, {}).model_copy(update={"bundle_sha256": "c" * 64})
+    assert agreement([stale], [_label(c1, "correct")])["grounded"].n == 0
+
+
+def test_axis_meters_without_rubric_data_report_none():
+    meters = axis_meters([], agreement([], []))
+    assert all(m.mean_score is None and m.gold_agreement is None for m in meters)
+
+
+async def test_rubric_ladder_returns_every_draft_judgment(cassette: ClientFactory):
+    from jev_research_pipeline.jev import JevClient
+
+    jev = JevClient(cassette(fake_jev({"unsupported_statement": 0.9})), api_key="replay")
+    rendering, judgments = await rubric_ladder(
+        jev=jev,
+        model=qwen_model(MAX, cassette(fake_qwen("一稿。", "二稿。")), api_key="replay"),
+        ctx=CTX,
+        report_id=b.report().id,
+        claims=[b.claim().text],
+        meter=GenerationMeter(),
+        now=b.T0,
+    )
+    assert rendering.rendering == "template"
+    assert len({j.id for j in judgments}) == 2  # one per draft, both kept
