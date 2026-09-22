@@ -46,6 +46,9 @@ class GenerationMeter:
         self.requests = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self.output_violations = 0
+        """Runs that exhausted output retries — the NativeOutput failure rate (operations
+        section) that decides whether to move to PromptedOutput."""
 
     def add(self, usage: RunUsage) -> None:
         self.requests += usage.requests

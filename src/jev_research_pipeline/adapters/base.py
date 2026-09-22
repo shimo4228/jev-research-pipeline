@@ -22,8 +22,9 @@ from pydantic import AwareDatetime, JsonValue, TypeAdapter, ValidationError, mod
 from jev_research_pipeline.model import AdapterKind, Line, SourceItem
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.model.nodes import NonEmptyText
+from jev_research_pipeline.query_text import clean_query
 
-type FailureReason = Literal["missing_key", "http_status", "transport", "parse"]
+type FailureReason = Literal["missing_key", "invalid_query", "http_status", "transport", "parse"]
 
 USER_AGENT: Final = (
     "jev-research-pipeline/0.1 (+https://github.com/shimo4228/jev-research-pipeline; "
@@ -159,6 +160,9 @@ class Adapter:
 
         if self.required_env is not None and not env.get(self.required_env):
             return fail("missing_key", self.required_env)
+        if clean_query(query) is None:
+            # Never send a query with no searchable text: arXiv answers 406 to `all:,`.
+            return fail("invalid_query", query[:80])
         await self._pace()
         try:
             response = await client.send(self.build_request(query, env))

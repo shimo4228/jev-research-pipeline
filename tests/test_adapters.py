@@ -23,6 +23,8 @@ from .conftest import ClientFactory
 from .fakes import ARXIV_ATOM, GITHUB_SEARCH, HF_SEARCH, TAVILY_SEARCH, fake_json
 
 NO_ENV: dict[str, str] = {}
+QUERY = "agent memory"
+"""Any test query must survive query_text.clean_query — a 1-char one is now refused."""
 
 
 def _ok(outcome: FetchOutcome) -> tuple[SourceItem, ...]:
@@ -56,7 +58,7 @@ def test_arxiv_request_shape():
 
 async def test_arxiv_malformed_xml_is_a_parse_failure(cassette: ClientFactory):
     client = cassette(fake_json("<feed><entry>", content_type="application/atom+xml"))
-    out = await arxiv.adapter().fetch(client, b.line(), "q", now=b.T0, env=NO_ENV)
+    out = await arxiv.adapter().fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
     assert out.sources == ()
     assert out.failure is not None and out.failure.reason == "parse"
 
@@ -64,7 +66,7 @@ async def test_arxiv_malformed_xml_is_a_parse_failure(cassette: ClientFactory):
 async def test_arxiv_rejects_xml_entity_expansion(cassette: ClientFactory):
     bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><feed>&a;</feed>'
     client = cassette(fake_json(bomb, content_type="application/atom+xml"))
-    out = await arxiv.adapter().fetch(client, b.line(), "q", now=b.T0, env=NO_ENV)
+    out = await arxiv.adapter().fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
     assert out.failure is not None and out.failure.reason == "parse"
 
 
@@ -95,8 +97,8 @@ async def test_github_parses_repos_and_skips_empty_descriptions(cassette: Client
 
 
 def test_github_token_is_optional_header():
-    assert "authorization" not in github.adapter().build_request("q", NO_ENV).headers
-    req = github.adapter().build_request("q", {"GITHUB_TOKEN": "t"})
+    assert "authorization" not in github.adapter().build_request(QUERY, NO_ENV).headers
+    req = github.adapter().build_request(QUERY, {"GITHUB_TOKEN": "t"})
     assert req.headers["authorization"] == "Bearer t"
 
 
@@ -126,7 +128,7 @@ async def test_web_search_parses_results(cassette: ClientFactory):
 
 
 def test_web_search_key_goes_in_header_not_body():
-    req = web_search.adapter().build_request("q", {"TAVILY_API_KEY": "secret-k"})
+    req = web_search.adapter().build_request(QUERY, {"TAVILY_API_KEY": "secret-k"})
     assert req.headers["authorization"] == "Bearer secret-k"
     assert b"secret-k" not in req.content
 
@@ -137,7 +139,7 @@ def test_web_search_key_goes_in_header_not_body():
 @pytest.mark.parametrize("status", [429, 500])
 async def test_http_error_status_is_a_failure(cassette: ClientFactory, status: int):
     out = await hf_papers.adapter().fetch(
-        cassette(fake_json({"error": "x"}, status=status)), b.line(), "q", now=b.T0, env=NO_ENV
+        cassette(fake_json({"error": "x"}, status=status)), b.line(), QUERY, now=b.T0, env=NO_ENV
     )
     assert out.failure is not None
     assert out.failure.reason == "http_status"
@@ -146,7 +148,7 @@ async def test_http_error_status_is_a_failure(cassette: ClientFactory, status: i
 
 async def test_wrong_json_shape_is_a_parse_failure(cassette: ClientFactory):
     out = await hf_papers.adapter().fetch(
-        cassette(fake_json({"not": "a list"})), b.line(), "q", now=b.T0, env=NO_ENV
+        cassette(fake_json({"not": "a list"})), b.line(), QUERY, now=b.T0, env=NO_ENV
     )
     assert out.failure is not None and out.failure.reason == "parse"
 
@@ -208,7 +210,7 @@ async def test_collect_does_not_cache_failures(cassette: ClientFactory, tmp_path
         cassette(fake_json(TAVILY_SEARCH)),
         part,
         b.line(),
-        "q",
+        QUERY,
         now=b.T0,
         env=NO_ENV,
     )
@@ -225,7 +227,7 @@ async def test_body_decoding_error_is_a_failure(cassette: ClientFactory):
     out = await hf_papers.adapter().fetch(
         httpx2.AsyncClient(transport=httpx2.MockTransport(corrupt)),
         b.line(),
-        "q",
+        QUERY,
         now=b.T0,
         env=NO_ENV,
     )
@@ -241,7 +243,7 @@ async def test_one_bad_result_is_skipped_not_fatal(cassette: ClientFactory):
         ]
     }
     out = await web_search.adapter().fetch(
-        cassette(fake_json(payload)), b.line(), "q", now=b.T0, env={"TAVILY_API_KEY": "k"}
+        cassette(fake_json(payload)), b.line(), QUERY, now=b.T0, env={"TAVILY_API_KEY": "k"}
     )
     assert [s.title for s in _ok(out)] == ["ok"]
     assert out.skipped == 2
@@ -254,14 +256,14 @@ def test_arxiv_sends_an_explicit_accept_and_contact_user_agent():
     # 2026-09-22 live: 406 from the edge in front of export.arxiv.org on the default
     # httpx2 headers (Accept: */*, User-Agent: python-httpx2/...). Verified 2026-09-23:
     # an explicit atom Accept + a descriptive UA gets 200.
-    headers = arxiv.adapter().build_request("q", NO_ENV).headers
+    headers = arxiv.adapter().build_request(QUERY, NO_ENV).headers
     assert headers["accept"] == "application/atom+xml"
     assert headers["user-agent"].startswith("jev-research-pipeline/")
     assert "mailto:" in headers["user-agent"]
 
 
 def test_github_sends_a_descriptive_user_agent():
-    headers = github.adapter().build_request("q", NO_ENV).headers
+    headers = github.adapter().build_request(QUERY, NO_ENV).headers
     assert headers["user-agent"].startswith("jev-research-pipeline/")
 
 
@@ -298,7 +300,7 @@ async def test_http_error_detail_explains_itself(
     out = await github.adapter().fetch(
         httpx2.AsyncClient(transport=httpx2.MockTransport(upstream)),
         b.line(),
-        "q",
+        QUERY,
         now=b.T0,
         env=NO_ENV,
     )
@@ -306,3 +308,17 @@ async def test_http_error_detail_explains_itself(
     assert out.failure.reason == "http_status"
     assert out.failure.detail.startswith(f"{status} {expected}")
     assert body["message"][:20] in out.failure.detail
+
+
+@pytest.mark.parametrize("junk", [",", "]", "   ", "--", "<|end|>"])
+async def test_adapter_refuses_a_query_with_no_searchable_text(cassette: ClientFactory, junk: str):
+    # Deterministic guard behind the model-side validation (2026-09-23 live: arXiv 406).
+    out = await arxiv.adapter().fetch(
+        cassette(fake_json(ARXIV_ATOM, content_type="application/atom+xml")),
+        b.line(),
+        junk,
+        now=b.T0,
+        env=NO_ENV,
+    )
+    assert out.sources == ()
+    assert out.failure is not None and out.failure.reason == "invalid_query"

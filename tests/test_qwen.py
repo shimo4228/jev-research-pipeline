@@ -9,6 +9,7 @@ import pytest
 
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import Decision, QueryCandidate
+from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.qwen import (
     DASHSCOPE_BASE_URL,
     FLASH,
@@ -87,11 +88,11 @@ async def test_query_candidates_http_error_falls_back(cassette: ClientFactory):
     assert [c.text for c in result.candidates] == ["agent memory"]
 
 
-async def test_query_candidates_drop_blank_and_duplicate(cassette: ClientFactory):
-    content = json.dumps({"queries": ["agent memory", " ", "agent memory", "x"]})
+async def test_query_candidates_drop_duplicates(cassette: ClientFactory):
+    content = json.dumps({"queries": ["agent memory", "agent  memory", "narrow questions"]})
     model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
     result = await query_candidates(model, CTX, "arxiv", n=4, meter=GenerationMeter())
-    assert [c.text for c in result.candidates] == ["agent memory", "x"]
+    assert [c.text for c in result.candidates] == ["agent memory", "narrow questions"]
 
 
 # --- report prose --------------------------------------------------------------------------
@@ -229,3 +230,37 @@ def test_bad_prose_timeout_env_falls_back_to_the_default(raw: str):
     from jev_research_pipeline.qwen.prose import PROSE_TIMEOUT_ENV, PROSE_TIMEOUT_S, prose_timeout_s
 
     assert prose_timeout_s({PROSE_TIMEOUT_ENV: raw}) == PROSE_TIMEOUT_S
+
+
+# --- second live run: chat-template tokens leaked into query strings ---------------------
+
+
+@pytest.mark.parametrize(
+    "dirty",
+    [",", "]", "<|start|>assistant: agent memory", "<|end|>", "  ", "-- ,,", "ab"],
+)
+async def test_contaminated_query_strings_are_refused(cassette: ClientFactory, dirty: str):
+    # qwen3.8-flash's NativeOutput intermittently leaks chat-template tokens; arXiv then
+    # answered 406 to search_query=all:,
+    content = json.dumps({"queries": [dirty, "agent memory benchmark"]})
+    model = qwen_model(FLASH, cassette(fake_qwen(content, content, content)), api_key="replay")
+    result = await query_candidates(model, CTX, "arxiv", n=2, meter=GenerationMeter())
+    assert dirty not in [c.text for c in result.candidates]
+    assert all(clean_query(c.text) == c.text for c in result.candidates)
+
+
+async def test_query_validation_failure_is_retried_then_falls_back(cassette: ClientFactory):
+    meter = GenerationMeter()
+    bad = json.dumps({"queries": ["<|start|>", ","]})
+    model = qwen_model(FLASH, cassette(fake_qwen(bad, bad, bad)), api_key="replay")
+    result = await query_candidates(model, CTX, "arxiv", n=2, meter=meter)
+    assert result.fallback
+    assert meter.requests == 3  # the initial attempt plus OUTPUT_RETRIES
+    assert meter.output_violations == 1  # metered before deciding Native vs Prompted
+
+
+async def test_clean_queries_are_kept_verbatim(cassette: ClientFactory):
+    content = json.dumps({"queries": ["agent memory benchmark", "狭い質問 判定"]})
+    model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
+    result = await query_candidates(model, CTX, "arxiv", n=2, meter=GenerationMeter())
+    assert [c.text for c in result.candidates] == ["agent memory benchmark", "狭い質問 判定"]

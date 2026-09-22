@@ -1,8 +1,0 @@
-{
- "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:ce8d62dd24633335": {
-  "status": 200,
-  "content_type": "application/json",
-  "body": "{\"id\":\"chatcmpl-synthetic\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"qwen3.8-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"queries\\\": [\\\"agent memory\\\", \\\" \\\", \\\"agent memory\\\", \\\"x\\\"]}\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40,\"total_tokens\":160}}",
-  "request_body": "{\"messages\":[{\"role\":\"system\",\"content\":\"You write search queries for the `arxiv` source. Return JSON with one field, `queries`: a list of 4 short queries (2-6 words each, English) that would find recent work on the research line described in the user message. Use its vocabulary; do not add commentary.\"},{\"role\":\"user\",\"content\":\"Research line: Agent Knowledge Cycle\\nVocabulary:\\n- agent memory\\n- narrow questions\\n- judgment decomposition\"}],\"model\":\"qwen3.8-flash\",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":{\"name\":\"QueryList\",\"schema\":{\"properties\":{\"queries\":{\"items\":{\"type\":\"string\"},\"minItems\":1,\"type\":\"array\"}},\"required\":[\"queries\"],\"title\":\"QueryList\",\"type\":\"object\"},\"description\":\"Search queries for one source adapter.\",\"strict\":true}},\"stream\":false}"
- }
-}

@@ -1,5 +1,5 @@
 {
- "GET https://huggingface.co/api/papers/search?limit=20&q=q": {
+ "GET https://huggingface.co/api/papers/search?limit=20&q=agent+memory": {
   "status": 500,
   "content_type": "application/json",
   "body": "{\"error\":\"x\"}"

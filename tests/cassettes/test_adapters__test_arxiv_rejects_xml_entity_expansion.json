@@ -1,5 +1,5 @@
 {
- "GET https://export.arxiv.org/api/query?max_results=20&search_query=all%3Aq&sortBy=submittedDate&sortOrder=descending&start=0": {
+ "GET https://export.arxiv.org/api/query?max_results=20&search_query=all%3Aagent+AND+all%3Amemory&sortBy=submittedDate&sortOrder=descending&start=0": {
   "status": 200,
   "content_type": "application/atom+xml",
   "body": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY a \"aaaa\">]><feed>&a;</feed>"

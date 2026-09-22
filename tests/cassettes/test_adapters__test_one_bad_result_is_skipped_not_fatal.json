@@ -1,7 +1,8 @@
 {
- "POST https://api.tavily.com/search body:291a8d034fc664a7": {
+ "POST https://api.tavily.com/search body:12ce85fd319244c5": {
   "status": 200,
   "content_type": "application/json",
-  "body": "{\"results\":[{\"title\":\"ok\",\"url\":\"https://example.org/ok\",\"content\":\"Good text.\"},{\"title\":\"empty\",\"url\":\"https://example.org/e\",\"content\":\"\"},{\"title\":\"bad url\",\"url\":\"javascript:alert(1)\",\"content\":\"x\"}]}"
+  "body": "{\"results\":[{\"title\":\"ok\",\"url\":\"https://example.org/ok\",\"content\":\"Good text.\"},{\"title\":\"empty\",\"url\":\"https://example.org/e\",\"content\":\"\"},{\"title\":\"bad url\",\"url\":\"javascript:alert(1)\",\"content\":\"x\"}]}",
+  "request_body": "{\"query\":\"agent memory\",\"max_results\":10,\"search_depth\":\"basic\",\"topic\":\"general\"}"
  }
 }
