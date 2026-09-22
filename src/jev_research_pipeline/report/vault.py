@@ -7,7 +7,8 @@
 - A same-day re-run keeps the author's ticks: marks already in the note are carried
   over to the matching claim ids before the file is replaced (atomic write).
 - Harvest (decision 5): only lines `- [x|-| ] … <!-- jrp:claim:<claim @id> -->` are read.
-  [x] = correct, [-] = incorrect, [ ] = no gold (no Label). Everything else in the note
+  [x] = correct, [-] = incorrect, [ ] = no gold: no Label, and an earlier Label for that
+  claim is withdrawn (HarvestResult.cleared). Everything else in the note
   is the author's to edit. A missing or unreadable note is skipped with a reason.
 """
 
@@ -45,6 +46,9 @@ class VaultNotConfigured(RuntimeError):
 
 class HarvestResult(Value):
     labels: tuple[Label, ...]
+    cleared: tuple[str, ...] = ()
+    """Label @ids of claims shown as `[ ]`: the author withdrew (or never gave) a tick,
+    so any earlier Label for that (claim, report) must be removed from the store."""
     skipped: SkipReason | None
 
 
@@ -85,6 +89,10 @@ def harvest_text(text: str) -> dict[str, Verdict]:
     return out
 
 
+def unticked(text: str) -> list[str]:
+    return [c for c, mark in _marks(text).items() if mark == " " and kind_of(c) == "claim"]
+
+
 def _carry_over(new_text: str, old_marks: dict[str, str]) -> str:
     def replace(line: str) -> str:
         m = _CLAIM_LINE_RE.match(line)
@@ -99,7 +107,11 @@ def write_note(vault: Path, slug: str, run_date: date, text: str) -> Path:
     path = note_path(vault, slug, run_date)
     path.parent.mkdir(exist_ok=True)
     if path.exists():
-        text = _carry_over(text, _marks(path.read_text(encoding="utf-8")))
+        try:
+            old = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            old = ""  # unreadable old note: nothing to carry over
+        text = _carry_over(text, _marks(old))
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -125,7 +137,11 @@ def _report_id(text: str) -> str | None:
     return value if isinstance(value, str) and kind_of(value) == "report" else None
 
 
-def harvest_note(path: Path, *, now: AwareDatetime) -> HarvestResult:
+def harvest_note(
+    path: Path, *, now: AwareDatetime, report_claims: frozenset[str] | None = None
+) -> HarvestResult:
+    """`report_claims` (the stored Report.claims) restricts harvesting to claims that were
+    actually in this report — lines pasted from another note do not become Labels."""
     if not path.exists():
         return HarvestResult(labels=(), skipped="missing")
     try:
@@ -137,13 +153,20 @@ def harvest_note(path: Path, *, now: AwareDatetime) -> HarvestResult:
         return HarvestResult(labels=(), skipped="no_report_id")
     labels: list[Label] = []
     for claim_id, verdict in harvest_text(text).items():
+        if report_claims is not None and claim_id not in report_claims:
+            continue
         try:
             labels.append(
                 Label.new(claim=claim_id, report=report_id, verdict=verdict, harvested_at=now)
             )
         except ValidationError:
             continue
-    return HarvestResult(labels=tuple(labels), skipped=None)
+    cleared = tuple(
+        Label.id_for(claim_id, report_id)
+        for claim_id in unticked(text)
+        if report_claims is None or claim_id in report_claims
+    )
+    return HarvestResult(labels=tuple(labels), cleared=cleared, skipped=None)
 
 
 def report_notes(vault: Path, slug: str) -> list[Path]:

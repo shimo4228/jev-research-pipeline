@@ -53,6 +53,14 @@ class Partition:
         merged = self.load() | incoming
         self._write([merged[iri] for iri in sorted(merged)])
 
+    def remove(self, iris: Iterable[str]) -> None:
+        """Drop nodes by @id (absent ids are ignored). Used to withdraw Labels."""
+        drop = set(iris)
+        current = self.load()
+        if not drop & set(current):
+            return
+        self._write([current[i] for i in sorted(current) if i not in drop])
+
     def _write(self, nodes: list[GraphNodeType]) -> None:
         doc = to_document(nodes)
         graph: list[dict[str, Any]] = doc["@graph"]

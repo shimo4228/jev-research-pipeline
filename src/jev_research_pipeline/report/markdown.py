@@ -13,7 +13,8 @@
 
 Everything that came from outside (claim text, generated prose, unjudged snippets,
 operations notes) passes through sanitize(): Obsidian must render it as text, never as a
-wikilink / embed / link / HTML / code fence / Dataview or Templater expression — and it
+wikilink / embed / link (incl. bare-URL autolinks) / HTML / code fence (``` or ~~~) /
+Dataview or Templater expression — and it
 must never be able to forge a `<!-- jrp:claim -->` line. Source URLs pass through
 safe_url() (http(s) only, markdown-breaking characters percent-encoded).
 """
@@ -41,7 +42,10 @@ _ESCAPES: Final = (
     (")", "\\)"),
     ("<", "&lt;"),
     (">", "&gt;"),
-    ("%%", "%\\%"),
+    ("%", "\\%"),  # every %, so no odd run can re-form a %% comment
+    ("#", "\\#"),  # no tag injection
+    ("~", "\\~"),  # ~~~ is a code fence too (Dataview runs ~~~dataviewjs)
+    ("://", ":\\/\\/"),  # a bare http(s)://… would be autolinked
 )
 
 

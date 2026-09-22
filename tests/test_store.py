@@ -127,3 +127,10 @@ def test_one_node_per_text_line(tmp_path: Path):
     lines = (tmp_path / "lines" / "akc.jsonld").read_text(encoding="utf-8").splitlines()
     node_lines = [ln for ln in lines if ln.startswith('{"@id"')]
     assert len(node_lines) == len(nodes)
+
+
+def test_remove_drops_nodes_by_id(tmp_path: Path):
+    part = GraphStore(tmp_path).line("akc")
+    part.put([b.claim(), b.unit()])
+    part.remove([b.claim().id, "https://shimo4228.github.io/shimo4228/jrp/claim/" + "0" * 32])
+    assert set(part.load()) == {b.unit().id}

@@ -191,3 +191,45 @@ def test_harvest_missing_or_broken_note_is_skipped(tmp_path: Path):
     broken = tmp_path / "broken.md"
     broken.write_text("no frontmatter here", encoding="utf-8")
     assert harvest_note(broken, now=b.T0).skipped == "no_report_id"
+
+
+# --- review fixes (2f711d7) ------------------------------------------------------------------
+
+
+def test_sanitize_blocks_tilde_fences_and_bare_url_autolinks():
+    out = sanitize("~~~dataviewjs\ndv.el('p', 1)\n~~~ see https://evil.example/x")
+    assert "~~~" not in out
+    assert "https://" not in out
+
+
+def test_untick_withdraws_an_earlier_label(tmp_path: Path):
+    e = _entry()
+    path = write_note(tmp_path, "akc", DAY, _render([e]))
+    result = harvest_note(path, now=b.T0)
+    assert result.labels == ()
+    assert result.cleared == (Label.id_for(e.claim.id, b.report().id),)
+
+
+def test_write_note_survives_an_undecodable_old_note(tmp_path: Path):
+    path = note_path(tmp_path, "akc", DAY)
+    path.parent.mkdir()
+    path.write_bytes(b"\xff\xfe broken")
+    write_note(tmp_path, "akc", DAY, _render([_entry()]))
+    assert "## Claims" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("run", ["%%%", "%%%%%", "a %%% b"])
+def test_no_percent_run_survives(run: str):
+    assert "%%" not in sanitize(run)
+
+
+def test_hash_tags_are_not_injected():
+    assert "#" not in sanitize("see #injected-tag").replace("\\#", "")
+
+
+def test_harvest_keeps_only_claims_of_the_report(tmp_path: Path):
+    mine, pasted = _entry(url="https://arxiv.org/abs/m"), _entry(url="https://arxiv.org/abs/p")
+    path = write_note(tmp_path, "akc", DAY, _render([mine, pasted]))
+    path.write_text(path.read_text(encoding="utf-8").replace("- [ ] ", "- [x] "), encoding="utf-8")
+    result = harvest_note(path, now=b.T0, report_claims=frozenset({mine.claim.id}))
+    assert [lb.claim for lb in result.labels] == [mine.claim.id]
