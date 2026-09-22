@@ -11,6 +11,12 @@ requires-python = ">=3.12"
 dependencies = [
     "defusedxml>=0.7.1",
     "httpx2>=2.13.0",
+    "opentelemetry-api==1.44.0",
+    "opentelemetry-distro==0.65b0",
+    "opentelemetry-exporter-otlp-proto-http==1.44.0",
+    "opentelemetry-instrumentation==0.65b0",
+    "opentelemetry-instrumentation-httpx==0.65b0",
+    "opentelemetry-sdk==1.44.0",
     "pydantic>=2.13.5",
     "pydantic-ai-slim[openai]==2.47.0",
     "pydantic-evals==2.47.0",
@@ -125,3 +131,14 @@ source = ["src/jev_research_pipeline"]
 
 [tool.deptry]
 known_first_party = ["jev_research_pipeline"]
+
+# Loaded through entry points by opentelemetry auto-instrumentation (telemetry.py), never
+# imported by name: the SDK, the OTLP exporter, the distro that wires them from OTEL_* env,
+# and the httpx2 instrumentation.
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-http",
+    "opentelemetry-distro",
+    "opentelemetry-instrumentation-httpx",
+]

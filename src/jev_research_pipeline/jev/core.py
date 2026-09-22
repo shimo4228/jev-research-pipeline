@@ -45,6 +45,7 @@ from jev_research_pipeline.model import (
 from jev_research_pipeline.model.jsonld import Value, kind_of
 from jev_research_pipeline.model.nodes import Key, NonEmptyText
 from jev_research_pipeline.store import input_sha256
+from jev_research_pipeline.telemetry import span
 
 from ._sdk import JevState, SystemOne
 
@@ -215,6 +216,28 @@ class JevClient:
         if got != want:
             raise ValueError(f"subjects for {bundle.function} must be kinds {want}, got {got}")
         self.questions_asked += len(bundle.questions)
+        with span(
+            f"jev.{bundle.function}",
+            function=bundle.function,
+            questions=len(bundle.questions),
+            subjects=len(subjects),
+            model=JEV_MODEL,
+        ) as current:
+            result = await self._ask(bundle, subjects, state, fail=fail, now=now)
+            current.set_attribute(
+                "jrp.outcome", "judged" if isinstance(result, Judgment) else result.reason
+            )
+            return result
+
+    async def _ask(
+        self,
+        bundle: Bundle,
+        subjects: tuple[str, ...],
+        state: JevState,
+        *,
+        fail: Callable[[FailureReason, object], JevFailure],
+        now: AwareDatetime,
+    ) -> Judgment | JevFailure:
         try:
             response = await self._jev.ask(state, bundle.to_sdk())
         except TypeSafeAPITimeoutError as e:

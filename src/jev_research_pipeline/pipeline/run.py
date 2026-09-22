@@ -60,6 +60,7 @@ from jev_research_pipeline.qwen.prose import prose_timeout_s
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import ClaimEntry, render_report, write_note
 from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input_sha256
+from jev_research_pipeline.telemetry import span
 
 from .costs import Budget
 from .units import split_units
@@ -424,13 +425,30 @@ class LineRun:
     async def execute(self) -> LineOutcome:
         report_id = Report.id_for(self.ctx.line.id, self.now.date())
         ordered: list[tuple[Claim, SourceItem]] = []
-        if not self._over_budget():
-            queries = await self._queries()
-            sources = await self._fetch(queries)
-            claims = await self._claims(await self._screen(sources))
-            ordered = await self._order(await self._novel(claims))
-        rendering = await self._render(report_id, ordered)
-        await self._rubric_claims(report_id, rendering, ordered)
+        with span("jrp.line", line=self.ctx.line.slug, date=self.now.date().isoformat()) as line:
+            if not self._over_budget():
+                with span("jrp.stage.queries", line=self.ctx.line.slug):
+                    queries = await self._queries()
+                with span("jrp.stage.fetch", line=self.ctx.line.slug, queries=len(queries)):
+                    sources = await self._fetch(queries)
+                with span("jrp.stage.screen", line=self.ctx.line.slug, sources=len(sources)):
+                    screened = await self._screen(sources)
+                with span("jrp.stage.claims", line=self.ctx.line.slug, sources=len(screened)):
+                    claims = await self._claims(screened)
+                with span("jrp.stage.novelty", line=self.ctx.line.slug, claims=len(claims)):
+                    novel = await self._novel(claims)
+                with span("jrp.stage.order", line=self.ctx.line.slug, claims=len(novel)):
+                    ordered = await self._order(novel)
+            with span("jrp.stage.prose", line=self.ctx.line.slug, claims=len(ordered)):
+                rendering = await self._render(report_id, ordered)
+            with span("jrp.stage.rubric", line=self.ctx.line.slug, claims=len(ordered)):
+                await self._rubric_claims(report_id, rendering, ordered)
+            line.set_attribute(
+                "jrp.cost_usd",
+                self.budget.cost(jev_questions=self.jev.questions_asked, meters=self.meters),
+            )
+            line.set_attribute("jrp.jev_questions", self.jev.questions_asked)
+            line.set_attribute("jrp.rendering", rendering.rendering)
         ops, lines = self._operations(self.jev.fresh)
         report = build_report(
             line=self.ctx.line.id,

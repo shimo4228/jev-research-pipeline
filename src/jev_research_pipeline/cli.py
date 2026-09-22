@@ -23,6 +23,7 @@ from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
+from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
 
@@ -102,6 +103,7 @@ async def _drift(env: Mapping[str, str], cassettes: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     env = dict(os.environ)
+    setup_telemetry(env)  # no OTEL_EXPORTER_OTLP_ENDPOINT → no SDK, no-op spans
     match args.command:
         case "run":
             return asyncio.run(_run(env))
