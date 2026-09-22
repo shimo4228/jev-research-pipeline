@@ -27,13 +27,23 @@ type Handler = Callable[[httpx2.Request], Coroutine[Any, Any, httpx2.Response]]
 type ClientFactory = Callable[[Handler], httpx2.AsyncClient]
 
 
-@pytest.fixture
-def cassette(request: pytest.FixtureRequest) -> ClientFactory:
-    """cassette(fake) -> client bound to this test's cassette file."""
+def _cassette_path(request: pytest.FixtureRequest) -> Path:
     # "tests/test_x.py::test_name[param] (setup)" — FixtureRequest.node is untyped in pytest 9.
     current = os.environ["PYTEST_CURRENT_TEST"].split("::")[-1].split(" ")[0]
     name = current.replace("[", "__").replace("]", "").replace("/", "_")
-    path = CASSETTES / f"{request.path.stem}__{name}.json"
+    return CASSETTES / f"{request.path.stem}__{name}.json"
+
+
+@pytest.fixture
+def cassette_path(request: pytest.FixtureRequest) -> Path:
+    """This test's cassette file — for asserting on what went on the wire."""
+    return _cassette_path(request)
+
+
+@pytest.fixture
+def cassette(request: pytest.FixtureRequest) -> ClientFactory:
+    """cassette(fake) -> client bound to this test's cassette file."""
+    path = _cassette_path(request)
 
     # Synthesis starts from an empty file once per test; every client the test makes
     # (e.g. one for Jev, one for Qwen) records into the same Cassette object.

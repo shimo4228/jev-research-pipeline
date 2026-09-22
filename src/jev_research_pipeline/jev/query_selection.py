@@ -5,45 +5,45 @@ above a floor, per adapter — every adapter gets its own k), so rank() decides 
 whole candidate set at once.
 """
 
+from enum import IntEnum
 from typing import Final
 
-from pydantic import AwareDatetime, BaseModel, JsonValue
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
+from pydantic_ai import UseEnumMemberDocstrings
 
-from jev_research_pipeline.model import Decision, Judgment, QueryCandidate, Threshold
+from jev_research_pipeline.model import Decision, QueryCandidate, Threshold
 
 from .context import LineContext, line_state
-from .core import Bundle, JevClient, JevFailure, Level, ScoreQ, decide, score, threshold
+from .core import Ask, JevClient, JevFailure, Judged, decide, position, threshold
 
-BUNDLE: Final = Bundle(
+
+class Yield(UseEnumMemberDocstrings, IntEnum):
+    none = 0
+    """Nothing returned would mention any term in `line.vocabulary`."""
+    tangential = 1
+    """Mostly off-topic results; at most one touches a term in `line.vocabulary`."""
+    some = 2
+    """Several results directly discuss a term in `line.vocabulary`."""
+    high = 3
+    """Most results are recent work directly about terms in `line.vocabulary`."""
+
+
+class Answers(BaseModel):
+    """Judge what one search query would bring back for one research line."""
+
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
+    expected_yield: Yield = Field(
+        description="Running `search.query` against `search.adapter` today: how much of what "
+        "comes back would be about the research line described by `line`?"
+    )
+
+
+ASK: Final = Ask(
     function="query_selection",
     version="v1",
-    questions=(
-        ScoreQ(
-            key="expected_yield",
-            instructions=(
-                "Running `search.query` against `search.adapter` today: how much of what comes "
-                "back would be about the research line described by `line`?"
-            ),
-            levels=(
-                Level(
-                    key="none",
-                    description="Nothing returned would mention any term in `line.vocabulary`.",
-                ),
-                Level(
-                    key="tangential",
-                    description="Mostly off-topic results; at most one touches a term in `line.vocabulary`.",
-                ),
-                Level(
-                    key="some",
-                    description="Several results directly discuss a term in `line.vocabulary`.",
-                ),
-                Level(
-                    key="high",
-                    description="Most results are recent work directly about terms in `line.vocabulary`.",
-                ),
-            ),
-        ),
-    ),
+    output=Answers,
+    instructions="You rank candidate search queries for a research pipeline.",
 )
 
 # Initial values = vendor rounding (0.5 midpoint); refit on the author's labels (decision 6①).
@@ -52,13 +52,9 @@ FLOOR_FALLBACK_POLICY: Final = "query_selection@v1+floor_fallback"
 """Policy name recorded when top-k was taken although nothing cleared min_yield."""
 
 
-class Answers(BaseModel):
-    expected_yield: float
-    """Expected level position in [0, 1]."""
-
-    @classmethod
-    def of(cls, j: Judgment) -> "Answers":
-        return cls(expected_yield=score(j, "expected_yield").expected_position)
+def expected_yield(judged: Judged[Answers]) -> float:
+    """Probability-weighted level position in [0, 1] — not the level Jev rounded to."""
+    return position(judged, "expected_yield")
 
 
 def state(ctx: LineContext, candidate: QueryCandidate) -> dict[str, JsonValue]:
@@ -70,11 +66,11 @@ def state(ctx: LineContext, candidate: QueryCandidate) -> dict[str, JsonValue]:
 
 async def judge(
     jev: JevClient, ctx: LineContext, candidate: QueryCandidate, *, now: AwareDatetime
-) -> Judgment | JevFailure:
-    return await jev.judge(BUNDLE, (candidate.id,), state(ctx, candidate), now=now)
+) -> Judged[Answers] | JevFailure:
+    return await jev.judge(ASK, (candidate.id,), state(ctx, candidate), now=now)
 
 
-def rank(pairs: list[tuple[QueryCandidate, Judgment | JevFailure]]) -> list[Decision]:
+def rank(pairs: list[tuple[QueryCandidate, Judged[Answers] | JevFailure]]) -> list[Decision]:
     """Per adapter, accept the top_k judged candidates whose yield clears min_yield (ties
     by @id). When nothing clears the floor, accept the top_k anyway under
     FLOOR_FALLBACK_POLICY: the floor is a vendor rounding value that only labels can
@@ -87,21 +83,23 @@ def rank(pairs: list[tuple[QueryCandidate, Judgment | JevFailure]]) -> list[Deci
     fallback: set[str] = set()
     for adapter in {c.adapter for c, _ in pairs}:
         judged = sorted(
-            (r for c, r in pairs if c.adapter == adapter and isinstance(r, Judgment)),
-            key=lambda r: (-Answers.of(r).expected_yield, r.subjects[0]),
+            (r for c, r in pairs if c.adapter == adapter and isinstance(r, Judged)),
+            key=lambda r: (-expected_yield(r), r.subjects[0]),
         )
-        above = [r for r in judged if Answers.of(r).expected_yield >= floor]
+        above = [r for r in judged if expected_yield(r) >= floor]
         chosen = above[:top_k] if above else judged[:top_k]
-        kept.update(r.id for r in chosen)
+        kept.update(r.judgment.id for r in chosen)
         if not above:
-            fallback.update(r.id for r in chosen)
+            fallback.update(r.judgment.id for r in chosen)
     return [
         decide(
             r,
-            bundle=BUNDLE,
+            ask=ASK,
             thresholds=THRESHOLDS,
-            rule=lambda j: (j.id in kept, Answers.of(j).expected_yield),
-            policy=FLOOR_FALLBACK_POLICY if isinstance(r, Judgment) and r.id in fallback else None,
+            rule=lambda j: (j.judgment.id in kept, expected_yield(j)),
+            policy=FLOOR_FALLBACK_POLICY
+            if isinstance(r, Judged) and r.judgment.id in fallback
+            else None,
         )
         for _, r in pairs
     ]

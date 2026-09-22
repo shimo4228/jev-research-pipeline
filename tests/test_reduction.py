@@ -59,7 +59,7 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
             subjects=(unit.id,),
             model="jev-1.13.0",
             state_sha256=claim_detection_state_sha(unit, src),
-            bundle_sha256=claim_detection.BUNDLE.sha256,
+            bundle_sha256=claim_detection.ASK.sha256,
             answers=(
                 NoulAnswer(key="checkable_claim", p_yes=p),
                 NoulAnswer(key="relevant", p_yes=0.9),
@@ -72,8 +72,8 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
         tri = Decision.new(
             function="relevance_triage",
             subjects=(src.id,),
-            policy=relevance_triage.BUNDLE.policy,
-            bundle_sha256=relevance_triage.BUNDLE.sha256,
+            policy=relevance_triage.ASK.policy,
+            bundle_sha256=relevance_triage.ASK.sha256,
             judgments=(b.judgment().id,),
             thresholds=relevance_triage.THRESHOLDS,
             outcome="reject" if adapter == "github" else "accept",

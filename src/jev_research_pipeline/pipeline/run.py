@@ -15,14 +15,15 @@ from pathlib import Path
 from typing import Final, override
 
 import httpx2
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, BaseModel
 
 from jev_research_pipeline.adapters import Adapter, arxiv, collect, github, hf_papers, web_search
 from jev_research_pipeline.jev import (
-    Bundle,
+    Ask,
     JevClient,
     JevFailure,
     JevState,
+    Judged,
     claim_detection,
     novelty,
     query_selection,
@@ -33,7 +34,7 @@ from jev_research_pipeline.jev import (
     source_trust,
 )
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.jev.core import JEV_MODEL
+from jev_research_pipeline.jev.core import JEV_MODEL, output_of
 from jev_research_pipeline.model import (
     AdapterKind,
     Claim,
@@ -90,19 +91,17 @@ class StoredJev(JevClient):
         self.fresh: list[Judgment] = []
 
     @override
-    async def judge(
-        self, bundle: Bundle, subjects: tuple[str, ...], state: JevState, *, now: AwareDatetime
-    ) -> Judgment | JevFailure:
-        jid = Judgment.id_for(
-            bundle.function, subjects, JEV_MODEL, input_sha256(state), bundle.sha256
-        )
+    async def judge[OutputT: BaseModel](
+        self, ask: Ask[OutputT], subjects: tuple[str, ...], state: JevState, *, now: AwareDatetime
+    ) -> Judged[OutputT] | JevFailure:
+        jid = Judgment.id_for(ask.function, subjects, JEV_MODEL, input_sha256(state), ask.sha256)
         hit = self.known.get(jid)
         if isinstance(hit, Judgment):
-            return hit
-        result = await super().judge(bundle, subjects, state, now=now)
-        if isinstance(result, Judgment):
-            self.fresh.append(result)
-            self.known[result.id] = result
+            return Judged(output=output_of(ask.output, hit), judgment=hit)
+        result = await super().judge(ask, subjects, state, now=now)
+        if isinstance(result, Judged):
+            self.fresh.append(result.judgment)
+            self.known[result.judgment.id] = result.judgment
         return result
 
 

@@ -65,50 +65,50 @@ SPECS: Final[
         FitSpec(function="relevance_triage", threshold="relevant", accept_if=">="),
         _nou("relevant"),
         relevance_triage.THRESHOLDS,
-        relevance_triage.BUNDLE.sha256,
+        relevance_triage.ASK.sha256,
     ),
     (
         FitSpec(function="relevance_triage", threshold="contains_evidence", accept_if=">="),
         _nou("contains_evidence"),
         relevance_triage.THRESHOLDS,
-        relevance_triage.BUNDLE.sha256,
+        relevance_triage.ASK.sha256,
     ),
     (
         FitSpec(function="relevance_triage", threshold="prompt_injection", accept_if="<"),
         _nou("prompt_injection"),
         relevance_triage.THRESHOLDS,
-        relevance_triage.BUNDLE.sha256,
+        relevance_triage.ASK.sha256,
     ),
     (
         FitSpec(function="claim_detection", threshold="checkable_claim", accept_if=">="),
         _nou("checkable_claim"),
         claim_detection.THRESHOLDS,
-        claim_detection.BUNDLE.sha256,
+        claim_detection.ASK.sha256,
     ),
     (
         FitSpec(function="claim_detection", threshold="relevant", accept_if=">="),
         _nou("relevant"),
         claim_detection.THRESHOLDS,
-        claim_detection.BUNDLE.sha256,
+        claim_detection.ASK.sha256,
     ),
     (
         FitSpec(function="source_support", threshold="supports", accept_if=">="),
         _p_supports,
         source_support.THRESHOLDS,
-        source_support.BUNDLE.sha256,
+        source_support.ASK.sha256,
     ),
     (
         FitSpec(function="source_trust", threshold="min_trust", accept_if=">="),
         _pos("trust"),
         source_trust.THRESHOLDS,
-        source_trust.BUNDLE.sha256,
+        source_trust.ASK.sha256,
     ),
     *(
         (
             FitSpec(function="rubric_claim", threshold=axis, accept_if=">="),
             _pos(axis),
             rubric_claim.THRESHOLDS,
-            rubric_claim.BUNDLE.sha256,
+            rubric_claim.ASK.sha256,
         )
         for axis in rubric_claim.AXES
     ),
@@ -132,7 +132,7 @@ def _silver(log: DecisionLog, trusted: tuple[RubricAxis, ...]) -> dict[str, Verd
         return {}
     gold = log.gold()
     out: dict[str, Verdict] = {}
-    for j in log.current("rubric_claim", rubric_claim.BUNDLE.sha256):
+    for j in log.current("rubric_claim", rubric_claim.ASK.sha256):
         if j.subjects[0] in gold:
             continue
         ok = all(

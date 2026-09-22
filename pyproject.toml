@@ -6,8 +6,9 @@ authors = [
     { name = "Tatsuya Shimomoto", email = "shimo4228@gmail.com" }
 ]
 requires-python = ">=3.12"
-# SDK versions are pinned exactly: typesafe-sdk (0.x) and pydantic-ai (weekly releases) move fast and
-# their injected-transport parameters are what the cassette layer depends on.
+# pydantic-ai is pinned exactly (weekly releases) and carries both models: its `typesafe`
+# extra brings typesafe-sdk, which no module of ours imports any more, and its injected
+# http_client is what the cassette layer depends on.
 dependencies = [
     "defusedxml>=0.7.1",
     "httpx2>=2.13.0",
@@ -18,9 +19,8 @@ dependencies = [
     "opentelemetry-instrumentation-httpx==0.65b0",
     "opentelemetry-sdk==1.44.0",
     "pydantic>=2.13.5",
-    "pydantic-ai-slim[openai]==2.47.0",
+    "pydantic-ai-slim[openai,typesafe]==2.47.0",
     "pydantic-evals==2.47.0",
-    "typesafe-sdk==0.7.1",
 ]
 
 [project.scripts]

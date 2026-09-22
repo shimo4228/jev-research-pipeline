@@ -16,7 +16,7 @@ from typing import Final
 from pydantic import AwareDatetime, computed_field
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from .jev import JevClient, rubric_claim, rubric_report
+from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
 from .jev.core import score, threshold
 from .model import AxisMeter, Decision, Judgment, Label, Operations, Report, RubricAxis
@@ -49,7 +49,7 @@ def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment
     Re-runs and rewordings must not count one labeled pair more than once."""
     latest: dict[tuple[str, str], Judgment] = {}
     for j in sorted(judgments, key=lambda j: (j.judged_at, j.id)):
-        if j.function == "rubric_claim" and j.bundle_sha256 == rubric_claim.BUNDLE.sha256:
+        if j.function == "rubric_claim" and j.bundle_sha256 == rubric_claim.ASK.sha256:
             latest[(j.subjects[0], j.subjects[1])] = j
     return latest
 
@@ -122,8 +122,8 @@ async def rubric_ladder(
         result = await rubric_report.judge(
             jev, report_id, rubric_report.state(ctx, prose, claims), now=now
         )
-        if isinstance(result, Judgment):
-            judged.append(result)
+        if isinstance(result, Judged):
+            judged.append(result.judgment)
         return rubric_report.decision(result)
 
     return await render(write, evaluate), judged

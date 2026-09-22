@@ -1,9 +1,12 @@
 """Step 8: rubric ladder wired to Report.rendering, and rubric-vs-gold agreement per axis."""
 
+from enum import IntEnum
+
 import pytest
 
-from jev_research_pipeline.jev import ScoreQ, rubric_claim, rubric_report
+from jev_research_pipeline.jev import rubric_claim, rubric_report
 from jev_research_pipeline.jev.context import LineContext
+from jev_research_pipeline.jev.core import score_levels
 from jev_research_pipeline.model import (
     Claim,
     Judgment,
@@ -53,16 +56,15 @@ def _rubric(claim: Claim, positions: dict[str, float]) -> Judgment:
         p = positions.get(axis, 1.0)
         # 3 levels: position p ∈ {0, 0.5, 1} → put all mass on that level.
         dist = tuple(1.0 if abs(i / 2 - p) < 1e-9 else 0.0 for i in range(3))
-        q = next(q for q in rubric_claim.BUNDLE.questions if q.key == axis)
-        assert isinstance(q, ScoreQ)
-        levels = tuple(lv.key for lv in q.levels)
-        answers.append(ScoreAnswer(key=axis, levels=levels, probabilities=dist))
+        annotation = rubric_claim.ASK.output.model_fields[axis].annotation
+        assert isinstance(annotation, type) and issubclass(annotation, IntEnum)
+        answers.append(ScoreAnswer(key=axis, levels=score_levels(annotation), probabilities=dist))
     return Judgment.new(
         function="rubric_claim",
         subjects=(claim.id, b.report().id),
         model="jev-1.13.0",
         state_sha256="a" * 64,
-        bundle_sha256=rubric_claim.BUNDLE.sha256,
+        bundle_sha256=rubric_claim.ASK.sha256,
         answers=tuple(answers),
         judged_at=b.T0,
     )
@@ -136,7 +138,7 @@ async def test_rubric_ladder_accepts_first_draft(cassette: ClientFactory):
     )
     assert (rendering.rendering, rendering.prose) == ("prose", "レポート本文 [1]。")
     assert [d.function for d in rendering.rubric] == ["rubric_report"]
-    assert rendering.rubric[0].bundle_sha256 == rubric_report.BUNDLE.sha256
+    assert rendering.rubric[0].bundle_sha256 == rubric_report.ASK.sha256
 
 
 async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFactory):

@@ -1,8 +1,8 @@
 {
- "POST https://api.typesafe.ai/v1/systemone body:d05d3408d7ce0383": {
+ "POST https://api.typesafe.ai/v1/systemone body:586f9f33720bc504": {
   "status": 400,
   "content_type": "application/json",
   "body": "{\"error\":{\"message\":\"synthetic failure\"}}",
-  "request_body": "{\"state\":{\"unit\":{\"text\":\"x\"}},\"model\":\"jev-1.13.0\",\"questions\":{\"checkable\":{\"type\":\"noul\",\"instructions\":\"Does `unit.text` state a checkable claim?\"},\"depth\":{\"type\":\"score\",\"instructions\":\"How specific is the claim?\",\"criteria\":[\"A slogan with no testable content.\",\"Names a method and a measured effect.\"]},\"kind\":{\"type\":\"choice\",\"instructions\":\"What kind of statement is it?\",\"criteria\":{\"empirical\":\"Reports an observation or measurement.\",\"normative\":\"Says what should be done.\"}}}}"
+  "request_body": "{\"state\":\"{\\\"unit\\\": {\\\"text\\\": \\\"x\\\"}}\",\"model\":\"jev-1.13.0\",\"questions\":{\"checkable\":{\"type\":\"noul\",\"instructions\":{\"field\":\"checkable\",\"question\":\"Does `unit.text` state a checkable claim?\",\"goal\":\"Judge one unit of text.\",\"instructions\":\"Judge it.\"}},\"depth\":{\"type\":\"score\",\"instructions\":{\"field\":\"depth\",\"question\":\"How specific is the claim?\",\"goal\":\"Judge one unit of text.\",\"instructions\":\"Judge it.\"},\"criteria\":[\"A slogan with no testable content.\",\"Names a method and a measured effect.\"]},\"kind\":{\"type\":\"choice\",\"instructions\":{\"field\":\"kind\",\"question\":\"What kind of statement is it? `empirical` reports an observation or measurement; `normative` says what should be done.\",\"goal\":\"Judge one unit of text.\",\"instructions\":\"Judge it.\"},\"criteria\":{\"empirical\":null,\"normative\":null}}}}"
  }
 }

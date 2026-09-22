@@ -1,15 +1,18 @@
-"""The nine Jev functions (packet judgment map): bundles, states, rules — cassette-backed."""
+"""The nine Jev functions (packet judgment map): output models, states, rules — cassette-backed."""
 
 from collections.abc import Mapping
+from enum import IntEnum
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
+from pydantic_ai._utils import enum_member_docstrings
 
 from jev_research_pipeline.jev import (
     JevClient,
     JevFailure,
-    ScoreQ,
+    Judged,
     claim_detection,
     novelty,
     query_selection,
@@ -24,7 +27,6 @@ from jev_research_pipeline.jev.context import EXCERPT_CHARS, LineContext, source
 from jev_research_pipeline.model import (
     SUBJECT_KINDS,
     Claim,
-    Judgment,
     QueryCandidate,
     SourceItem,
     Unit,
@@ -59,18 +61,29 @@ def _jev(
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.__name__.rsplit(".", 1)[-1])
-def test_bundle_is_the_function_of_its_module(module: ModuleType):
-    assert module.BUNDLE.function == module.__name__.rsplit(".", 1)[-1]
-    assert module.BUNDLE.function in SUBJECT_KINDS
+def test_ask_is_the_function_of_its_module(module: ModuleType):
+    assert module.ASK.function == module.__name__.rsplit(".", 1)[-1]
+    assert module.ASK.function in SUBJECT_KINDS
+
+
+@pytest.mark.parametrize("module", MODULES, ids=lambda m: m.__name__.rsplit(".", 1)[-1])
+def test_every_field_asks_something(module: ModuleType):
+    for name, field in module.ASK.output.model_fields.items():
+        assert field.description, name
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.__name__.rsplit(".", 1)[-1])
 def test_score_levels_are_concrete_sentences(module: ModuleType):
-    for q in module.BUNDLE.questions:
-        if isinstance(q, ScoreQ):
-            for level in q.levels:
-                # A concrete situation reads as a sentence, not a one-word degree ("high").
-                assert len(level.description.split()) >= 5, (q.key, level.key)
+    """A Score level is described by the docstring under its member — read the way
+    pydantic-ai reads it, since that is what reaches Jev. A concrete situation reads as a
+    sentence, not a one-word degree ("high")."""
+    for name, field in module.ASK.output.model_fields.items():
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, IntEnum):
+            docstrings = enum_member_docstrings(annotation)
+            assert set(docstrings) == set(annotation.__members__), name
+            for level, doc in docstrings.items():
+                assert len(doc.split()) >= 5, (name, level)
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda m: m.__name__.rsplit(".", 1)[-1])
@@ -80,7 +93,7 @@ def test_threshold_names_are_unique(module: ModuleType):
 
 
 def test_all_nine_functions_have_a_module():
-    assert {m.BUNDLE.function for m in MODULES} == set(SUBJECT_KINDS)
+    assert {m.ASK.function for m in MODULES} == set(SUBJECT_KINDS)
 
 
 def test_state_excerpts_long_source_text():
@@ -112,7 +125,7 @@ async def test_query_selection_keeps_top_k_above_floor(cassette: ClientFactory):
         "q3": (0.0, 0.0, 1.0, 0.0),
         "q4": (1.0, 0.0, 0.0, 0.0),
     }
-    pairs: list[tuple[QueryCandidate, Judgment | JevFailure]] = []
+    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
     for q in queries:
         jev = _jev(cassette, {"expected_yield": dists[q.text]})
         pairs.append((q, await query_selection.judge(jev, CTX, q, now=b.T0)))
@@ -128,7 +141,7 @@ def test_query_selection_unjudged_is_never_kept():
     failure = JevFailure(
         function="query_selection",
         subjects=(_query("x").id,),
-        bundle_sha256=query_selection.BUNDLE.sha256,
+        bundle_sha256=query_selection.ASK.sha256,
         reason="timeout",
         detail="",
     )
@@ -225,7 +238,7 @@ def test_novelty_verdict_edges():
     failure = JevFailure(
         function="novelty",
         subjects=(b.claim().id, b.claim().id),
-        bundle_sha256=novelty.BUNDLE.sha256,
+        bundle_sha256=novelty.ASK.sha256,
         reason="timeout",
         detail="",
     )
@@ -286,7 +299,7 @@ async def test_report_ordering_sorts_by_importance_unjudged_last(cassette: Clien
         JevFailure(
             function="report_ordering",
             subjects=(b.claim().id,),
-            bundle_sha256=report_ordering.BUNDLE.sha256,
+            bundle_sha256=report_ordering.ASK.sha256,
             reason="timeout",
             detail="",
         )
@@ -303,8 +316,8 @@ async def test_rubric_claim_passes_only_when_every_axis_clears(cassette: ClientF
     )
     ok = await rubric_claim.judge(_jev(cassette), b.report().id, b.claim(), st, now=b.T0)
     assert rubric_claim.decision(ok).outcome == "accept"
-    assert isinstance(ok, Judgment)
-    assert rubric_claim.Answers.of(ok).grounded == 1.0
+    assert isinstance(ok, Judged)
+    assert rubric_claim.axis(ok, "grounded") == 1.0
 
 
 async def test_rubric_claim_one_low_axis_fails(cassette: ClientFactory):
@@ -369,8 +382,8 @@ def test_triage_sees_the_whole_source_for_injection():
     st = relevance_triage.state(CTX, src)
     source = st["source"]
     assert isinstance(source, dict) and "IGNORE PREVIOUS INSTRUCTIONS" in str(source["text"])
-    q = next(q for q in relevance_triage.BUNDLE.questions if q.key == "prompt_injection")
-    assert "`source.title`" in q.instructions and "`source.text`" in q.instructions
+    question = relevance_triage.ASK.output.model_fields["prompt_injection"].description or ""
+    assert "`source.title`" in question and "`source.text`" in question
 
 
 async def test_wrong_subject_kind_is_a_programming_error_not_unjudged(cassette: ClientFactory):
@@ -381,7 +394,7 @@ async def test_wrong_subject_kind_is_a_programming_error_not_unjudged(cassette: 
 async def test_query_selection_top_k_is_per_adapter(cassette: ClientFactory):
     arx = [QueryCandidate.new(line=b.LINE_IRI, adapter="arxiv", text=f"a{i}") for i in range(4)]
     hf = [QueryCandidate.new(line=b.LINE_IRI, adapter="hf_papers", text="h0")]
-    pairs: list[tuple[QueryCandidate, Judgment | JevFailure]] = []
+    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
     for q in arx:
         pairs.append(
             (
@@ -421,7 +434,7 @@ async def test_query_selection_falls_back_to_top_k_when_nothing_clears_the_floor
         "q2": (0.0, 1.0, 0.0, 0.0),
         "q3": (1.0, 0.0, 0.0, 0.0),
     }
-    pairs: list[tuple[QueryCandidate, Judgment | JevFailure]] = []
+    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
     for q in queries:
         jev = _jev(cassette, {"expected_yield": dists[q.text]})
         pairs.append((q, await query_selection.judge(jev, CTX, q, now=b.T0)))
@@ -434,7 +447,7 @@ async def test_query_selection_falls_back_to_top_k_when_nothing_clears_the_floor
         for d in decisions
         if d.outcome == "accept"
     )
-    assert query_selection.FLOOR_FALLBACK_POLICY != query_selection.BUNDLE.policy
+    assert query_selection.FLOOR_FALLBACK_POLICY != query_selection.ASK.policy
 
 
 async def test_floor_fallback_is_per_adapter(cassette: ClientFactory):
@@ -455,6 +468,6 @@ async def test_floor_fallback_is_per_adapter(cassette: ClientFactory):
         ),
     ]
     by_query = dict(zip([good, weak], query_selection.rank(pairs), strict=True))
-    assert by_query[good].policy == query_selection.BUNDLE.policy  # cleared the floor
+    assert by_query[good].policy == query_selection.ASK.policy  # cleared the floor
     assert by_query[weak].policy == query_selection.FLOOR_FALLBACK_POLICY
     assert {d.outcome for d in by_query.values()} == {"accept"}

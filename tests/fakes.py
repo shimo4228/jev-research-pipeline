@@ -5,7 +5,8 @@ Response shapes follow the providers' wire formats as read from the SDK sources
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import httpx2
 
@@ -20,15 +21,19 @@ def fake_jev(
     *,
     model: str = "jev-1.13.0",
     status: int = 200,
+    capture: Callable[[dict[str, Any]], None] | None = None,
 ) -> Handler:
     """TypeSafe /v1/systemone. Unlisted questions get: noul 0.8; score peaked at the top
-    level; choice peaked at the first option. `answers` overrides per question name."""
+    level; choice peaked at the first option. `answers` overrides per question name.
+    `capture` receives each request body (what the output model turned into questions)."""
     overrides = dict(answers or {})
 
     async def handle(request: httpx2.Request) -> httpx2.Response:
         if status != 200:
             return httpx2.Response(status, json={"error": {"message": "synthetic failure"}})
         body = json.loads(request.content)
+        if capture is not None:
+            capture(body)
         out: dict[str, object] = {}
         for name, q in body["questions"].items():
             given = overrides.get(name)

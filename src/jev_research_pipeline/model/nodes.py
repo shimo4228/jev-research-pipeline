@@ -315,6 +315,9 @@ class ScoreAnswer(Value):
     key: Key
     levels: tuple[Key, ...] = Field(min_length=2)
     probabilities: tuple[Probability, ...]
+    score: float | None = Field(default=None, ge=0.0)
+    """Jev's unrounded position along the levels (0 .. len(levels)-1), as sent. Kept so a
+    judgment replayed from the store rounds to the same level as the live answer did."""
 
     @model_validator(mode="after")
     def _distribution(self) -> Self:

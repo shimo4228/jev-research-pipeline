@@ -5,67 +5,59 @@ prose → one rewrite → template. The state holds the prose and the accepted c
 may rest on, so "unsupported" means "not backed by any of `claims`".
 """
 
+from enum import IntEnum
 from typing import Final
 
-from pydantic import AwareDatetime, BaseModel, JsonValue
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
+from pydantic_ai import UseEnumMemberDocstrings
 
-from jev_research_pipeline.model import Decision, Judgment, Threshold
+from jev_research_pipeline.model import Decision, Threshold
+from jev_research_pipeline.model.nodes import Probability
 
 from .context import LineContext, line_state
-from .core import (
-    Bundle,
-    JevClient,
-    JevFailure,
-    Level,
-    NoulQ,
-    ScoreQ,
-    decide,
-    noul,
-    score,
-    threshold,
-)
+from .core import Ask, JevClient, JevFailure, Judged, decide, position, threshold
 
-BUNDLE: Final = Bundle(
+
+class Readability(UseEnumMemberDocstrings, IntEnum):
+    hard = 0
+    """Sentences are broken, run on, or mix languages mid-sentence."""
+    effortful = 1
+    """Readable, but the reader has to re-read to get the point."""
+    clear = 2
+    """Each paragraph makes its point on the first read."""
+
+
+class Coherence(UseEnumMemberDocstrings, IntEnum):
+    list_of_items = 0
+    """Disconnected paragraphs with no thread between them."""
+    loose = 1
+    """A loose sequence; connections are implied but not stated."""
+    report = 2
+    """The paragraphs build on each other toward a point about `line`."""
+
+
+class Answers(BaseModel):
+    """Judge the day's prose for one research line."""
+
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
+    readability: Readability = Field(
+        description="How easily can a Japanese-reading practitioner follow `prose`?"
+    )
+    coherence: Coherence = Field(
+        description="How well do the paragraphs of `prose` hang together as one report on `line`?"
+    )
+    unsupported_statement: Probability = Field(
+        description="Does `prose` state a fact that none of `claims` supports? No if every "
+        "factual sentence traces to one of them."
+    )
+
+
+ASK: Final = Ask(
     function="rubric_report",
     version="v1",
-    questions=(
-        ScoreQ(
-            key="readability",
-            instructions="How easily can a Japanese-reading practitioner follow `prose`?",
-            levels=(
-                Level(
-                    key="hard",
-                    description="Sentences are broken, run on, or mix languages mid-sentence.",
-                ),
-                Level(
-                    key="effortful",
-                    description="Readable, but the reader has to re-read to get the point.",
-                ),
-                Level(key="clear", description="Each paragraph makes its point on the first read."),
-            ),
-        ),
-        ScoreQ(
-            key="coherence",
-            instructions="How well do the paragraphs of `prose` hang together as one report on `line`?",
-            levels=(
-                Level(
-                    key="list", description="Disconnected paragraphs with no thread between them."
-                ),
-                Level(
-                    key="loose",
-                    description="A loose sequence; connections are implied but not stated.",
-                ),
-                Level(
-                    key="report",
-                    description="The paragraphs build on each other toward a point about `line`.",
-                ),
-            ),
-        ),
-        NoulQ(
-            key="unsupported_statement",
-            instructions="Does `prose` state a fact that none of `claims` supports?",
-        ),
-    ),
+    output=Answers,
+    instructions="You judge generated prose for a research pipeline.",
 )
 
 THRESHOLDS: Final = (
@@ -75,39 +67,27 @@ THRESHOLDS: Final = (
 )
 
 
-class Answers(BaseModel):
-    readability: float
-    coherence: float
-    unsupported_statement: float
-
-    @classmethod
-    def of(cls, j: Judgment) -> "Answers":
-        return cls(
-            readability=score(j, "readability").expected_position,
-            coherence=score(j, "coherence").expected_position,
-            unsupported_statement=noul(j, "unsupported_statement"),
-        )
-
-
 def state(ctx: LineContext, prose: str, claims: list[str]) -> dict[str, JsonValue]:
     return {"line": line_state(ctx), "prose": prose, "claims": list(claims)}
 
 
 async def judge(
     jev: JevClient, report_id: str, report_state: dict[str, JsonValue], *, now: AwareDatetime
-) -> Judgment | JevFailure:
-    return await jev.judge(BUNDLE, (report_id,), report_state, now=now)
+) -> Judged[Answers] | JevFailure:
+    return await jev.judge(ASK, (report_id,), report_state, now=now)
 
 
-def rule(j: Judgment) -> tuple[bool, float]:
-    a = Answers.of(j)
+def rule(judged: Judged[Answers]) -> tuple[bool, float]:
+    readability = position(judged, "readability")
+    coherence = position(judged, "coherence")
+    unsupported = judged.output.unsupported_statement
     passed = (
-        a.readability >= threshold(THRESHOLDS, "readability")
-        and a.coherence >= threshold(THRESHOLDS, "coherence")
-        and a.unsupported_statement < threshold(THRESHOLDS, "unsupported_statement")
+        readability >= threshold(THRESHOLDS, "readability")
+        and coherence >= threshold(THRESHOLDS, "coherence")
+        and unsupported < threshold(THRESHOLDS, "unsupported_statement")
     )
-    return passed, min(a.readability, a.coherence, 1.0 - a.unsupported_statement)
+    return passed, min(readability, coherence, 1.0 - unsupported)
 
 
-def decision(result: Judgment | JevFailure) -> Decision:
-    return decide(result, bundle=BUNDLE, thresholds=THRESHOLDS, rule=rule)
+def decision(result: Judged[Answers] | JevFailure) -> Decision:
+    return decide(result, ask=ASK, thresholds=THRESHOLDS, rule=rule)

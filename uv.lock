@@ -442,9 +442,8 @@ dependencies = [
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
-    { name = "pydantic-ai-slim", extra = ["openai"] },
+    { name = "pydantic-ai-slim", extra = ["openai", "typesafe"] },
     { name = "pydantic-evals" },
-    { name = "typesafe-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -470,9 +469,8 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-httpx", specifier = "==0.65b0" },
     { name = "opentelemetry-sdk", specifier = "==1.44.0" },
     { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "pydantic-ai-slim", extras = ["openai"], specifier = "==2.47.0" },
+    { name = "pydantic-ai-slim", extras = ["openai", "typesafe"], specifier = "==2.47.0" },
     { name = "pydantic-evals", specifier = "==2.47.0" },
-    { name = "typesafe-sdk", specifier = "==0.7.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -844,6 +842,9 @@ wheels = [
 openai = [
     { name = "openai" },
     { name = "tiktoken" },
+]
+typesafe = [
+    { name = "typesafe-sdk" },
 ]
 
 [[package]]
