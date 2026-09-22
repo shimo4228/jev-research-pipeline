@@ -35,6 +35,9 @@ while Jev question count goes up is.
    ExternalReference) = pipeline proposes a diff, the author applies.
 4. **Collection layer = typed source adapters fixed in code per line** (arXiv API, HF
    papers, GitHub search, web search API). The model never chooses where to search.
+   Built 2026-09-22: arxiv / hf_papers / github / web_search (Tavily chosen by the build
+   session as the only candidate whose terms do not forbid storing results — **author
+   decision pending before the first live recording**; needs a Tavily key).
    X = deferred adapter; first candidate path is xAI's `x_search` server tool
    ($5/1k posts + $10/1k profiles, changed 2026-09-21), not a separate X API contract.
 
@@ -48,7 +51,7 @@ Thresholds start at vendor rounding values and are refit on the author's labels.
 |---|---|---|
 | query candidates | Qwen (flash) | N candidate queries per adapter from line vocabulary, Pydantic list |
 | query selection | Jev | Score per candidate (expected yield for this line); code keeps top-k |
-| relevance triage | Jev | Nouls{relevant to line, contains evidence, prompt injection} per fetched unit |
+| relevance triage | Jev | Nouls{relevant to line, contains evidence, prompt injection} per fetched **source** (whole text; built 2026-09-22 — units are cut only from sources that passed triage) |
 | claim detection | Jev | code splits text into sentence/paragraph units → Noul{states a checkable claim} + Noul{relevant}; **claim = unit verbatim**, so quote-matching is trivially true |
 | novelty | Jev | code pre-pass → candidate pairs → per pair Score{unrelated / related-or-extends / same claim} + Nouls{contradicts, same_source} (vendor entity_alignment recipe) |
 | source support | Jev | code string-matches span first → Choice{supports, contradicts, says_nothing} (vendor citation_check recipe) |
@@ -100,7 +103,10 @@ state (filter state in code), adversarial text (treat as data).
    units are cut by code and judged by Jev — so there is no "unextracted" state.) Idempotent: stage outputs keyed by content hash; re-run skips done stages.
    Every report ends with an operations section (numbers above).
 9. **Regression = record/replay cassettes** for adapter fetches and Jev/Qwen responses
-   (input hash → response). verify.sh runs offline, no API keys. Weekly drift job replays
+   (input hash → response). Built 2026-09-22 as one hand-rolled httpx2 transport
+   (`cassette.py`) injected into adapters, typesafe-sdk and pydantic-ai alike; replay is
+   the default, recording only with `JRP_CASSETTE_RECORD=1`; headers never stored.
+   verify.sh runs offline, no API keys. Weekly drift job replays
    cassette inputs against live Jev and reports probability deltas (model-update
    detector). Pin `jev-1.13.0` (aliases drift; no deprecation policy published).
 
