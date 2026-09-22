@@ -151,6 +151,28 @@ state (filter state in code), adversarial text (treat as data).
 - Rubric unjudged → template (no unverifiable prose). Cassettes now keep request bodies
   (for drift), never headers.
 
+### Observability (author decision 2026-09-23)
+
+OpenTelemetry, not a hand-rolled tracer and not Logfire cloud: pydantic-ai's built-in
+instrumentation for the Qwen sites, explicit spans around each Jev function and each
+stage, OTLP export configured only through the standard `OTEL_*` env vars (no endpoint
+= no-op). The store + operations section stay the source of truth for the research
+meters; OTel is the live-debugging channel. Backend = a local, Docker-free OTLP viewer
+picked by search-first and documented in the README.
+
+### First live run (2026-09-22 UTC / 09-23 JST) — findings
+
+- End to end works: Jev + Qwen live, 3 notes written, cost $0.02 total.
+- akc: 0 claims — every Qwen query scored 0.16–0.38 on expected yield, floor 0.5 rejected
+  all → nothing fetched. Fix: when nothing clears the floor, fall back to top-k and flag.
+- Prose never rendered: qwen3.8-max over 37 claims exceeds the 30s HTTP timeout
+  (measured 92s incl. retries → ModelAPIError). Fix: long timeout for the prose call and
+  surface the failure reason in the operations section.
+- run_date used UTC; notes dated 09-22 at 06:31 JST. Fix: local date.
+- github search 403 without token; arxiv 406 (Accept header). Fix adapters; document
+  `GITHUB_TOKEN`.
+- Note escaping over-broad (`\(`, `\$`, `&lt;`); restrict to Obsidian-active syntax.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
