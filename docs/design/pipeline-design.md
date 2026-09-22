@@ -303,6 +303,20 @@ Adopted into the Question-centric design:
 Not adopted: gold-report LLM judges (RACE), agent loops, keyed neural search, α-nDCG
 (needs sub-aspects per question — revisit later).
 
+### Jev through pydantic-ai (author-surfaced 2026-09-23; docs verified same day)
+
+pydantic-ai 2.47 exposes Jev as a model: `Agent('typesafe:jev-1.13.0', output_type=M)`;
+fields map to primitives (bool → Noul, Literal/Enum → Choice, docstring IntEnum → Score,
+float ge/le → probability), all fields of one model go out in one request, nested
+models expand as `outer.inner`, raw distributions in `provider_details['probabilities']`
+/ `['scores']` / `['confidence']`, response carries the versioned model id.
+Decision: every Jev function = one Pydantic output model called through this model; the
+hand-rolled SDK boundary (`jev/_sdk.py`, bundle conversion in `jev/core.py`) is removed.
+Same abstraction for both models; questions live on the types. Judgments still store the
+raw distributions. Known trade-off: Noul true/false criteria collapse into one
+`Field(description)`. Review-when: pydantic-ai's typesafe model loses distribution access
+or Score support.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
