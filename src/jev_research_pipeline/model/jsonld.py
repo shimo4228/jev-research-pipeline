@@ -77,10 +77,28 @@ IRI_FIELDS: Final = frozenset(
         "claim",
         "report",
         "outputs",
+        "question",
+        "subject",
+        "sources",
+        "evidence",
+        "canary_papers",
     }
 )
 # Fields whose order carries meaning. JSON-LD arrays are unordered sets unless @list.
-ORDERED_FIELDS: Final = frozenset({"subjects", "claims", "levels", "options", "probabilities"})
+ORDERED_FIELDS: Final = frozenset(
+    {
+        "subjects",
+        "claims",
+        "levels",
+        "options",
+        "probabilities",
+        "evidence",
+        "canary_papers",
+        "method_constraints",
+        "evidence_constraints",
+        "negative_topics",
+    }
+)
 
 # The single @context of every store document. from_document() rejects any other, so a
 # change here is a store format change (bump deliberately, migrate the store).
@@ -129,7 +147,25 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "value": _typed("value", "double"),
     "outcome": f"{VOCAB_NS}outcome",
     "score": _typed("score", "double"),
+    # question
+    "question": _iri("question"),
+    "version": _typed("version", "integer"),
+    "brief": f"{VOCAB_NS}brief",
+    "method_constraints": _list("methodConstraints"),
+    "evidence_constraints": _list("evidenceConstraints"),
+    "negative_topics": _list("negativeTopics"),
+    "canary_papers": _iri_list("canaryPapers"),
+    "status": f"{VOCAB_NS}status",
+    "retire_rule": f"{VOCAB_NS}retireRule",
+    "opened_at": _typed("openedAt", "dateTime"),
+    "evidence": _iri_list("evidence"),
+    "movement": f"{VOCAB_NS}movement",
+    "sources": _iri("sources"),
+    "logged_at": _typed("loggedAt", "dateTime"),
+    "net": f"{VOCAB_NS}net",
     # label
+    "subject": _iri("subject"),
+    "provenance": f"{VOCAB_NS}provenance",
     "verdict": f"{VOCAB_NS}verdict",
     "harvested_at": _typed("harvestedAt", "dateTime"),
     # report

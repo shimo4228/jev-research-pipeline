@@ -71,7 +71,13 @@ def _rubric(claim: Claim, positions: dict[str, float]) -> Judgment:
 
 
 def _label(claim: Claim, verdict: str) -> Label:
-    return Label.new(claim=claim.id, report=b.report().id, verdict=verdict, harvested_at=b.T0)  # pyright: ignore[reportArgumentType]
+    return Label.new(
+        subject=claim.id,
+        report=b.report().id,
+        verdict=verdict,  # pyright: ignore[reportArgumentType]
+        provenance="claim",
+        harvested_at=b.T0,
+    )
 
 
 # --- agreement -----------------------------------------------------------------------------

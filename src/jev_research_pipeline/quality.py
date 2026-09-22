@@ -19,7 +19,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
 from .jev.core import score, threshold
-from .model import AxisMeter, Decision, Judgment, Label, Operations, Report, RubricAxis
+from .model import AxisMeter, Decision, Judgment, Label, Operations, Report, RubricAxis, kind_of
 from .model.jsonld import Value
 from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
 from .qwen.prose import PROSE_TIMEOUT_S
@@ -56,7 +56,11 @@ def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment
 
 def agreement(judgments: list[Judgment], labels: list[Label]) -> dict[RubricAxis, AxisAgreement]:
     """Pairs = labeled (claim, report) with a current rubric_claim judgment, counted once."""
-    gold = {(lb.claim, lb.report): lb.verdict == "correct" for lb in labels}
+    gold = {
+        (lb.subject, lb.report): lb.verdict == "correct"
+        for lb in labels
+        if kind_of(lb.subject) == "claim"
+    }
     counts: dict[RubricAxis, list[int]] = {axis: [0, 0] for axis in rubric_claim.AXES}
     for key, j in _current_rubric(judgments).items():
         if key not in gold:

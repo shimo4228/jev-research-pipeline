@@ -79,7 +79,7 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     )
     assert lines[0] == f"harvest: label 1 件 / 取り消し {len(claim_lines) - 1} 件"
     labels = [n for n in part.load().values() if isinstance(n, Label)]
-    assert [(lb.claim, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
+    assert [(lb.subject, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
 
 
 async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env: dict[str, str]):

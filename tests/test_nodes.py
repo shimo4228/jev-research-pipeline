@@ -1,7 +1,7 @@
 """Per-type round-trip and invariant tests. Every invariant here is named in a model comment."""
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -16,6 +16,8 @@ from jev_research_pipeline.model import (
     Line,
     NoulAnswer,
     Operations,
+    Question,
+    QuestionLog,
     Report,
     RotationCursor,
     ScoreAnswer,
@@ -385,19 +387,101 @@ def test_decision_threshold_names_unique():
         )
 
 
+# --- Question: the unit of the pipeline ------------------------------------------------
+
+
+def test_question_version_is_part_of_its_identity():
+    # A reworded question is a new node, so the judgments made under the old wording stay
+    # attached to the old wording.
+    assert b.question(1).id != b.question(2).id
+    assert b.question(1).id == b.question(1).id
+
+
+def test_question_evidence_must_be_claims():
+    with pytest.raises(ValidationError, match="evidence"):
+        Question.new(
+            line=b.LINE_IRI,
+            slug="agent-memory",
+            version=1,
+            title="t",
+            opened_at=b.T0,
+            evidence=(b.source().id,),
+        )
+
+
+def test_question_log_is_one_per_question_day():
+    same_day = b.question_log()
+    other_day = b.question_log().model_validate(
+        b.question_log().model_dump(by_alias=True)
+        | {
+            "@id": QuestionLog.id_for(b.question().id, date(2026, 9, 24)),
+            "run_date": "2026-09-24",
+        }
+    )
+    assert same_day.id == b.question_log().id
+    assert same_day.id != other_day.id
+
+
+def test_question_log_cites_only_claims_and_sources():
+    with pytest.raises(ValidationError, match="claims"):
+        QuestionLog.new(
+            question=b.question().id,
+            report=b.report().id,
+            run_date=b.T0.date(),
+            movement="none",
+            text="x",
+            claims=(b.source().id,),
+            logged_at=b.T0,
+        )
+
+
 # --- Label: gold = the author's tick ---------------------------------------------------
 
 
+def test_label_subject_can_be_a_question_day_a_source_or_a_claim():
+    for subject, provenance in (
+        (b.question_log().id, "question_day"),
+        (b.source().id, "source"),
+        (b.claim().id, "claim"),
+    ):
+        label = Label.new(
+            subject=subject,
+            report=b.report().id,
+            verdict="correct",
+            provenance=provenance,  # pyright: ignore[reportArgumentType]
+            harvested_at=b.T0,
+        )
+        assert label.provenance == provenance
+
+
 def test_label_kinds():
-    with pytest.raises(ValidationError, match="claim"):
-        Label.new(claim=b.unit().id, report=b.report().id, verdict="correct", harvested_at=b.T0)
+    with pytest.raises(ValidationError, match="subject"):
+        Label.new(
+            subject=b.unit().id,
+            report=b.report().id,
+            verdict="correct",
+            provenance="claim",
+            harvested_at=b.T0,
+        )
     with pytest.raises(ValidationError, match="report"):
-        Label.new(claim=b.claim().id, report=b.claim().id, verdict="correct", harvested_at=b.T0)
+        Label.new(
+            subject=b.claim().id,
+            report=b.claim().id,
+            verdict="correct",
+            provenance="claim",
+            harvested_at=b.T0,
+        )
 
 
 def test_label_verdict_is_binary():
     with pytest.raises(ValidationError):
-        Label.new(claim=b.claim().id, report=b.report().id, verdict="maybe", harvested_at=b.T0)  # pyright: ignore[reportArgumentType]
+        Label.new(
+            subject=b.claim().id,
+            report=b.report().id,
+            verdict="maybe",  # pyright: ignore[reportArgumentType]
+            provenance="claim",
+            harvested_at=b.T0,
+        )
 
 
 # --- Report ----------------------------------------------------------------------------

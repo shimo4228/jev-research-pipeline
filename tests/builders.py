@@ -13,6 +13,8 @@ from jev_research_pipeline.model import (
     NoulAnswer,
     Operations,
     QueryCandidate,
+    Question,
+    QuestionLog,
     Report,
     RotationCursor,
     ScoreAnswer,
@@ -106,8 +108,40 @@ def report() -> Report:
     )
 
 
+def question(version: int = 1) -> Question:
+    return Question.new(
+        line=LINE_IRI,
+        slug="agent-memory",
+        version=version,
+        title="エージェントの記憶は何で決まるのか",
+        brief="記憶機構の違いが下流の精度をどれだけ動かすか。",
+        opened_at=T0,
+        canary_papers=("https://arxiv.org/abs/2609.01234",),
+        evidence=(claim().id,),
+    )
+
+
+def question_log() -> QuestionLog:
+    return QuestionLog.new(
+        question=question().id,
+        report=report().id,
+        run_date=T0.date(),
+        movement="new_evidence_same_answer",
+        text="今日の変化。",
+        claims=(claim().id,),
+        sources=(source().id,),
+        logged_at=T0,
+    )
+
+
 def label() -> Label:
-    return Label.new(claim=claim().id, report=report().id, verdict="correct", harvested_at=T0)
+    return Label.new(
+        subject=claim().id,
+        report=report().id,
+        verdict="correct",
+        provenance="claim",
+        harvested_at=T0,
+    )
 
 
 def score_judgment() -> Judgment:
@@ -141,6 +175,8 @@ def stage_record() -> StageRecord:
 def every_node_kind() -> list[GraphNodeType]:
     return [
         line(),
+        question(),
+        question_log(),
         query(),
         source(),
         unit(),

@@ -97,10 +97,13 @@ class DecisionLog:
         return list(latest.values())
 
     def gold(self) -> dict[str, Verdict]:
-        """claim @id → verdict. A claim labeled in several reports keeps the latest harvest."""
+        """claim @id → verdict. A claim labeled in several reports keeps the latest harvest.
+        Labels on a question-day or a source are not claim gold; the ones they propagated
+        to their claims are, and those are stored as claim labels of their own."""
         latest: dict[str, Label] = {}
         for lb in sorted(self.labels, key=lambda lb: lb.harvested_at):
-            latest[lb.claim] = lb
+            if kind_of(lb.subject) == "claim":
+                latest[lb.subject] = lb
         return {c: lb.verdict for c, lb in latest.items()}
 
     def labeled_pairs(self, function: str) -> list[tuple[Judgment, Verdict]]:

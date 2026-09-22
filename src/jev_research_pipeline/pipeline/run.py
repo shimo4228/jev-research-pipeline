@@ -494,5 +494,5 @@ def fill_rate_previous(
     last = max(reports, key=lambda r: r.run_date)
     if not last.claims:
         return None
-    ticked = {n.claim for n in nodes.values() if isinstance(n, Label) and n.report == last.id}
+    ticked = {n.subject for n in nodes.values() if isinstance(n, Label) and n.report == last.id}
     return len(ticked & set(last.claims)) / len(last.claims)

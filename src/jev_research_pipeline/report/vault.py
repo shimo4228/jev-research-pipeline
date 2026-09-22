@@ -165,7 +165,13 @@ def harvest_note(
             continue
         try:
             labels.append(
-                Label.new(claim=claim_id, report=report_id, verdict=verdict, harvested_at=now)
+                Label.new(
+                    subject=claim_id,
+                    report=report_id,
+                    verdict=verdict,
+                    provenance="claim",
+                    harvested_at=now,
+                )
             )
         except ValidationError:
             continue

@@ -67,7 +67,13 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
             judged_at=b.T0,
         )
         verdict = "correct" if (p >= 0.7) == (correct_if == "high") else "incorrect"
-        label = Label.new(claim=claim.id, report=b.report().id, verdict=verdict, harvested_at=b.T0)
+        label = Label.new(
+            subject=claim.id,
+            report=b.report().id,
+            verdict=verdict,
+            provenance="claim",
+            harvested_at=b.T0,
+        )
         # relevance_triage decision: rejected exactly for github sources (a code feature).
         tri = Decision.new(
             function="relevance_triage",

@@ -1,7 +1,7 @@
 """Pipeline types (packet "Build sequence" 2). Every type here is a JSON-LD node or value.
 
 Flow the types encode (code owns control; Jev judges; Qwen writes):
-    Line → QueryCandidate → SourceItem → Unit → Claim → Report ← Label
+    Line → Question → QueryCandidate → SourceItem → Unit → Claim → QuestionLog → Report ← Label
                  each Jev call → Judgment (raw probabilities) → Decision (code + thresholds)
 
 Invariants are validated at construction and on load, so a store that parses is a
@@ -11,7 +11,7 @@ store that satisfies them. Each invariant is named in the comment above its chec
 from datetime import date
 from typing import Annotated, ClassVar, Final, Literal, Self, override
 
-from pydantic import AwareDatetime, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, PositiveInt, StringConstraints, model_validator
 
 from .jsonld import IRI, Node, Sha256Hex, Value, content_id, kind_of, sha256_hex
 
@@ -33,6 +33,15 @@ type JevFunction = Literal[
 
 type RubricAxis = Literal["grounded", "relevant", "novel", "actionable"]
 """Per-claim rubric axes (the ones validated against gold)."""
+
+type DiscoveryNet = Literal["firehose", "recommendation", "citation", "keyword", "exploration"]
+"""Which code-owned net brought a source in (packet "Discovery"). Meters are per net."""
+
+type QuestionStatus = Literal["open", "answered", "dropped"]
+"""Cochrane living-review states: a question is retired when its retire_rule is met."""
+
+type LabelProvenance = Literal["question_day", "source", "claim"]
+"""Which checkbox the author ticked; a question-day tick propagates to what it cited."""
 
 type Probability = Annotated[float, Field(ge=0.0, le=1.0)]
 type Key = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")]
@@ -149,6 +158,9 @@ class SourceItem(StoreNode):
     KIND: ClassVar[str] = "source"
     line: IRI
     adapter: AdapterKind
+    net: DiscoveryNet = "keyword"
+    """The net that found it. Defaults to keyword so sources stored before the nets
+    existed keep validating."""
     url: IRI
     title: NonEmptyText
     text: str
@@ -180,11 +192,13 @@ class SourceItem(StoreNode):
         text: str,
         fetched_at: AwareDatetime,
         published_at: date | None = None,
+        net: DiscoveryNet = "keyword",
     ) -> Self:
         return cls(
             id=cls.id_for(line, url),
             line=line,
             adapter=adapter,
+            net=net,
             url=url,
             title=title,
             text=text,
@@ -615,37 +629,180 @@ class Report(StoreNode):
         )
 
 
+# --------------------------------------------------------------------------- Question
+
+
+class Question(StoreNode):
+    """One open research question of a line — the unit of the whole pipeline.
+
+    Every Jev judgment is anchored on (item, Question), the report is written per question
+    that moved, and the author's tick is on a question-day. The author edits
+    `questions/<slug>.md`; a text edit bumps `version`, and since the version is part of
+    the identity the old wording keeps its own node and its own judgments. `evidence`
+    (accepted claim @ids) grows in place under the same @id — it is the running answer,
+    not part of what the question is.
+    """
+
+    type: Literal["Question"] = Field(
+        default="Question", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "question"
+    line: IRI
+    slug: Slug
+    version: PositiveInt
+    title: NonEmptyText
+    brief: str = ""
+    """What an answer would have to settle, in the author's words."""
+    method_constraints: tuple[str, ...] = ()
+    """Methods an answer has to be transferable to (jev-paper-screener)."""
+    evidence_constraints: tuple[str, ...] = ()
+    """What counts as evidence here — e.g. "measured, not claimed"."""
+    negative_topics: tuple[str, ...] = ()
+    """Neighbouring topics that keep matching and are not this question."""
+    canary_papers: tuple[IRI, ...] = ()
+    """Known key papers (SAFE): if screening drops one, the screen has drifted."""
+    status: QuestionStatus = "open"
+    retire_rule: str = ""
+    """When this question stops being asked (Cochrane): the author's own condition."""
+    opened_at: AwareDatetime
+    evidence: tuple[IRI, ...] = ()
+    """Accepted claim @ids, in the order they were accepted."""
+
+    @staticmethod
+    def id_for(line: str, slug: str, version: int) -> str:
+        return content_id("question", line, slug, str(version))
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.line, self.slug, self.version)
+
+    @model_validator(mode="after")
+    def _evidence(self) -> Self:
+        _require(_all_kind(self.evidence, "claim"), "evidence must be Claim IRIs")
+        _require(_unique(self.evidence), "evidence must be unique")
+        return self
+
+    @classmethod
+    def new(
+        cls,
+        *,
+        line: str,
+        slug: str,
+        version: int,
+        title: str,
+        opened_at: AwareDatetime,
+        **rest: object,
+    ) -> Self:
+        return cls(
+            id=cls.id_for(line, slug, version),
+            line=line,
+            slug=slug,
+            version=version,
+            title=title,
+            opened_at=opened_at,
+            **rest,  # pyright: ignore[reportArgumentType]
+        )
+
+
+class QuestionLog(StoreNode):
+    """One question-day: what moved, what it rests on. Append-only (Cochrane "What's New");
+    identity = (question, run_date), so a re-run of the same day rewrites that day only."""
+
+    type: Literal["QuestionLog"] = Field(
+        default="QuestionLog", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "question_log"
+    question: IRI
+    report: IRI
+    run_date: date
+    movement: Literal["none", "new_evidence_same_answer", "answer_changed"]
+    text: str
+    """The day's 今日の変化 paragraphs, as written into the note."""
+    claims: tuple[IRI, ...] = ()
+    sources: tuple[IRI, ...] = ()
+    logged_at: AwareDatetime
+
+    @staticmethod
+    def id_for(question: str, run_date: date) -> str:
+        return content_id("question_log", question, run_date.isoformat())
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.question, self.run_date)
+
+    @model_validator(mode="after")
+    def _kinds(self) -> Self:
+        _require(kind_of(self.question) == "question", "question must be a Question IRI")
+        _require(kind_of(self.report) == "report", "report must be a Report IRI")
+        _require(_all_kind(self.claims, "claim"), "claims must be Claim IRIs")
+        _require(_all_kind(self.sources, "source"), "sources must be SourceItem IRIs")
+        return self
+
+    @classmethod
+    def new(
+        cls,
+        *,
+        question: str,
+        report: str,
+        run_date: date,
+        movement: Literal["none", "new_evidence_same_answer", "answer_changed"],
+        text: str,
+        claims: tuple[str, ...] = (),
+        sources: tuple[str, ...] = (),
+        logged_at: AwareDatetime,
+    ) -> Self:
+        return cls(
+            id=cls.id_for(question, run_date),
+            question=question,
+            report=report,
+            run_date=run_date,
+            movement=movement,
+            text=text,
+            claims=claims,
+            sources=sources,
+            logged_at=logged_at,
+        )
+
+
 # --------------------------------------------------------------------------- Label
 
 
 class Label(StoreNode):
-    """Gold label = the author's ⭕❌ tick on a claim in a report, harvested from the vault.
+    """Gold label = one ⭕❌ the author ticked in a report, harvested from the vault.
 
-    Only gold is stored. Silver labels (validated rubric axes on unticked claims) are
-    derived at fit time from rubric Judgments, never persisted as Labels (decision 5).
-    Identity = (claim, report): re-harvesting overwrites with the latest tick state.
+    The subject is a question-day, a source or a claim (`provenance` says which checkbox
+    it came from): a question-day tick propagates to the claims and sources cited under it,
+    and those derived labels carry provenance "question_day". Only gold is stored — silver
+    labels (validated rubric axes) are derived at fit time, never persisted (decision 5).
+    Identity = (subject, report): re-harvesting overwrites with the latest tick state.
     """
 
     type: Literal["Label"] = Field(
         default="Label", validation_alias="@type", serialization_alias="@type"
     )
     KIND: ClassVar[str] = "label"
-    claim: IRI
+    subject: IRI
     report: IRI
     verdict: Literal["correct", "incorrect"]
+    provenance: LabelProvenance
     harvested_at: AwareDatetime
 
+    SUBJECT_KINDS: ClassVar[frozenset[str]] = frozenset({"question_log", "source", "claim"})
+
     @staticmethod
-    def id_for(claim: str, report: str) -> str:
-        return content_id("label", claim, report)
+    def id_for(subject: str, report: str) -> str:
+        return content_id("label", subject, report)
 
     @override
     def expected_id(self) -> str:
-        return self.id_for(self.claim, self.report)
+        return self.id_for(self.subject, self.report)
 
     @model_validator(mode="after")
     def _kinds(self) -> Self:
-        _require(kind_of(self.claim) == "claim", "label claim must be a Claim IRI")
+        _require(
+            kind_of(self.subject) in self.SUBJECT_KINDS,
+            "label subject must be a QuestionLog, SourceItem or Claim IRI",
+        )
         _require(kind_of(self.report) == "report", "label report must be a Report IRI")
         return self
 
@@ -653,16 +810,18 @@ class Label(StoreNode):
     def new(
         cls,
         *,
-        claim: str,
+        subject: str,
         report: str,
         verdict: Literal["correct", "incorrect"],
+        provenance: LabelProvenance,
         harvested_at: AwareDatetime,
     ) -> Self:
         return cls(
-            id=cls.id_for(claim, report),
-            claim=claim,
+            id=cls.id_for(subject, report),
+            subject=subject,
             report=report,
             verdict=verdict,
+            provenance=provenance,
             harvested_at=harvested_at,
         )
 
@@ -748,6 +907,8 @@ class StageRecord(StoreNode):
 
 GraphNodeType = (
     Line
+    | Question
+    | QuestionLog
     | QueryCandidate
     | SourceItem
     | Unit
