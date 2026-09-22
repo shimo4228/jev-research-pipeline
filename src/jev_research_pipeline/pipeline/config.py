@@ -6,7 +6,9 @@
 - Line @id: the ResearchLine node in `<target_repo>/graph.jsonld` whose `url` points at
   that repo — reused byte-identically (decision 3). Without a graph.jsonld the repo URL
   under GITHUB_OWNER is the id and the track name is the only vocabulary term.
-- Vocabulary: `name` + every `alternateName` value of the graph's Concept nodes.
+- Vocabulary: `name` + every `alternateName` value of the graph's Concept and
+  DefinedTerm nodes. `@type` is matched by its last segment, so the `ans:` / `schema:`
+  prefixes the real graphs use are not dropped (second live run, 2026-09-23).
 Both files are only read; nothing is ever written back (decision 2, non-goal).
 """
 
@@ -63,9 +65,14 @@ def rotation_config(tracks: list[TrackSpec], *, per_tick: int) -> RotationConfig
     )
 
 
-def _types(node: Mapping[str, JsonValue]) -> list[str]:
+def _has_type(node: Mapping[str, JsonValue], *names: str) -> bool:
+    """@type matched by its last segment: the real graphs write `ans:Concept` and
+    `schema:DefinedTerm`, and a full IRI is equally valid JSON-LD. A single string and a
+    list are both allowed by the spec, so both are handled."""
     t = node.get("@type")
-    return [str(x) for x in t] if isinstance(t, list) else [str(t)]
+    raw = [str(x) for x in t] if isinstance(t, list) else [str(t)]
+    suffixes = {v.replace("#", "/").replace(":", "/").rsplit("/", 1)[-1] for v in raw}
+    return bool(suffixes & set(names))
 
 
 def _values(v: JsonValue) -> list[str]:
@@ -100,7 +107,7 @@ def line_context(track: TrackSpec) -> LineContext:
         url = n.get("url")
         if (
             repo
-            and "ResearchLine" in _types(n)
+            and _has_type(n, "ResearchLine")
             and isinstance(url, str)
             and url.rstrip("/").endswith("/" + repo.name)
         ):
@@ -108,7 +115,7 @@ def line_context(track: TrackSpec) -> LineContext:
             break
     vocab: list[str] = []
     for n in nodes:
-        if "Concept" in _types(n):
+        if _has_type(n, "Concept", "DefinedTerm"):
             vocab += _values(n.get("name")) + _values(n.get("alternateName"))
     vocabulary = tuple(dict.fromkeys(v.strip() for v in vocab if v.strip())) or (track.name,)
     line = Line(id=line_id, slug=track.slug, name=track.name, adapters=ADAPTERS)

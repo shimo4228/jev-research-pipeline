@@ -44,7 +44,7 @@ GRAPH = {
     "@graph": [
         {
             "@id": "https://doi.org/10.5281/zenodo.19200726",
-            "@type": ["ResearchLine", "ScholarlyArticle"],
+            "@type": ["ans:ResearchLine", "schema:ScholarlyArticle"],  # prefixed, as the real graph
             "name": "Agent Knowledge Cycle",
             "url": "https://github.com/shimo4228/agent-knowledge-cycle",
         },
@@ -69,7 +69,18 @@ GRAPH = {
             "name": "scaffold dissolution",
             "alternateName": "SD",
         },
-        {"@id": "https://x/term/c", "@type": "DefinedTerm", "name": "not a concept"},
+        {
+            "@id": "https://x/concept/d",
+            "@type": "ans:Concept",  # prefixed and not in a list
+            "name": "vantage point",
+        },
+        {
+            "@id": "https://x/term/c",
+            "@type": "schema:DefinedTerm",  # a term is vocabulary too
+            "name": "living review",
+            "alternateName": "LR",
+        },
+        {"@id": "https://x/other", "@type": "schema:CreativeWork", "name": "not vocabulary"},
     ],
 }
 
@@ -105,7 +116,15 @@ def test_line_id_is_the_graph_research_line_for_this_repo(world: Path):
     assert ctx.line.id == "https://doi.org/10.5281/zenodo.19200726"  # byte-identical
     assert ctx.line.slug == "akc"
     assert ctx.line.name == "Agent Knowledge Cycle 前進"
-    assert ctx.vocabulary == ("six-phase loop", "6 フェーズループ", "scaffold dissolution", "SD")
+    assert ctx.vocabulary == (
+        "six-phase loop",
+        "6 フェーズループ",
+        "scaffold dissolution",
+        "SD",
+        "vantage point",
+        "living review",
+        "LR",
+    )
 
 
 def test_line_without_graph_falls_back_to_repo_url_and_name(world: Path):
