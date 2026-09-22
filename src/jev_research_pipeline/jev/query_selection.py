@@ -1,7 +1,8 @@
 """query_selection — Score each Qwen query candidate's expected yield; code keeps top-k.
 
 Subjects: (QueryCandidate,). The keep/drop decision is relative (top-k among candidates
-above a floor), so rank() decides over the whole candidate set at once.
+above a floor, per adapter — every adapter gets its own k), so rank() decides over the
+whole candidate set at once.
 """
 
 from typing import Final
@@ -71,16 +72,25 @@ async def judge(
     return await jev.judge(BUNDLE, (candidate.id,), state(ctx, candidate), now=now)
 
 
-def rank(results: list[Judgment | JevFailure]) -> list[Decision]:
-    """Accept the top_k judged candidates whose yield clears min_yield; ties by @id."""
+def rank(pairs: list[tuple[QueryCandidate, Judgment | JevFailure]]) -> list[Decision]:
+    """Per adapter, accept the top_k judged candidates whose yield clears min_yield (ties
+    by @id). Decisions come back in the order of `pairs`."""
     floor = threshold(THRESHOLDS, "min_yield")
     top_k = int(threshold(THRESHOLDS, "top_k"))
-    judged = [r for r in results if isinstance(r, Judgment)]
-    eligible = sorted(
-        (r for r in judged if Answers.of(r).expected_yield >= floor),
-        key=lambda r: (-Answers.of(r).expected_yield, r.subjects[0]),
-    )
-    kept = {r.id for r in eligible[:top_k]}
+    kept: set[str] = set()
+    for adapter in {c.adapter for c, _ in pairs}:
+        eligible = sorted(
+            (
+                r
+                for c, r in pairs
+                if c.adapter == adapter
+                and isinstance(r, Judgment)
+                and Answers.of(r).expected_yield >= floor
+            ),
+            key=lambda r: (-Answers.of(r).expected_yield, r.subjects[0]),
+        )
+        kept.update(r.id for r in eligible[:top_k])
+    results = [r for _, r in pairs]
     return [
         decide(
             r,

@@ -1,5 +1,5 @@
 {
- "POST https://api.typesafe.ai/v1/systemone body:f12fc3a7334c8094": {
+ "POST https://api.typesafe.ai/v1/systemone body:92bb53616046bd3c": {
   "status": 200,
   "content_type": "application/json",
   "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"relevant\":{\"type\":\"noul\",\"noul\":0.9},\"contains_evidence\":{\"type\":\"noul\",\"noul\":0.8},\"prompt_injection\":{\"type\":\"noul\",\"noul\":0.1}}}"

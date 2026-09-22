@@ -12,7 +12,7 @@ from pydantic import AwareDatetime, BaseModel, JsonValue
 from jev_research_pipeline.model import Claim, Decision, Judgment, SourceItem, Threshold
 from jev_research_pipeline.model.jsonld import Value
 
-from .context import source_state
+from .context import best_match_span, source_state
 from .core import Bundle, ChoiceQ, JevClient, JevFailure, Level, choice, decide, threshold
 
 BUNDLE: Final = Bundle(
@@ -77,7 +77,11 @@ def string_match(claim: Claim, source: SourceItem) -> bool:
 
 
 def state(claim: Claim, source: SourceItem) -> dict[str, JsonValue]:
-    return {"claim": claim.text, "source": source_state(source)}
+    """Excerpt centred where the claim's longest words first occur in the source."""
+    return {
+        "claim": claim.text,
+        "source": source_state(source, around=best_match_span(source.text, claim.text)),
+    }
 
 
 def rule(j: Judgment) -> tuple[bool, float]:

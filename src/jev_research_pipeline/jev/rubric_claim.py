@@ -111,11 +111,15 @@ def state(
     source: SourceItem,
     report_context: str | None,
     stored_similar: list[str],
+    *,
+    span: tuple[int, int] | None,
 ) -> dict[str, JsonValue]:
+    """`span` = the claim's unit [start, end) in `source` (its own source): the excerpt is
+    centred there so `grounded` is judged on the passage the claim came from."""
     return {
         "line": line_state(ctx),
         "claim": claim.text,
-        "source": source_state(source),
+        "source": source_state(source, around=span),
         "report_context": report_context,
         "stored_similar": list(stored_similar),
     }

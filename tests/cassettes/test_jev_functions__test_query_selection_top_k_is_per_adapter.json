@@ -1,0 +1,27 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:0077c5cc98161367": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"expected_yield\":{\"type\":\"score\",\"score\":3.0,\"confidence\":1.0,\"legend\":{\"0\":\"Nothing returned would mention any term in `line.vocabulary`.\",\"1\":\"Mostly off-topic results; at most one touches a term in `line.vocabulary`.\",\"2\":\"Several results directly discuss a term in `line.vocabulary`.\",\"3\":\"Most results are recent work directly about terms in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":0.0,\"3\":1.0}}}}"
+ },
+ "POST https://api.typesafe.ai/v1/systemone body:75d3e3fc03dc9768": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"expected_yield\":{\"type\":\"score\",\"score\":3.0,\"confidence\":1.0,\"legend\":{\"0\":\"Nothing returned would mention any term in `line.vocabulary`.\",\"1\":\"Mostly off-topic results; at most one touches a term in `line.vocabulary`.\",\"2\":\"Several results directly discuss a term in `line.vocabulary`.\",\"3\":\"Most results are recent work directly about terms in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":0.0,\"3\":1.0}}}}"
+ },
+ "POST https://api.typesafe.ai/v1/systemone body:8935425431925719": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"expected_yield\":{\"type\":\"score\",\"score\":3.0,\"confidence\":1.0,\"legend\":{\"0\":\"Nothing returned would mention any term in `line.vocabulary`.\",\"1\":\"Mostly off-topic results; at most one touches a term in `line.vocabulary`.\",\"2\":\"Several results directly discuss a term in `line.vocabulary`.\",\"3\":\"Most results are recent work directly about terms in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":0.0,\"3\":1.0}}}}"
+ },
+ "POST https://api.typesafe.ai/v1/systemone body:9f9ad5cd618697c4": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"expected_yield\":{\"type\":\"score\",\"score\":3.0,\"confidence\":1.0,\"legend\":{\"0\":\"Nothing returned would mention any term in `line.vocabulary`.\",\"1\":\"Mostly off-topic results; at most one touches a term in `line.vocabulary`.\",\"2\":\"Several results directly discuss a term in `line.vocabulary`.\",\"3\":\"Most results are recent work directly about terms in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":0.0,\"3\":1.0}}}}"
+ },
+ "POST https://api.typesafe.ai/v1/systemone body:f79b2fd8f5e005d4": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"expected_yield\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"Nothing returned would mention any term in `line.vocabulary`.\",\"1\":\"Mostly off-topic results; at most one touches a term in `line.vocabulary`.\",\"2\":\"Several results directly discuss a term in `line.vocabulary`.\",\"3\":\"Most results are recent work directly about terms in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0,\"3\":0.0}}}}"
+ }
+}

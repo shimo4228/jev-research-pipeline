@@ -32,6 +32,7 @@ from typesafe_sdk import (
 )
 
 from jev_research_pipeline.model import (
+    SUBJECT_KINDS,
     Answer,
     ChoiceAnswer,
     Decision,
@@ -41,7 +42,7 @@ from jev_research_pipeline.model import (
     ScoreAnswer,
     Threshold,
 )
-from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.model.jsonld import Value, kind_of
 from jev_research_pipeline.model.nodes import Key, NonEmptyText
 from jev_research_pipeline.store import input_sha256
 
@@ -203,6 +204,11 @@ class JevClient:
                 function=bundle.function, subjects=subjects, reason=reason, detail=str(detail)
             )
 
+        # Wiring errors are programming errors: raise before any request, never "unjudged".
+        want = SUBJECT_KINDS[bundle.function]
+        got = tuple(kind_of(s) for s in subjects)
+        if got != want:
+            raise ValueError(f"subjects for {bundle.function} must be kinds {want}, got {got}")
         self.questions_asked += len(bundle.questions)
         try:
             response = await self._jev.ask(state, bundle.to_sdk())
@@ -216,17 +222,17 @@ class JevClient:
             return fail("model_mismatch", f"asked {JEV_MODEL}, answered by {response.model}")
         try:
             answers = tuple(_convert(q, response.answers.get(q.key)) for q in bundle.questions)
-            return Judgment.new(
-                function=bundle.function,
-                subjects=subjects,
-                model=response.model,
-                state_sha256=input_sha256(state),
-                bundle_sha256=bundle.sha256,
-                answers=answers,
-                judged_at=now,
-            )
         except (_BadAnswer, ValidationError) as e:
             return fail("bad_answer", e)
+        return Judgment.new(
+            function=bundle.function,
+            subjects=subjects,
+            model=response.model,
+            state_sha256=input_sha256(state),
+            bundle_sha256=bundle.sha256,
+            answers=answers,
+            judged_at=now,
+        )
 
 
 type Rule = Callable[[Judgment], tuple[bool, float]]
