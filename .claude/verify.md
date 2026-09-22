@@ -16,6 +16,11 @@ ruff / pyright strict / pytest / bandit / deptry）。版は同日 PyPI で最�
 | dependency | deptry（未使用 / 未宣言 / transitive 依存） | 0.25.1 (2026-03-18) | full | block |
 | test | pytest + pytest-cov（branch, floor 80%） | 9.1.1 / 7.1.0 | full | block |
 
+test 補助（2026-09-22 追加）: pytest-asyncio 1.4.0（async test、`asyncio_mode = "auto"`）、
+types-defusedxml（defusedxml の型 stub）。外部 API の test は cassette 再生のみ
+（`tests/conftest.py` の `cassette` fixture — 既定 replay、`JRP_CASSETTE_SYNTHETIC=1` で合成、
+`JRP_CASSETTE_RECORD=1` で live 録音 = 人間ゲート）。verify は offline・key 不要。
+
 **無いもの**: 既知脆弱性の依存監査（pip-audit / uv audit）は著者指定のツール集合に
 含まれない。外部 API SDK を入れる step 5-6 で追加を再検討する。秘密スキャンは harness 側
 （`hooks/secret-scan-precommit.sh`）。

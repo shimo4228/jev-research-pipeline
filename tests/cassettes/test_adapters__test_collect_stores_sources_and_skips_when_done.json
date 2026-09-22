@@ -1,0 +1,7 @@
+{
+ "GET https://huggingface.co/api/papers/search?limit=20&q=narrow+questions": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "[{\"paper\":{\"id\":\"2609.01234\",\"title\":\"Narrow Questions Beat Broad Prompts\",\"summary\":\"We decompose judgment into narrow questions.\",\"publishedAt\":\"2026-09-20T17:59:59.000Z\",\"upvotes\":12},\"title\":\"Narrow Questions Beat Broad Prompts\",\"publishedAt\":\"2026-09-21T02:00:00.000Z\"}]"
+ }
+}

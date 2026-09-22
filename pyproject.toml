@@ -6,9 +6,11 @@ authors = [
     { name = "Tatsuya Shimomoto", email = "shimo4228@gmail.com" }
 ]
 requires-python = ">=3.12"
-# Runtime SDKs (typesafe-sdk, pydantic-ai) are added in the build step that first
-# imports them — deptry fails on declared-but-unused dependencies (DEP002).
+# SDK versions are pinned exactly: typesafe-sdk (0.x) and pydantic-ai (weekly releases) move fast and
+# their injected-transport parameters are what the cassette layer depends on.
 dependencies = [
+    "defusedxml>=0.7.1",
+    "httpx2>=2.13.0",
     "pydantic>=2.13.5",
 ]
 
@@ -24,8 +26,10 @@ dev = [
     "deptry==0.25.1",
     "pyright==1.1.414",
     "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "ruff==0.16.8",
+    "types-defusedxml==0.7.0.20260504",
 ]
 
 [tool.ruff]
@@ -107,6 +111,8 @@ addopts = [
     "--cov-fail-under=80",
 ]
 filterwarnings = ["error"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 source = ["src/jev_research_pipeline"]

@@ -1,0 +1,7 @@
+{
+ "POST https://api.tavily.com/search body:12ce85fd319244c5": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"query\":\"agent memory\",\"results\":[{\"title\":\"Designing agent memory\",\"url\":\"https://example.org/agent-memory\",\"content\":\"A practitioner write-up on episodic memory for agents.\",\"score\":0.91,\"published_date\":\"2026-09-18\"},{\"title\":\"Undated page\",\"url\":\"https://example.org/undated\",\"content\":\"No date on this one.\",\"score\":0.5}]}"
+ }
+}

@@ -1,0 +1,7 @@
+{
+ "GET https://huggingface.co/api/papers/search?limit=20&q=q": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"not\":\"a list\"}"
+ }
+}
