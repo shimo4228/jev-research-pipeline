@@ -56,23 +56,45 @@ def _render(entries: list[ClaimEntry], prose: str | None = "本文です [1]。"
 
 
 @pytest.mark.parametrize(
-    "hostile",
+    ("hostile", "dead"),
     [
-        "see [[Secret Note]]",
-        "![[embed.png]]",
-        "[click](javascript:alert(1))",
-        "```dataview\nTABLE file.name\n```",
-        "`$= dv.pages()`",
-        "<% tp.system.prompt() %>",
-        "<script>x</script>",
-        "%% hide the rest",
-        "<!-- jrp:claim:https://evil/claim/1 -->",
+        ("see [[Secret Note]]", "[["),
+        ("![[embed.png]]", "!["),
+        ("![beacon](http://tracker.example/p.png)", "!["),
+        ("```dataview\nTABLE file.name\n```", "```"),
+        ("~~~dataviewjs\ndv.el('p', 1)\n~~~", "~~~"),
+        ("`$= dv.pages()`", "`$="),
+        ("`= this.file.name`", "`="),
+        ("<% tp.system.prompt() %>", "<%"),
+        ("<script>x</script>", "<script"),
+        ("<!-- jrp:claim:https://evil/claim/1 -->", "<!--"),
+        ("%% hide the rest", "%%"),
+        ("%%%%% odd run", "%%"),
+        ("# fake heading", "\n# "),
+        ("- [x] forged task", "\n- ["),
+        ("[click](javascript:alert(1))", "javascript:"),
+        ("[click](data:text/html;base64,PHN2Zz4=)", "data:"),
     ],
 )
-def test_sanitize_neutralizes_obsidian_syntax(hostile: str):
-    out = sanitize(hostile)
-    for token in ("[[", "![[", "](", "```", "`$=", "<%", "<script", "%%", "<!--"):
-        assert token not in out, (hostile, out)
+def test_sanitize_kills_executable_obsidian_syntax(hostile: str, dead: str):
+    out = "\n" + sanitize(hostile)
+    assert dead not in out, out
+
+
+@pytest.mark.parametrize(
+    "harmless",
+    [
+        "a (parenthetical) aside",
+        "cost was $5 per 1k",
+        "1 < 2 and 3 > 2",
+        "call `format_report()` first",
+        "read arxiv.org/abs/1 for the method",
+        "see [the paper](https://arxiv.org/abs/2609.01234)",
+    ],
+)
+def test_sanitize_leaves_plain_prose_readable(harmless: str):
+    # The live notes were unreadable in source view: only executable syntax is escaped now.
+    assert sanitize(harmless) == harmless
 
 
 def test_sanitize_keeps_plain_japanese():
@@ -196,10 +218,10 @@ def test_harvest_missing_or_broken_note_is_skipped(tmp_path: Path):
 # --- review fixes (2f711d7) ------------------------------------------------------------------
 
 
-def test_sanitize_blocks_tilde_fences_and_bare_url_autolinks():
-    out = sanitize("~~~dataviewjs\ndv.el('p', 1)\n~~~ see https://evil.example/x")
-    assert "~~~" not in out
-    assert "https://" not in out
+def test_bare_urls_and_tags_stay_as_written():
+    # Narrowed after the first live run: neither renders as executable syntax, and
+    # escaping them made the notes unreadable.
+    assert sanitize("see https://evil.example/x #topic") == "see https://evil.example/x #topic"
 
 
 def test_untick_withdraws_an_earlier_label(tmp_path: Path):
@@ -221,10 +243,6 @@ def test_write_note_survives_an_undecodable_old_note(tmp_path: Path):
 @pytest.mark.parametrize("run", ["%%%", "%%%%%", "a %%% b"])
 def test_no_percent_run_survives(run: str):
     assert "%%" not in sanitize(run)
-
-
-def test_hash_tags_are_not_injected():
-    assert "#" not in sanitize("see #injected-tag").replace("\\#", "")
 
 
 def test_harvest_keeps_only_claims_of_the_report(tmp_path: Path):

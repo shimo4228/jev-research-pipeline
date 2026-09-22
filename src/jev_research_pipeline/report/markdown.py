@@ -21,6 +21,7 @@ safe_url() (http(s) only, markdown-breaking characters percent-encoded).
 
 import json
 import re
+from collections.abc import Callable
 from typing import Final
 from urllib.parse import quote
 
@@ -32,21 +33,38 @@ CATEGORY: Final = "jrp"
 KIND: Final = "report"
 CLAIM_MARK: Final = "jrp:claim:"
 
-# Order matters: the backslash first, so later escapes are not double-escaped.
-_ESCAPES: Final = (
-    ("\\", "\\\\"),
-    ("`", "\\`"),
-    ("$", "\\$"),
-    ("[", "\\["),
-    ("]", "\\]"),
-    ("(", "\\("),
-    (")", "\\)"),
-    ("<", "&lt;"),
-    (">", "&gt;"),
-    ("%", "\\%"),  # every %, so no odd run can re-form a %% comment
-    ("#", "\\#"),  # no tag injection
-    ("~", "\\~"),  # ~~~ is a code fence too (Dataview runs ~~~dataviewjs)
-    ("://", ":\\/\\/"),  # a bare http(s)://… would be autolinked
+# Only syntax Obsidian (or a plugin) would *execute or fetch* is neutralized — the live
+# notes showed that escaping every bracket, paren, $ and < made them unreadable in source
+# view. Plain prose, inline code spans and ordinary links stay as written.
+type _Repl = str | Callable[[re.Match[str]], str]
+
+
+def _escape_each(m: re.Match[str]) -> str:
+    """Backslash every character of the matched run (a half-escaped fence still fences)."""
+    return "".join("\\" + c for c in m.group(0))
+
+
+def _escape_brackets(m: re.Match[str]) -> str:
+    return m.group(0).replace("[", "\\[")
+
+
+_ESCAPES: Final[tuple[tuple[re.Pattern[str], _Repl], ...]] = (
+    # Wikilinks and embeds: [[note]], ![[file]], and ![alt](url) (a remote embed fetches).
+    (re.compile(r"!?\[\["), _escape_brackets),
+    (re.compile(r"!\["), "!\\["),
+    # Obsidian comments: every % inside a run of 2+ (an odd run must not re-form %%).
+    (re.compile(r"%(?=%)|(?<=%)%"), "\\%"),
+    # Code fences at line start (``` and ~~~): dataview / dataviewjs blocks run on render.
+    (re.compile(r"(?m)(?<=^)[`~]{3,}|(?<=\n)[`~]{3,}"), _escape_each),
+    # Inline Dataview queries: `= expr` and `$= js`.
+    (re.compile(r"`(\s*\$?)="), r"\\`\1\\="),
+    # HTML / Templater: only a < that opens a tag, comment or <% … %>.
+    (re.compile(r"<(?=[/!?%a-zA-Z])"), "&lt;"),
+    # Headings and task lines forged at line start.
+    (re.compile(r"(?m)^(\s*)#"), r"\1\\#"),
+    (re.compile(r"(?m)^(\s*[-*+] )\["), r"\1\\["),
+    # Script-ish link targets: kept readable, no longer a usable href.
+    (re.compile(r"(?i)\b(javascript|data):"), r"\1&#58;"),
 )
 
 
@@ -56,10 +74,10 @@ class ClaimEntry(Value):
 
 
 def sanitize(text: str, *, one_line: bool = False) -> str:
-    """Untrusted text → inert markdown text."""
+    """Untrusted text → text that renders but never executes or fetches."""
     out = text
-    for raw, escaped in _ESCAPES:
-        out = out.replace(raw, escaped)
+    for pattern, repl in _ESCAPES:
+        out = pattern.sub(repl, out)
     return " ".join(out.split()) if one_line else out
 
 

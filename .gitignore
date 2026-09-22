@@ -11,3 +11,4 @@ dist/
 # live cassette recordings (third-party content; human-gated, see tests/conftest.py)
 tests/cassettes/live/
 var/
+store/
