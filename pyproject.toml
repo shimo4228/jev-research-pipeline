@@ -1,0 +1,115 @@
+[project]
+name = "jev-research-pipeline"
+version = "0.1.0"
+description = "Research pipeline with explicit separation: code owns control flow, TypeSafe Jev owns bounded judgment, Qwen writes text."
+authors = [
+    { name = "Tatsuya Shimomoto", email = "shimo4228@gmail.com" }
+]
+requires-python = ">=3.12"
+# Runtime SDKs (typesafe-sdk, pydantic-ai) are added in the build step that first
+# imports them — deptry fails on declared-but-unused dependencies (DEP002).
+dependencies = [
+    "pydantic>=2.13.5",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+# Gate tools are pinned exactly (supply-chain fix; bump by hand, record in
+# .claude/verify.md). Selection record: .claude/verify.md.
+dev = [
+    "bandit==1.9.4",
+    "deptry==0.25.1",
+    "pyright==1.1.414",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.8",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Explicit select, not ruff's defaults: the rule set must be identical under any
+# ruff binary (PATH/uvx autofix hook vs the locked version). LLM-first axes
+# (verify-bootstrap Step 2):
+#   bug classes  — E4/E7/E9/F (ruff defaults restated), B (bugbear), PL E/W
+#                  (pylint errors/warnings), RUF (ruff-specific correctness),
+#                  S is left to bandit (one owner per category)
+#   canonical form — I (import order), UP (pyupgrade to the py312 floor)
+#   budget       — C901 (complexity), PLR0911/0912/0915/0917 (returns/branches/
+#                  statements/positional args); thresholds below. PLR0917 not
+#                  PLR0913: keyword-only constructors (Model.new(*, ...)) name every
+#                  argument at the call site, which is the bug class 0913 targets
+#   boundary types — ANN001-003 + ANN201 + ANN401 (production only; tests/ exempt)
+#   library hygiene — T20 (no print in library code)
+# Human-aesthetic families (D docstrings, N naming, comment style) are not selected.
+select = [
+    "E4", "E7", "E9", "F", "B", "PLE", "PLW", "RUF",
+    "I", "UP",
+    "C901", "PLR0911", "PLR0912", "PLR0915", "PLR0917",
+    "ANN001", "ANN002", "ANN003", "ANN201", "ANN401",
+    "T20",
+]
+
+[tool.ruff.lint.mccabe]
+# Budget rule: drain, do not raise — any change needs a dated reason in
+# .claude/verify.md. Set 2026-09-22 on an empty corpus (no distribution to
+# measure yet); re-measure when src/ has >= 200 functions.
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+# Same drain-not-raise rule as max-complexity. Ruff defaults restated so the
+# numbers are visible where an agent editing config will see them.
+max-positional-args = 5
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.lint.isort]
+# Declared, not inferred: verify.sh --staged checks a tmpdir holding only the
+# staged files, where inference would misclassify the package as third-party.
+known-first-party = ["jev_research_pipeline", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions are not consumed boundaries — nothing regenerates against them.
+"tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN401"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+# Beyond strict: reportUnnecessaryTypeIgnoreComment keeps suppressions from
+# outliving their reason; enableTypeIgnoreComments=false bans bare `# type: ignore`
+# (pyright: ignore[rule] with an explicit rule remains possible and greppable).
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
+reportMissingModuleSource = "error"
+reportImplicitOverride = "error"
+reportPropertyTypeMismatch = "error"
+reportUninitializedInstanceVariable = "error"
+reportImportCycles = "error"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-p", "no:cacheprovider",
+    "--cov=jev_research_pipeline",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=80",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src/jev_research_pipeline"]
+
+[tool.deptry]
+known_first_party = ["jev_research_pipeline"]
