@@ -10,7 +10,7 @@ from typing import Final
 import httpx2
 from defusedxml import ElementTree
 
-from .base import Adapter, Draft, iso_date, one_line
+from .base import Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://export.arxiv.org/api/query"
 MAX_RESULTS: Final = 20
@@ -29,9 +29,9 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     return httpx2.Request("GET", ENDPOINT, params=params)
 
 
-def parse(body: str) -> list[Draft]:
+def parse(body: str) -> list[RawDraft]:
     root = ElementTree.fromstring(body, forbid_dtd=True)
-    drafts: list[Draft] = []
+    drafts: list[RawDraft] = []
     for entry in root.findall("a:entry", _NS):
         link = next(
             (el.get("href") for el in entry.findall("a:link", _NS) if el.get("rel") == "alternate"),
@@ -39,11 +39,9 @@ def parse(body: str) -> list[Draft]:
         )
         title = entry.findtext("a:title", default="", namespaces=_NS)
         summary = entry.findtext("a:summary", default="", namespaces=_NS)
-        if link is None:
-            raise ValueError("arXiv entry without an alternate link")
         drafts.append(
-            Draft(
-                url=link,
+            RawDraft(
+                url=link or "",  # no alternate link → fails URL validation → skipped
                 title=one_line(title),
                 text=one_line(summary),
                 published_at=iso_date(entry.findtext("a:published", namespaces=_NS)),

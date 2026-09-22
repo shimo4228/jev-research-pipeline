@@ -4,8 +4,10 @@ Three modes, one driver (the test itself):
 - default: replay tests/cassettes/<test name>.json offline; a missing entry fails loudly.
 - JRP_CASSETTE_SYNTHETIC=1: re-synthesize that file by recording a fake upstream
   (tests/fakes.py). Committed cassettes are produced this way.
-- JRP_CASSETTE_RECORD=1: live recording (human-gated, needs API keys) — see
-  jev_research_pipeline.cassette. Live cassettes are for drift/regression, not unit tests.
+- JRP_CASSETTE_RECORD=1: live recording (human-gated) into tests/cassettes/live/, which is
+  gitignored — live third-party content never lands in a tracked file by accident, and
+  the committed synthetic cassettes are never overwritten. Live cassettes feed
+  drift/regression, not these unit tests.
 """
 
 import os
@@ -16,7 +18,7 @@ from typing import Any
 import httpx2
 import pytest
 
-from jev_research_pipeline.cassette import Cassette, CassetteTransport, cassette_client
+from jev_research_pipeline.cassette import RECORD_ENV, Cassette, CassetteTransport, cassette_client
 
 CASSETTES = Path(__file__).parent / "cassettes"
 SYNTHETIC_ENV = "JRP_CASSETTE_SYNTHETIC"
@@ -43,6 +45,8 @@ def cassette(request: pytest.FixtureRequest) -> ClientFactory:
                 Cassette(path), record=True, upstream=httpx2.MockTransport(fake)
             )
             return httpx2.AsyncClient(transport=transport)
+        if os.environ.get(RECORD_ENV) == "1":
+            return cassette_client(CASSETTES / "live" / path.name)
         return cassette_client(path)
 
     return make

@@ -16,6 +16,8 @@ from jev_research_pipeline.cassette import (
     request_key,
 )
 
+from .conftest import ClientFactory
+
 
 def _req(
     method: str = "GET", url: str = "https://api.example.org/q?b=2&a=1", **kw: object
@@ -144,3 +146,16 @@ def test_client_records_only_with_env_flag(tmp_path: Path, monkeypatch: pytest.M
 def test_record_requires_upstream(tmp_path: Path):
     with pytest.raises(ValueError, match="upstream"):
         CassetteTransport(Cassette(tmp_path / "c.json"), record=True)
+
+
+def test_live_recordings_go_to_an_ignored_dir(
+    monkeypatch: pytest.MonkeyPatch, cassette: ClientFactory
+):
+    monkeypatch.setenv(RECORD_ENV, "1")
+
+    async def never(request: httpx2.Request) -> httpx2.Response:
+        raise AssertionError("unused")
+
+    transport = cassette(never)._transport  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(transport, CassetteTransport)
+    assert transport.cassette.path.parent.name == "live"

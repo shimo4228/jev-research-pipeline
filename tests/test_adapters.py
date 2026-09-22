@@ -3,6 +3,7 @@
 from datetime import date
 from pathlib import Path
 
+import httpx2
 import pytest
 
 from jev_research_pipeline.adapters import (
@@ -212,3 +213,34 @@ async def test_collect_does_not_cache_failures(cassette: ClientFactory, tmp_path
     )
     assert out.failure is not None
     assert part.load() == {}
+
+
+async def test_body_decoding_error_is_a_failure(cassette: ClientFactory):
+    # A corrupt Content-Encoding body raises httpx2.DecodingError (a RequestError that is
+    # not a TransportError); it must still be a record, not an exception.
+    async def corrupt(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, content=b"not gzip", headers={"content-encoding": "gzip"})
+
+    out = await hf_papers.adapter().fetch(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(corrupt)),
+        b.line(),
+        "q",
+        now=b.T0,
+        env=NO_ENV,
+    )
+    assert out.failure is not None and out.failure.reason == "transport"
+
+
+async def test_one_bad_result_is_skipped_not_fatal(cassette: ClientFactory):
+    payload = {
+        "results": [
+            {"title": "ok", "url": "https://example.org/ok", "content": "Good text."},
+            {"title": "empty", "url": "https://example.org/e", "content": ""},
+            {"title": "bad url", "url": "javascript:alert(1)", "content": "x"},
+        ]
+    }
+    out = await web_search.adapter().fetch(
+        cassette(fake_json(payload)), b.line(), "q", now=b.T0, env={"TAVILY_API_KEY": "k"}
+    )
+    assert [s.title for s in _ok(out)] == ["ok"]
+    assert out.skipped == 2

@@ -11,7 +11,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel
 
-from .base import Adapter, Draft, iso_date, one_line
+from .base import Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://api.github.com/search/repositories"
 API_VERSION: Final = "2026-03-10"
@@ -40,8 +40,8 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     return httpx2.Request("GET", ENDPOINT, params=params, headers=headers)
 
 
-def parse(body: str) -> list[Draft]:
-    drafts: list[Draft] = []
+def parse(body: str) -> list[RawDraft]:
+    drafts: list[RawDraft] = []
     for repo in _Result.model_validate_json(body).items:
         if not repo.description or not repo.description.strip():
             continue
@@ -49,7 +49,7 @@ def parse(body: str) -> list[Draft]:
         if repo.topics:
             text = f"{text} Topics: {', '.join(repo.topics)}."
         drafts.append(
-            Draft(
+            RawDraft(
                 url=repo.html_url,
                 title=repo.full_name,
                 text=text,

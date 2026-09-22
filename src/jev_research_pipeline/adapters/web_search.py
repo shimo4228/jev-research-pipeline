@@ -14,7 +14,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel
 
-from .base import Adapter, Draft, iso_date, one_line
+from .base import Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://api.tavily.com/search"
 KEY_ENV: Final = "TAVILY_API_KEY"
@@ -38,9 +38,9 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     return httpx2.Request("POST", ENDPOINT, json=body, headers=headers)
 
 
-def parse(body: str) -> list[Draft]:
+def parse(body: str) -> list[RawDraft]:
     return [
-        Draft(
+        RawDraft(
             url=r.url,
             title=one_line(r.title),
             text=one_line(r.content),

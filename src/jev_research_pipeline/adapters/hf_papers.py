@@ -9,7 +9,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel, Field, TypeAdapter
 
-from .base import Adapter, Draft, iso_date, one_line
+from .base import Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://huggingface.co/api/papers/search"
 LIMIT: Final = 20
@@ -33,9 +33,9 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     return httpx2.Request("GET", ENDPOINT, params={"q": query[:250], "limit": str(LIMIT)})
 
 
-def parse(body: str) -> list[Draft]:
+def parse(body: str) -> list[RawDraft]:
     return [
-        Draft(
+        RawDraft(
             url=f"https://huggingface.co/papers/{hit.paper.id}",
             title=one_line(hit.paper.title),
             text=one_line(hit.paper.summary),
