@@ -11,7 +11,7 @@ import asyncio
 import os
 import sys
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import httpx2
@@ -45,7 +45,7 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 async def _run(env: Mapping[str, str]) -> int:
     try:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
-            outcomes = await run_pipeline(env, now=datetime.now(UTC), http=http)
+            outcomes = await run_pipeline(env, now=datetime.now().astimezone(), http=http)
     except Exception as e:
         # An unattended run that fails must not be silent (the log alone is not read).
         notify("jrp run FAILED", f"{type(e).__name__}: {e}", env=env)
@@ -65,7 +65,7 @@ def _fit(env: Mapping[str, str]) -> int:
         trusted = trusted_axes(agreement(log.judgments, log.labels))
         proposals = fit_thresholds(log, trusted=trusted)
         path = write_proposal(
-            store.root / "proposals" / slug, proposals, day=datetime.now(UTC).date()
+            store.root / "proposals" / slug, proposals, day=datetime.now().astimezone().date()
         )
         sys.stdout.write(f"{slug}: {len(proposals)} proposals → {path}\n")
     return 0

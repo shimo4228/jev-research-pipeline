@@ -2,7 +2,9 @@
 edited in the note becomes a Label on the next run's harvest."""
 
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -110,3 +112,21 @@ async def test_cost_cap_zero_gives_partial_report(cassette: ClientFactory, env: 
     assert outcome.report.partial
     assert outcome.report.claims == ()
     assert outcome.report.rendering == "template"
+
+
+async def test_note_date_follows_the_local_timezone(cassette: ClientFactory, env: dict[str, str]):
+    # First live run: 06:31 JST wrote a 2026-09-22 note because `now` was UTC.
+    jst = datetime(2026, 9, 23, 6, 31, tzinfo=ZoneInfo("Asia/Tokyo"))
+    (outcome,) = await run_pipeline(env, now=jst, http=cassette(fake_world()), pacing=False)
+    assert outcome.note.name == "2026-09-23_jrp_akc.md"
+    assert outcome.report.run_date.isoformat() == "2026-09-23"
+
+
+def test_cli_uses_a_local_aware_now():
+    import inspect
+
+    from jev_research_pipeline import cli
+
+    source = inspect.getsource(cli._run)  # pyright: ignore[reportPrivateUsage]
+    assert "datetime.now().astimezone()" in source
+    assert "datetime.now(UTC)" not in source
