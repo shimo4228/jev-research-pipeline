@@ -95,7 +95,7 @@ async def check(
     if string_match(claim, source):
         return SupportResult(verdict="supports", via="string_match", decision=None)
     result = await jev.judge(BUNDLE, (claim.id, source.id), state(claim, source), now=now)
-    d = decide(result, policy=BUNDLE.policy, thresholds=THRESHOLDS, rule=rule)
+    d = decide(result, bundle=BUNDLE, thresholds=THRESHOLDS, rule=rule)
     if not isinstance(result, Judgment):
         return SupportResult(verdict="unjudged", via="jev", decision=d)
     top = choice(result, "support").argmax

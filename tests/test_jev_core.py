@@ -126,9 +126,13 @@ async def test_malformed_distribution_is_a_failure(cassette: ClientFactory):
 
 def test_decide_unjudged_on_failure():
     failure = JevFailure(
-        function="claim_detection", subjects=(b.unit().id,), reason="timeout", detail="t"
+        function="claim_detection",
+        subjects=(b.unit().id,),
+        bundle_sha256=BUNDLE.sha256,
+        reason="timeout",
+        detail="t",
     )
-    d = decide(failure, policy="claim_detection@v1", thresholds=(), rule=lambda j: (True, 1.0))
+    d = decide(failure, bundle=BUNDLE, thresholds=(), rule=lambda j: (True, 1.0))
     assert d.outcome == "unjudged"
     assert d.judgments == ()
     assert d.score is None
@@ -136,5 +140,37 @@ def test_decide_unjudged_on_failure():
 
 def test_decide_records_thresholds_and_score():
     t = (Threshold(name="checkable", value=0.5),)
-    d = decide(b.judgment(), policy="claim_detection@v1", thresholds=t, rule=lambda j: (False, 0.2))
-    assert (d.outcome, d.score, d.thresholds, d.judgments) == ("reject", 0.2, t, (b.judgment().id,))
+    judged = b.judgment().model_copy(update={"bundle_sha256": BUNDLE.sha256})
+    d = decide(judged, bundle=BUNDLE, thresholds=t, rule=lambda j: (False, 0.2))
+    assert (d.outcome, d.score, d.thresholds, d.judgments) == ("reject", 0.2, t, (judged.id,))
+
+
+def test_reworded_bundle_yields_a_distinct_decision():
+    # Same function, subjects and version, different wording → a different Decision @id,
+    # so decisions made under old wording are never silently overwritten.
+    reworded = BUNDLE.model_copy(
+        update={
+            "questions": (
+                NoulQ(key="checkable", instructions="Other wording?"),
+                *BUNDLE.questions[1:],
+            )
+        }
+    )
+    failure = JevFailure(
+        function="claim_detection",
+        subjects=(b.unit().id,),
+        bundle_sha256=BUNDLE.sha256,
+        reason="timeout",
+        detail="",
+    )
+    other = failure.model_copy(update={"bundle_sha256": reworded.sha256})
+    a = decide(failure, bundle=BUNDLE, thresholds=(), rule=lambda j: (True, 1.0))
+    c = decide(other, bundle=reworded, thresholds=(), rule=lambda j: (True, 1.0))
+    assert a.policy == c.policy
+    assert a.id != c.id
+    assert (a.bundle_sha256, c.bundle_sha256) == (BUNDLE.sha256, reworded.sha256)
+
+
+def test_decide_rejects_a_result_from_another_bundle():
+    with pytest.raises(ValueError, match="bundle"):
+        decide(b.judgment(), bundle=BUNDLE, thresholds=(), rule=lambda j: (True, 1.0))

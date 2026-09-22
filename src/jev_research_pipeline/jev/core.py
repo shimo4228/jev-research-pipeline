@@ -151,6 +151,7 @@ class JevFailure(Value):
 
     function: JevFunction
     subjects: tuple[str, ...]
+    bundle_sha256: str
     reason: FailureReason
     detail: str
 
@@ -201,7 +202,11 @@ class JevClient:
     ) -> Judgment | JevFailure:
         def fail(reason: FailureReason, detail: object) -> JevFailure:
             return JevFailure(
-                function=bundle.function, subjects=subjects, reason=reason, detail=str(detail)
+                function=bundle.function,
+                subjects=subjects,
+                bundle_sha256=bundle.sha256,
+                reason=reason,
+                detail=str(detail),
             )
 
         # Wiring errors are programming errors: raise before any request, never "unjudged".
@@ -240,27 +245,33 @@ type Rule = Callable[[Judgment], tuple[bool, float]]
 
 
 def decide(
-    result: Judgment | JevFailure, *, policy: str, thresholds: tuple[Threshold, ...], rule: Rule
+    result: Judgment | JevFailure,
+    *,
+    bundle: Bundle,
+    thresholds: tuple[Threshold, ...],
+    rule: Rule,
 ) -> Decision:
+    """Policy = bundle.policy, identity includes bundle.sha256. The result must come from
+    this bundle's wording (a mismatch is a wiring error and raises)."""
+    if result.bundle_sha256 != bundle.sha256:
+        raise ValueError(f"result was produced by another bundle than {bundle.policy}")
     if isinstance(result, JevFailure):
-        return Decision.new(
-            function=result.function,
-            subjects=result.subjects,
-            policy=policy,
-            judgments=(),
-            thresholds=thresholds,
-            outcome="unjudged",
-            score=None,
-        )
-    accept, score = rule(result)
+        judgments: tuple[str, ...] = ()
+        outcome: Literal["accept", "reject", "unjudged"] = "unjudged"
+        value: float | None = None
+    else:
+        accept, value = rule(result)
+        judgments = (result.id,)
+        outcome = "accept" if accept else "reject"
     return Decision.new(
         function=result.function,
         subjects=result.subjects,
-        policy=policy,
-        judgments=(result.id,),
+        policy=bundle.policy,
+        bundle_sha256=bundle.sha256,
+        judgments=judgments,
         thresholds=thresholds,
-        outcome="accept" if accept else "reject",
-        score=score,
+        outcome=outcome,
+        score=value,
     )
 
 

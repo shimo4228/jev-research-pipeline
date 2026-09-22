@@ -77,6 +77,7 @@ def decision() -> Decision:
         function="claim_detection",
         subjects=(unit().id,),
         policy="claim_detection@v1",
+        bundle_sha256="b" * 64,
         judgments=(judgment().id,),
         thresholds=(Threshold(name="states_checkable_claim", value=0.5),),
         outcome="accept",

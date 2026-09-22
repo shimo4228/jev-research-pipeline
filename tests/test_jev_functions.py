@@ -126,7 +126,11 @@ async def test_query_selection_keeps_top_k_above_floor(cassette: ClientFactory):
 
 def test_query_selection_unjudged_is_never_kept():
     failure = JevFailure(
-        function="query_selection", subjects=(_query("x").id,), reason="timeout", detail=""
+        function="query_selection",
+        subjects=(_query("x").id,),
+        bundle_sha256=query_selection.BUNDLE.sha256,
+        reason="timeout",
+        detail="",
     )
     (d,) = query_selection.rank([(_query("x"), failure)])
     assert d.outcome == "unjudged"
@@ -219,7 +223,11 @@ async def test_novelty_extension_is_novel(cassette: ClientFactory):
 def test_novelty_verdict_edges():
     assert novelty.verdict([]) == "novel"  # no candidate pair: nothing to duplicate
     failure = JevFailure(
-        function="novelty", subjects=(b.claim().id, b.claim().id), reason="timeout", detail=""
+        function="novelty",
+        subjects=(b.claim().id, b.claim().id),
+        bundle_sha256=novelty.BUNDLE.sha256,
+        reason="timeout",
+        detail="",
     )
     assert novelty.verdict([novelty.decision(failure)]) == "unjudged"
 
@@ -276,7 +284,11 @@ async def test_report_ordering_sorts_by_importance_unjudged_last(cassette: Clien
     )
     lost = report_ordering.decision(
         JevFailure(
-            function="report_ordering", subjects=(b.claim().id,), reason="timeout", detail=""
+            function="report_ordering",
+            subjects=(b.claim().id,),
+            bundle_sha256=report_ordering.BUNDLE.sha256,
+            reason="timeout",
+            detail="",
         )
     )
     assert report_ordering.order([da, lost, dc]) == [c.id, a.id, b.claim().id]

@@ -138,6 +138,7 @@ def _decision(outcome: str) -> Decision:
         function="rubric_report",
         subjects=(b.report().id,),
         policy="rubric_report@v1",
+        bundle_sha256="b" * 64,
         judgments=() if outcome == "unjudged" else (b.judgment().id,),
         thresholds=(),
         outcome=outcome,  # pyright: ignore[reportArgumentType]

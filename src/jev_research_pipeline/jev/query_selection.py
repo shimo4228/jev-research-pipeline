@@ -94,7 +94,7 @@ def rank(pairs: list[tuple[QueryCandidate, Judgment | JevFailure]]) -> list[Deci
     return [
         decide(
             r,
-            policy=BUNDLE.policy,
+            bundle=BUNDLE,
             thresholds=THRESHOLDS,
             rule=lambda j: (j.id in kept, Answers.of(j).expected_yield),
         )

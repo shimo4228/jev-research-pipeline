@@ -67,7 +67,7 @@ async def judge(
 def decision(result: Judgment | JevFailure) -> Decision:
     return decide(
         result,
-        policy=BUNDLE.policy,
+        bundle=BUNDLE,
         thresholds=THRESHOLDS,
         rule=lambda j: (True, Answers.of(j).importance),
     )

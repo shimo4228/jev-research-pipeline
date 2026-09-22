@@ -454,6 +454,9 @@ class Decision(StoreNode):
     function: JevFunction
     subjects: tuple[IRI, ...]
     policy: NonEmptyText
+    bundle_sha256: Sha256Hex
+    """The question bundle's wording hash. Part of the identity: rewording a bundle (even
+    without a version bump) makes new Decisions instead of overwriting old ones."""
     judgments: tuple[IRI, ...]
     thresholds: tuple[Threshold, ...]
     outcome: Literal["accept", "reject", "unjudged"]
@@ -461,12 +464,12 @@ class Decision(StoreNode):
     """The combined value code compared against the thresholds."""
 
     @staticmethod
-    def id_for(function: str, subjects: tuple[str, ...], policy: str) -> str:
-        return content_id("decision", function, *subjects, policy)
+    def id_for(function: str, subjects: tuple[str, ...], policy: str, bundle_sha256: str) -> str:
+        return content_id("decision", function, *subjects, policy, bundle_sha256)
 
     @override
     def expected_id(self) -> str:
-        return self.id_for(self.function, self.subjects, self.policy)
+        return self.id_for(self.function, self.subjects, self.policy, self.bundle_sha256)
 
     @model_validator(mode="after")
     def _invariants(self) -> Self:
@@ -491,16 +494,18 @@ class Decision(StoreNode):
         function: JevFunction,
         subjects: tuple[str, ...],
         policy: str,
+        bundle_sha256: str,
         judgments: tuple[str, ...],
         thresholds: tuple[Threshold, ...],
         outcome: Literal["accept", "reject", "unjudged"],
         score: float | None,
     ) -> Self:
         return cls(
-            id=cls.id_for(function, subjects, policy),
+            id=cls.id_for(function, subjects, policy, bundle_sha256),
             function=function,
             subjects=subjects,
             policy=policy,
+            bundle_sha256=bundle_sha256,
             judgments=judgments,
             thresholds=thresholds,
             outcome=outcome,

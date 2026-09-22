@@ -65,4 +65,4 @@ def rule(j: Judgment) -> tuple[bool, float]:
 
 
 def decision(result: Judgment | JevFailure) -> Decision:
-    return decide(result, policy=BUNDLE.policy, thresholds=THRESHOLDS, rule=rule)
+    return decide(result, bundle=BUNDLE, thresholds=THRESHOLDS, rule=rule)
