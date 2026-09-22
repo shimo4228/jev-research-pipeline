@@ -317,6 +317,15 @@ raw distributions. Known trade-off: Noul true/false criteria collapse into one
 `Field(description)`. Review-when: pydantic-ai's typesafe model loses distribution access
 or Score support.
 
+### Evaluation and self-improvement: deferred to operation (author decision 2026-09-23)
+
+Pilot first. The label/fit design (decision 5-7, the reduction forms, fill rate as the
+primary metric) is NOT extended further before a working pilot runs. Recorded candidate
+for later: **used rate** — share of surfaced sources that appear within 30 days in any
+line's graph.jsonld / ADR / vault note (an objective, zero-effort delayed label) — with
+canary papers and cross-net agreement as weak supervision, ⭕❌ demoted to optional gold,
+Review section kept. Decide after the pilot has run for a few weeks.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
