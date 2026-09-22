@@ -32,13 +32,13 @@ def export_cases(log: DecisionLog, ctx: LineContext, path: Path) -> Path:
         if claim is None or unit is None or source is None:
             continue
         state = claim_detection.state(ctx, unit, source)
-        recorded = next(
-            (
-                j
-                for j in log.judgments
-                if j.function == "claim_detection" and j.subjects == (unit.id,)
-            ),
-            None,
+        rebuilt = input_sha256(state)
+        candidates = [
+            j for j in log.judgments if j.function == "claim_detection" and j.subjects == (unit.id,)
+        ]
+        # Prefer the judgment asked on exactly this state; else the latest one.
+        recorded = max(
+            candidates, key=lambda j: (j.state_sha256 == rebuilt, j.judged_at, j.id), default=None
         )
         cases.append(
             Case(
@@ -47,7 +47,7 @@ def export_cases(log: DecisionLog, ctx: LineContext, path: Path) -> Path:
                 expected_output=verdict,
                 metadata={
                     "state_matches_judgment": recorded is not None
-                    and recorded.state_sha256 == input_sha256(state),
+                    and recorded.state_sha256 == rebuilt,
                     "judgment": recorded.id if recorded else None,
                 },
             )

@@ -1,9 +1,12 @@
 """Reduction ①: refit each Jev function's thresholds on the author's labels (decision 6).
 
 Features = the raw answers in Judgments (Noul p_yes, Score expected position, Choice
-probability); target = gold Label (correct → the function should accept). Silver labels
-(decision 5): rubric_claim axes that passed the agreement floor label unlabeled claims,
-at SILVER_WEIGHT. Search = a grid over [0.05, 0.95]; ties prefer the value nearest the
+probability) — only each subject's current-bundle, latest judgment; target = gold Label
+(correct → the function should accept). MIN_GOLD counts distinct labeled claims.
+Silver labels (decision 5): trusted rubric_claim axes label unlabeled claims at
+SILVER_WEIGHT, and feed only non-rubric thresholds (a rubric threshold is never refit on
+its own verdicts). novelty is not fitted: its accept means "not a duplicate", which a
+correctness label does not measure. Search = a grid over [0.05, 0.95]; ties prefer the value nearest the
 current threshold. Output is a proposal file — thresholds in code are never changed here.
 """
 
@@ -15,7 +18,6 @@ from typing import Final, Literal
 
 from jev_research_pipeline.jev import (
     claim_detection,
-    novelty,
     relevance_triage,
     rubric_claim,
     source_support,
@@ -49,11 +51,6 @@ def _pos(key: str) -> Callable[[Judgment], float]:
     return lambda j: score(j, key).expected_position
 
 
-def _p_same_claim(j: Judgment) -> float:
-    rel = score(j, "relation")
-    return rel.probabilities[rel.levels.index("same_claim")]
-
-
 def _p_supports(j: Judgment) -> float:
     c = choice(j, "support")
     return c.probabilities[c.options.index("supports")]
@@ -61,52 +58,57 @@ def _p_supports(j: Judgment) -> float:
 
 # (spec, feature, the module's current thresholds). query_selection and rubric_report have
 # no claim-level link and report_ordering has no cut-off, so they are not fitted here.
-SPECS: Final[tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...]], ...]] = (
+SPECS: Final[
+    tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...], str], ...]
+] = (
     (
         FitSpec(function="relevance_triage", threshold="relevant", accept_if=">="),
         _nou("relevant"),
         relevance_triage.THRESHOLDS,
+        relevance_triage.BUNDLE.sha256,
     ),
     (
         FitSpec(function="relevance_triage", threshold="contains_evidence", accept_if=">="),
         _nou("contains_evidence"),
         relevance_triage.THRESHOLDS,
+        relevance_triage.BUNDLE.sha256,
     ),
     (
         FitSpec(function="relevance_triage", threshold="prompt_injection", accept_if="<"),
         _nou("prompt_injection"),
         relevance_triage.THRESHOLDS,
+        relevance_triage.BUNDLE.sha256,
     ),
     (
         FitSpec(function="claim_detection", threshold="checkable_claim", accept_if=">="),
         _nou("checkable_claim"),
         claim_detection.THRESHOLDS,
+        claim_detection.BUNDLE.sha256,
     ),
     (
         FitSpec(function="claim_detection", threshold="relevant", accept_if=">="),
         _nou("relevant"),
         claim_detection.THRESHOLDS,
-    ),
-    (
-        FitSpec(function="novelty", threshold="same_claim", accept_if="<"),
-        _p_same_claim,
-        novelty.THRESHOLDS,
+        claim_detection.BUNDLE.sha256,
     ),
     (
         FitSpec(function="source_support", threshold="supports", accept_if=">="),
         _p_supports,
         source_support.THRESHOLDS,
+        source_support.BUNDLE.sha256,
     ),
     (
         FitSpec(function="source_trust", threshold="min_trust", accept_if=">="),
         _pos("trust"),
         source_trust.THRESHOLDS,
+        source_trust.BUNDLE.sha256,
     ),
     *(
         (
             FitSpec(function="rubric_claim", threshold=axis, accept_if=">="),
             _pos(axis),
             rubric_claim.THRESHOLDS,
+            rubric_claim.BUNDLE.sha256,
         )
         for axis in rubric_claim.AXES
     ),
@@ -130,8 +132,8 @@ def _silver(log: DecisionLog, trusted: tuple[RubricAxis, ...]) -> dict[str, Verd
         return {}
     gold = log.gold()
     out: dict[str, Verdict] = {}
-    for j in log.judgments:
-        if j.function != "rubric_claim" or j.subjects[0] in gold:
+    for j in log.current("rubric_claim", rubric_claim.BUNDLE.sha256):
+        if j.subjects[0] in gold:
             continue
         ok = all(
             score(j, a).expected_position >= threshold(rubric_claim.THRESHOLDS, a) for a in trusted
@@ -156,19 +158,20 @@ def fit_thresholds(
     gold = log.gold()
     silver = _silver(log, trusted)
     proposals: list[Proposal] = []
-    for spec, feature, current_thresholds in SPECS:
+    for spec, feature, current_thresholds, bundle_sha256 in SPECS:
         samples: list[tuple[float, bool, float]] = []
-        n_gold = n_silver = 0
-        for j in log.judgments:
-            if j.function != spec.function:
-                continue
+        gold_claims: set[str] = set()
+        silver_claims: set[str] = set()
+        use_silver = spec.function != "rubric_claim"
+        for j in log.current(spec.function, bundle_sha256):
             for claim_id in log.claims_of(j.subjects[0]):
                 if claim_id in gold:
                     samples.append((feature(j), gold[claim_id] == "correct", 1.0))
-                    n_gold += 1
-                elif claim_id in silver:
+                    gold_claims.add(claim_id)
+                elif use_silver and claim_id in silver:
                     samples.append((feature(j), silver[claim_id] == "correct", SILVER_WEIGHT))
-                    n_silver += 1
+                    silver_claims.add(claim_id)
+        n_gold, n_silver = len(gold_claims), len(silver_claims)
         if n_gold < min_gold:
             continue
         current = threshold(current_thresholds, spec.threshold)

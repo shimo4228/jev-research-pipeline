@@ -87,6 +87,15 @@ class DecisionLog:
             case _:
                 return None
 
+    def current(self, function: str, bundle_sha256: str) -> list[Judgment]:
+        """One judgment per subject tuple: this bundle's wording, latest judged. Re-runs and
+        stale wordings never count twice (fits and cases read only these)."""
+        latest: dict[tuple[str, ...], Judgment] = {}
+        for j in sorted(self.judgments, key=lambda j: (j.judged_at, j.id)):
+            if j.function == function and j.bundle_sha256 == bundle_sha256:
+                latest[j.subjects] = j
+        return list(latest.values())
+
     def gold(self) -> dict[str, Verdict]:
         """claim @id → verdict. A claim labeled in several reports keeps the latest harvest."""
         latest: dict[str, Label] = {}

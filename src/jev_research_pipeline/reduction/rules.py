@@ -2,7 +2,9 @@
 
 A Jev function is a candidate for a code rule when its decision outcome is predicted by a
 code-computable feature of the judged subject's source — adapter (categorical), age in
-days since published_at, text length — on at least `min_n` decisions at ≥ `min_agreement`.
+days since published_at, text length — on at least `min_n` decisions at ≥ `min_agreement`,
+AND the complement (the other decisions) does not already reach that rate for the same
+outcome: a split that only restates a high base rate carries no information.
 Each candidate is one line for the report's operations section; the author decides.
 """
 
@@ -49,38 +51,43 @@ def _judged(log: DecisionLog) -> dict[str, list[tuple[Decision, SourceItem]]]:
 
 
 def _candidate(
-    function: str, condition: str, outcomes: list[str], config: RuleConfig
+    function: str, condition: str, outcomes: list[str], rest: list[str], config: RuleConfig
 ) -> str | None:
-    if len(outcomes) < config.min_n:
+    if len(outcomes) < config.min_n or not rest:
         return None
     o, rate = _best_outcome(outcomes)
-    if rate < config.min_agreement:
+    if rate < config.min_agreement or rest.count(o) / len(rest) >= config.min_agreement:
         return None
     return f"rule 候補: {function} は {condition} のとき {o} (n={len(outcomes)}, 一致率 {rate:.2f})"
 
 
 def _conditions(
     rows: list[tuple[Decision, SourceItem]], today: date
-) -> list[tuple[str, list[str]]]:
-    """(condition text, outcomes of the rows it selects) for every code feature split."""
-    splits: list[tuple[str, list[str]]] = [
-        (f"adapter={a}", [d.outcome for d, s in rows if s.adapter == a])
+) -> list[tuple[str, list[str], list[str]]]:
+    """(condition text, outcomes it selects, outcomes of the complement) per feature split."""
+    splits: list[tuple[str, list[str], list[str]]] = [
+        (
+            f"adapter={a}",
+            [d.outcome for d, s in rows if s.adapter == a],
+            [d.outcome for d, s in rows if s.adapter != a],
+        )
         for a in sorted({s.adapter for _, s in rows})
     ]
     for name, cuts in NUMERIC_CUTS.items():
         value = _numeric(name, today)
-        values = [(d.outcome, value(s)) for d, s in rows]
+        values = [(d.outcome, v) for d, s in rows if (v := value(s)) is not None]
         for cut in cuts:
-            splits.append((f"{name}>={cut}", [o for o, v in values if v is not None and v >= cut]))
-            splits.append((f"{name}<{cut}", [o for o, v in values if v is not None and v < cut]))
+            hi = [o for o, v in values if v >= cut]
+            lo = [o for o, v in values if v < cut]
+            splits += [(f"{name}>={cut}", hi, lo), (f"{name}<{cut}", lo, hi)]
     return splits
 
 
 def rule_candidates(log: DecisionLog, config: RuleConfig, *, today: date) -> list[str]:
     lines: list[str] = []
     for function, rows in sorted(_judged(log).items()):
-        for condition, outcomes in _conditions(rows, today):
-            line = _candidate(function, condition, outcomes, config)
+        for condition, outcomes, rest in _conditions(rows, today):
+            line = _candidate(function, condition, outcomes, rest, config)
             if line is not None:
                 lines.append(line)
     return lines

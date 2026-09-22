@@ -188,3 +188,62 @@ def test_log_from_store_partition(tmp_path: Path):
     part.put(_world(4))
     log = DecisionLog.from_partition(part)
     assert len(log.labels) == 4
+
+
+# --- review fixes (dad3066) ------------------------------------------------------------------
+
+
+def _rejudged(nodes: list[GraphNodeType]) -> list[GraphNodeType]:
+    """Add a stale-bundle duplicate of every claim_detection judgment (a reworded re-run)."""
+    extra: list[GraphNodeType] = []
+    for n in nodes:
+        if isinstance(n, Judgment) and n.function == "claim_detection":
+            extra.append(
+                Judgment.new(
+                    function=n.function,
+                    subjects=n.subjects,
+                    model=n.model,
+                    state_sha256=n.state_sha256,
+                    bundle_sha256="d" * 64,
+                    answers=n.answers,
+                    judged_at=b.T0.replace(hour=1),
+                )
+            )
+    return nodes + extra
+
+
+def test_min_gold_counts_distinct_labeled_claims():
+    # 6 labeled claims judged twice must not pass a gate of 10.
+    assert fit_thresholds(DecisionLog.from_nodes(_rejudged(_world(6))), min_gold=10) == []
+
+
+def test_fit_uses_only_current_bundle_judgments():
+    proposals = fit_thresholds(DecisionLog.from_nodes(_rejudged(_world(40))), min_gold=10)
+    p = next(
+        p for p in proposals if (p.function, p.threshold) == ("claim_detection", "checkable_claim")
+    )
+    assert p.n_gold == 40
+
+
+def test_novelty_is_not_fitted_against_correctness():
+    from jev_research_pipeline.reduction.fit import SPECS
+
+    assert all(spec.function != "novelty" for spec, _, _, _ in SPECS)
+
+
+def test_rule_needs_to_beat_the_complement():
+    # Every triage decision accepted: no split carries information, so no candidate.
+    nodes = [
+        n.model_copy(update={"outcome": "accept"}) if isinstance(n, Decision) else n
+        for n in _world(80)
+    ]
+    assert rule_candidates(DecisionLog.from_nodes(nodes), RuleConfig(), today=b.T0.date()) == []
+
+
+def test_case_prefers_the_judgment_matching_the_rebuilt_state(tmp_path: Path):
+    path = export_cases(DecisionLog.from_nodes(_rejudged(_world(2))), CTX, tmp_path / "c.yaml")
+    dataset = Dataset[dict[str, object], str, dict[str, object]].from_file(path)
+    assert all(
+        c.metadata is not None and c.metadata["state_matches_judgment"] is True
+        for c in dataset.cases
+    )
