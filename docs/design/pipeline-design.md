@@ -213,6 +213,25 @@ query generation from snowballing is published.
   ans line had one vocabulary term. Fix: match type suffix; include DefinedTerm.
 - Homebrew now refuses untrusted taps: `brew trust ctrlspice/otel-desktop-viewer` first.
 
+### Report redesign (author verdict 2026-09-23: prose unreadable, claim wall unusable)
+
+Supersedes the reading-surface parts of decisions 5 and 12 (label encoding and file
+location stay). Reasons: prose was a paraphrase of claims because Qwen got no line
+context and was forbidden inference; 37 checkbox lines per note is a wall that lowers
+the primary metric (fill rate).
+1. **Prose input = line context**: ResearchLine description, recent ADR titles,
+   DefinedTerm vocabulary, and the day's top claims (by Jev `actionable` / `bridges_line`).
+   Task: "what today's findings advance or overturn for this line". Inference is allowed
+   but must sit in its own paragraph(s) marked as the pipeline's inference; rubric
+   `grounded` applies to the evidence paragraphs only.
+2. **Label granularity = source**: the note lists 3–7 sources, one line each (title +
+   one-sentence gist + checkbox + comment id `jrp:source:<id>`). ⭕❌ on a source
+   propagates to its accepted claims for the fit layer. Claim-level Jev judgments are
+   still stored.
+3. **Claims fold away**: the per-claim list moves into a collapsed Obsidian callout
+   (`> [!note]- Claims`), still carrying claim ids so claim-level ticks remain possible.
+4. **Prose covers only the selected top claims**; the rest stay in the fold.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
