@@ -17,8 +17,10 @@ from jev_research_pipeline.model import (
     NoulAnswer,
     Operations,
     Report,
+    RotationCursor,
     ScoreAnswer,
     SourceItem,
+    StageRecord,
     StoreNode,
     Unit,
     content_id,
@@ -464,3 +466,38 @@ def test_non_finite_floats_are_rejected(bad: float):
         Decision.model_validate(b.decision().model_dump(by_alias=True) | {"score": bad})
     with pytest.raises(ValidationError):
         Operations.model_validate(b.report().operations.model_dump() | {"cost_usd": bad})
+
+
+# --- RotationCursor / StageRecord (pipeline state kept in the store) ------------------
+
+
+def test_cursor_is_a_singleton_id():
+    assert b.cursor().id == RotationCursor.new(next_slug="other", updated_at=b.T0).id
+
+
+def test_cursor_next_slug_is_kebab_or_none():
+    assert RotationCursor.new(next_slug=None, updated_at=b.T0).next_slug is None
+    with pytest.raises(ValidationError):
+        RotationCursor.new(next_slug="Not A Slug", updated_at=b.T0)
+
+
+def test_stage_record_id_is_stage_and_input_hash():
+    r = b.stage_record()
+    assert (
+        r.id
+        == StageRecord.new(
+            stage="claim_detection", input_sha256="e" * 64, outputs=(), completed_at=b.T0
+        ).id
+    )
+
+
+def test_stage_record_outputs_are_unique_store_iris():
+    with pytest.raises(ValidationError, match="outputs"):
+        StageRecord.new(stage="s", input_sha256="e" * 64, outputs=(b.LINE_IRI,), completed_at=b.T0)
+    with pytest.raises(ValidationError, match="unique"):
+        StageRecord.new(
+            stage="s",
+            input_sha256="e" * 64,
+            outputs=(b.claim().id, b.claim().id),
+            completed_at=b.T0,
+        )

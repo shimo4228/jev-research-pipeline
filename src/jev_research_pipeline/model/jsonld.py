@@ -76,6 +76,7 @@ IRI_FIELDS: Final = frozenset(
         "unjudged",
         "claim",
         "report",
+        "outputs",
     }
 )
 # Fields whose order carries meaning. JSON-LD arrays are unordered sets unless @list.
@@ -149,6 +150,13 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "mean_score": _typed("meanScore", "double"),
     "gold_agreement": _typed("goldAgreement", "double"),
     "fill_rate_previous": _typed("fillRatePrevious", "double"),
+    # pipeline state
+    "next_slug": f"{VOCAB_NS}nextSlug",
+    "updated_at": _typed("updatedAt", "dateTime"),
+    "stage": f"{VOCAB_NS}stage",
+    "input_sha256": f"{VOCAB_NS}inputSha256",
+    "outputs": _iri("outputs"),
+    "completed_at": _typed("completedAt", "dateTime"),
 }
 
 

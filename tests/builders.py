@@ -14,8 +14,10 @@ from jev_research_pipeline.model import (
     Operations,
     QueryCandidate,
     Report,
+    RotationCursor,
     ScoreAnswer,
     SourceItem,
+    StageRecord,
     Threshold,
     Unit,
 )
@@ -125,5 +127,27 @@ def score_judgment() -> Judgment:
     )
 
 
+def cursor() -> RotationCursor:
+    return RotationCursor.new(next_slug="akc", updated_at=T0)
+
+
+def stage_record() -> StageRecord:
+    return StageRecord.new(
+        stage="claim_detection", input_sha256="e" * 64, outputs=(claim().id,), completed_at=T0
+    )
+
+
 def every_node_kind() -> list[GraphNodeType]:
-    return [line(), query(), source(), unit(), claim(), judgment(), decision(), report(), label()]
+    return [
+        line(),
+        query(),
+        source(),
+        unit(),
+        claim(),
+        judgment(),
+        decision(),
+        report(),
+        label(),
+        cursor(),
+        stage_record(),
+    ]

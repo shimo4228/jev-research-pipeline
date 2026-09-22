@@ -658,7 +658,96 @@ class Label(StoreNode):
         )
 
 
+# ------------------------------------------------------ pipeline state (not research data)
+
+
+class RotationCursor(StoreNode):
+    """Where the line rotation resumes. Singleton: its @id is constant, so every write
+    replaces the previous cursor. Holds the next line's slug rather than an index, so
+    reordering or extending the config order never shifts which line runs next."""
+
+    type: Literal["RotationCursor"] = Field(
+        default="RotationCursor", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "cursor"
+    next_slug: Slug | None
+    """None = start at the head of the configured order."""
+    updated_at: AwareDatetime
+
+    @staticmethod
+    def id_for() -> str:
+        return content_id("cursor", "rotation")
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for()
+
+    @classmethod
+    def new(cls, *, next_slug: str | None, updated_at: AwareDatetime) -> Self:
+        return cls(id=cls.id_for(), next_slug=next_slug, updated_at=updated_at)
+
+
+class StageRecord(StoreNode):
+    """A completed pipeline stage: (stage, input content hash) → the store @ids it produced.
+
+    Identity = (stage, input_sha256), so the same input to the same stage is done once
+    (decision 8). `outputs` may be empty: a stage that ran and produced nothing is done.
+    """
+
+    type: Literal["StageRecord"] = Field(
+        default="StageRecord", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "stage"
+    stage: Key
+    input_sha256: Sha256Hex
+    outputs: tuple[IRI, ...]
+    completed_at: AwareDatetime
+
+    @staticmethod
+    def id_for(stage: str, input_sha256: str) -> str:
+        return content_id("stage", stage, input_sha256)
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.stage, self.input_sha256)
+
+    @model_validator(mode="after")
+    def _outputs(self) -> Self:
+        _require(
+            all(kind_of(o) is not None for o in self.outputs), "outputs must be store node IRIs"
+        )
+        _require(_unique(self.outputs), "outputs must be unique")
+        return self
+
+    @classmethod
+    def new(
+        cls,
+        *,
+        stage: str,
+        input_sha256: str,
+        outputs: tuple[str, ...],
+        completed_at: AwareDatetime,
+    ) -> Self:
+        return cls(
+            id=cls.id_for(stage, input_sha256),
+            stage=stage,
+            input_sha256=input_sha256,
+            outputs=outputs,
+            completed_at=completed_at,
+        )
+
+
 GraphNodeType = (
-    Line | QueryCandidate | SourceItem | Unit | Claim | Judgment | Decision | Report | Label
+    Line
+    | QueryCandidate
+    | SourceItem
+    | Unit
+    | Claim
+    | Judgment
+    | Decision
+    | Report
+    | Label
+    | RotationCursor
+    | StageRecord
 )
 GraphNode = Annotated[GraphNodeType, Field(discriminator="type")]
