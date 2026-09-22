@@ -1,5 +1,5 @@
 {
- "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:49cd5bffb72d11f7": {
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:a051648085179834": {
   "status": 400,
   "content_type": "application/json",
   "body": "{\"error\":{\"message\":\"synthetic\"}}"

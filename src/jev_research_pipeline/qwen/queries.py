@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.exceptions import AgentRunError
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.usage import RunUsage
 
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import AdapterKind, QueryCandidate
@@ -76,13 +77,15 @@ async def query_candidates(
         instructions=instructions(adapter, n),
         retries={"output": OUTPUT_RETRIES},
     )
+    usage = RunUsage()  # filled as the run goes, so exhausted retries are metered too
     try:
-        result = await agent.run(user_prompt(ctx))
+        result = await agent.run(user_prompt(ctx), usage=usage)
     except AgentRunError as e:
         return QueryResult(
             candidates=fallback(ctx, adapter, n), fallback=True, failure=type(e).__name__
         )
-    meter.add(result.usage)
+    finally:
+        meter.add(usage)
     candidates = _candidates(ctx, adapter, result.output.queries, n)
     if not candidates:
         return QueryResult(candidates=fallback(ctx, adapter, n), fallback=True, failure="empty")
