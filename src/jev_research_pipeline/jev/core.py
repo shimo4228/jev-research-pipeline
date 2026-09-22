@@ -27,6 +27,7 @@ from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedMode
 from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models.typesafe import TypeSafeModel, TypeSafeModelSettings
 from pydantic_ai.providers.typesafe import TypeSafeProvider
+from pydantic_ai.tools import GenerateToolJsonSchema
 
 from jev_research_pipeline.model import (
     SUBJECT_KINDS,
@@ -59,9 +60,11 @@ class Ask[OutputT: BaseModel]:
     instructions that go along with every one of them.
 
     `sha256` covers the full wording — the instructions, the model docstring and every
-    field description and level description in the schema — and is Judgment.bundle_sha256.
+    field description, option name and level description — and is Judgment.bundle_sha256.
     Rewording a question therefore yields new judgments, never a silent mix of old and new
-    meanings under one id.
+    meanings under one id. It hashes the schema pydantic-ai *sends*: plain
+    model_json_schema() drops the member docstrings that become a Score's levels, so a
+    reworded rubric would keep its hash and replay pre-reword judgments from the cache.
     """
 
     function: JevFunction
@@ -71,7 +74,9 @@ class Ask[OutputT: BaseModel]:
 
     @property
     def sha256(self) -> str:
-        schema = cast(JsonValue, self.output.model_json_schema())
+        schema = cast(
+            JsonValue, self.output.model_json_schema(schema_generator=GenerateToolJsonSchema)
+        )
         return input_sha256({"instructions": self.instructions, "schema": schema})
 
     @property

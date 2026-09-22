@@ -68,6 +68,32 @@ def test_ask_hash_changes_with_wording():
     assert ASK.sha256 == Ask(**{**vars(ASK)}).sha256
 
 
+def test_ask_hash_changes_when_a_score_level_is_reworded():
+    """A level's description is a member docstring, and it is what Jev is asked against —
+    plain model_json_schema() leaves it out, so hashing that would keep the old id."""
+
+    class Relabelled(UseEnumMemberDocstrings, IntEnum):
+        vague = 0
+        """Other wording for the low level."""
+        specific = 1
+        """Names a method and a measured effect."""
+
+    class Other(BaseModel):
+        """Judge one unit of text."""
+
+        checkable: Probability = Field(description="Does `unit.text` state a checkable claim?")
+        depth: Relabelled = Field(description="How specific is the claim?")
+        kind: Literal["empirical", "normative"] = Field(
+            description="What kind of statement is it? `empirical` reports an observation or "
+            "measurement; `normative` says what should be done."
+        )
+
+    other: Ask[Any] = Ask(
+        function="claim_detection", version="v1", output=Other, instructions="Judge it."
+    )
+    assert other.sha256 != ASK.sha256
+
+
 async def test_every_field_becomes_one_question_in_one_request(
     cassette: ClientFactory, cassette_path: Path
 ):
