@@ -377,9 +377,14 @@ class LineRun:
             if self._over_budget():
                 return
             unit = self.st.units.get(claim.unit)
-            span = (unit.start, unit.end) if unit is not None else None
+            unit_span = (unit.start, unit.end) if unit is not None else None
             st = rubric_claim.state(
-                self.ctx, claim, src, rendering.prose, self.st.similar.get(claim.id, []), span=span
+                self.ctx,
+                claim,
+                src,
+                rendering.prose,
+                self.st.similar.get(claim.id, []),
+                span=unit_span,
             )
             result = await rubric_claim.judge(self.jev, report_id, claim, st, now=self.now)
             self._decide(rubric_claim.decision(result), claim.text)

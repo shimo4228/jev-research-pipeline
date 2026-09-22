@@ -37,8 +37,12 @@ tracer: Final = trace.get_tracer(SERVICE_NAME)
 
 def setup_telemetry(env: Mapping[str, str] | None = None) -> bool:
     """True when traces are exported. Safe to call once per process; never raises."""
-    environ = os.environ if env is None else env
-    if not environ.get(ENDPOINT_ENV):
+    # initialize() reads os.environ, so a caller-supplied mapping is merged into it first:
+    # otherwise the endpoint could be "set" for the check and missing for the exporter.
+    for key, value in (env or {}).items():
+        if key.startswith("OTEL_"):
+            os.environ.setdefault(key, value)
+    if not os.environ.get(ENDPOINT_ENV):
         return False
     os.environ.setdefault(PROTOCOL_ENV, DEFAULT_PROTOCOL)
     os.environ.setdefault("OTEL_SERVICE_NAME", SERVICE_NAME)

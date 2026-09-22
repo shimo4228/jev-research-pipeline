@@ -54,8 +54,10 @@ _ESCAPES: Final[tuple[tuple[re.Pattern[str], _Repl], ...]] = (
     (re.compile(r"!\["), "!\\["),
     # Obsidian comments: every % inside a run of 2+ (an odd run must not re-form %%).
     (re.compile(r"%(?=%)|(?<=%)%"), "\\%"),
-    # Code fences at line start (``` and ~~~): dataview / dataviewjs blocks run on render.
-    (re.compile(r"(?m)(?<=^)[`~]{3,}|(?<=\n)[`~]{3,}"), _escape_each),
+    # Code fences anywhere (``` and ~~~): dataview / dataviewjs blocks run on render, and
+    # CommonMark accepts them indented up to 3 spaces or inside a list item or quote — so
+    # position is not a safe filter. Inline code spans use 1-2 backticks and survive.
+    (re.compile(r"[`~]{3,}"), _escape_each),
     # Inline Dataview queries: `= expr` and `$= js`.
     (re.compile(r"`(\s*\$?)="), r"\\`\1\\="),
     # HTML / Templater: only a < that opens a tag, comment or <% … %>.

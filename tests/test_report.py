@@ -256,3 +256,26 @@ def test_harvest_keeps_only_claims_of_the_report(tmp_path: Path):
 def test_safe_url_encodes_bare_percent():
     url = safe_url("https://x.org/a%%b%41")
     assert url is not None and "%%" not in url and url.endswith("%41")
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "```dataviewjs\napp.vault.adapter.read('x')\n```",
+        " ```dataviewjs\nx\n```",
+        "   ~~~dataviewjs\nx\n~~~",
+        "> ```dataviewjs\nx\n```",
+        "- item\n  ```dataviewjs\nx\n```",
+        "text\n\n\t```dataviewjs\nx\n```",
+    ],
+    ids=["column0", "one_space", "three_spaces", "blockquote", "list_item", "tab"],
+)
+def test_no_indentation_smuggles_a_code_fence(fence: str):
+    # CommonMark allows up to 3 spaces of indent, and fences inside lists and quotes.
+    out = sanitize(fence)
+    assert "```" not in out
+    assert "~~~" not in out
+
+
+def test_short_code_spans_still_render():
+    assert sanitize("use ``x`` or `y`") == "use ``x`` or `y`"
