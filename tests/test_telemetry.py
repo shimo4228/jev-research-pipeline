@@ -46,3 +46,32 @@ async def test_run_emits_stage_and_jev_spans(cassette: ClientFactory, env: dict[
     line_attributes = line.attributes or {}
     assert line_attributes["jrp.line"] == "akc"
     assert "jrp.cost_usd" in line_attributes
+
+
+def test_httpx2_transport_is_instrumented():
+    """The OTel httpx instrumentation covers httpx2 (0.65b0 ships HTTPX2ClientInstrumentor
+    and an `httpx2` entry point, so initialize() loads it). It wraps httpx2's real
+    transport, so live runs get client spans; a replayed run does not, because the
+    cassette transport replaces the one that is wrapped."""
+    import httpx2
+    from opentelemetry.instrumentation.httpx import HTTPX2ClientInstrumentor
+
+    instrumentor = HTTPX2ClientInstrumentor()
+    assert any("httpx2" in dep for dep in instrumentor.instrumentation_dependencies())
+    instrumentor.instrument()
+    try:
+        wrapped = httpx2.AsyncHTTPTransport.handle_async_request
+        assert getattr(wrapped, "__wrapped__", None) is not None
+    finally:
+        instrumentor.uninstrument()
+    assert getattr(httpx2.AsyncHTTPTransport.handle_async_request, "__wrapped__", None) is None
+
+
+def test_setup_telemetry_never_raises(monkeypatch: pytest.MonkeyPatch):
+    # A mistyped OTEL_* var must not kill an unattended run before the notify path exists.
+    monkeypatch.setenv(ENDPOINT_ENV, "http://localhost:4318")
+    monkeypatch.setattr(
+        "opentelemetry.instrumentation.auto_instrumentation.initialize",
+        lambda: (_ for _ in ()).throw(RuntimeError("bad OTEL_TRACES_EXPORTER")),
+    )
+    assert setup_telemetry({}) is False

@@ -46,8 +46,12 @@ PROSE_TIMEOUT_ENV: Final = "JRP_PROSE_TIMEOUT_S"
 
 
 def prose_timeout_s(env: Mapping[str, str]) -> float:
-    raw = env.get(PROSE_TIMEOUT_ENV)
-    return float(raw) if raw else PROSE_TIMEOUT_S
+    """A mis-set env var must not cost the run: anything unparseable or <= 0 is ignored."""
+    try:
+        seconds = float(env.get(PROSE_TIMEOUT_ENV, ""))
+    except ValueError:
+        return PROSE_TIMEOUT_S
+    return seconds if seconds > 0 else PROSE_TIMEOUT_S
 
 
 def prose_agent(model: OpenAIChatModel, *, timeout_s: float) -> Agent[None, str]:

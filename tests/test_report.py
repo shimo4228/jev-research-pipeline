@@ -72,8 +72,9 @@ def _render(entries: list[ClaimEntry], prose: str | None = "本文です [1]。"
         ("%%%%% odd run", "%%"),
         ("# fake heading", "\n# "),
         ("- [x] forged task", "\n- ["),
-        ("[click](javascript:alert(1))", "javascript:"),
-        ("[click](data:text/html;base64,PHN2Zz4=)", "data:"),
+        # The scheme text stays readable; what dies is the link syntax around it.
+        ("[click](javascript:alert(1))", "]("),
+        ("[click](data:text/html;base64,PHN2Zz4=)", "]("),
     ],
 )
 def test_sanitize_kills_executable_obsidian_syntax(hostile: str, dead: str):
@@ -279,3 +280,24 @@ def test_no_indentation_smuggles_a_code_fence(fence: str):
 
 def test_short_code_spans_still_render():
     assert sanitize("use ``x`` or `y`") == "use ``x`` or `y`"
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "[click](javascript:alert(1))",
+        "[click](JavaScript:alert(1))",
+        "[click](data:text/html;base64,PHN2Zz4=)",
+        "[click]( javascript:alert(1))",
+    ],
+)
+def test_script_schemes_cannot_stay_a_link(hostile: str):
+    # Entity-encoding the colon is not enough: CommonMark decodes entities inside a link
+    # destination, so the href would come back as javascript:. Kill the link syntax.
+    out = sanitize(hostile)
+    assert "](" not in out
+
+
+def test_odd_bracket_runs_leave_no_wikilink():
+    assert "[[" not in sanitize("[[[Secret Note]]]")
+    assert "[[" not in sanitize("x [[[[Secret]]]] y")

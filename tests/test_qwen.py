@@ -222,3 +222,10 @@ def test_prose_agent_carries_a_long_per_request_timeout():
     assert settings["timeout"] == 300.0
     assert prose_timeout_s({}) == 300.0
     assert prose_timeout_s({PROSE_TIMEOUT_ENV: "600"}) == 600.0
+
+
+@pytest.mark.parametrize("raw", ["5m", "", "0", "-3", "abc"])
+def test_bad_prose_timeout_env_falls_back_to_the_default(raw: str):
+    from jev_research_pipeline.qwen.prose import PROSE_TIMEOUT_ENV, PROSE_TIMEOUT_S, prose_timeout_s
+
+    assert prose_timeout_s({PROSE_TIMEOUT_ENV: raw}) == PROSE_TIMEOUT_S

@@ -12,9 +12,10 @@
     ## 運用
 
 Everything that came from outside (claim text, generated prose, unjudged snippets,
-operations notes) passes through sanitize(): Obsidian must render it as text, never as a
-wikilink / embed / link (incl. bare-URL autolinks) / HTML / code fence (``` or ~~~) /
-Dataview or Templater expression — and it
+operations notes) passes through sanitize(). The boundary is *executable or fetching*
+syntax, not markdown: outside text may render as an ordinary link, a bare URL, a #tag or
+an inline code span, but never as a wikilink / embed / remote image / HTML / code fence
+(``` or ~~~) / Dataview or Templater expression / javascript: or data: link — and it
 must never be able to forge a `<!-- jrp:claim -->` line. Source URLs pass through
 safe_url() (http(s) only, markdown-breaking characters percent-encoded).
 """
@@ -44,13 +45,10 @@ def _escape_each(m: re.Match[str]) -> str:
     return "".join("\\" + c for c in m.group(0))
 
 
-def _escape_brackets(m: re.Match[str]) -> str:
-    return m.group(0).replace("[", "\\[")
-
-
 _ESCAPES: Final[tuple[tuple[re.Pattern[str], _Repl], ...]] = (
     # Wikilinks and embeds: [[note]], ![[file]], and ![alt](url) (a remote embed fetches).
-    (re.compile(r"!?\[\["), _escape_brackets),
+    # Every bracket of a run of 2+, so an odd run ([[[x]]]) cannot leave a live [[.
+    (re.compile(r"\[{2,}"), _escape_each),
     (re.compile(r"!\["), "!\\["),
     # Obsidian comments: every % inside a run of 2+ (an odd run must not re-form %%).
     (re.compile(r"%(?=%)|(?<=%)%"), "\\%"),
@@ -65,8 +63,9 @@ _ESCAPES: Final[tuple[tuple[re.Pattern[str], _Repl], ...]] = (
     # Headings and task lines forged at line start.
     (re.compile(r"(?m)^(\s*)#"), r"\1\\#"),
     (re.compile(r"(?m)^(\s*[-*+] )\["), r"\1\\["),
-    # Script-ish link targets: kept readable, no longer a usable href.
-    (re.compile(r"(?i)\b(javascript|data):"), r"\1&#58;"),
+    # Script-ish link targets: break the link syntax itself. Entity-encoding the colon is
+    # not enough — CommonMark decodes entities inside a link destination.
+    (re.compile(r"(?i)\]\(\s*(javascript|data):"), r"]\\(\1:"),
 )
 
 

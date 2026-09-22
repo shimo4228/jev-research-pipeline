@@ -12,11 +12,17 @@ setup_telemetry() is called once by the CLI:
 - endpoint set → opentelemetry.instrumentation.auto_instrumentation.initialize() reads
   every OTEL_* var (exporter, protocol, service name, sampler) and loads the httpx2
   instrumentation; pydantic-ai is instrumented process-wide without message content.
+  A mis-set OTEL_* var logs a warning and returns False rather than killing the run.
+
+HTTP spans come from opentelemetry-instrumentation-httpx, which wraps httpx2's real
+transport — a cassette-replayed run therefore shows stage and Jev spans but no client
+spans, because the cassette transport replaces the wrapped one.
 
 Local viewer (search-first 2026-09-23, README has the three env lines):
     brew tap ctrlspice/otel-desktop-viewer && brew install --cask otel-desktop-viewer
 """
 
+import logging
 import os
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
@@ -53,10 +59,14 @@ def setup_telemetry(env: Mapping[str, str] | None = None) -> bool:
     from pydantic_ai import Agent
     from pydantic_ai.models.instrumented import InstrumentationSettings
 
-    initialize()
-    # include_content=False: prompts carry third-party claim text; traces are for timing
-    # and failures, the store keeps the content.
-    Agent.instrument_all(InstrumentationSettings(include_content=False))
+    try:
+        initialize()
+        # include_content=False: prompts carry third-party claim text; traces are for
+        # timing and failures, the store keeps the content.
+        Agent.instrument_all(InstrumentationSettings(include_content=False))
+    except Exception:  # a mistyped OTEL_* var must not cost the run
+        logging.getLogger(__name__).warning("OpenTelemetry setup failed", exc_info=True)
+        return False
     return True
 
 

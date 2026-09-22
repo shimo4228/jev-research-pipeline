@@ -32,7 +32,8 @@ types-defusedxml（defusedxml の型 stub）。外部 API の test は cassette 
 
 - `[tool.deptry.per_rule_ignores] DEP002`（2026-09-23）— opentelemetry の sdk / exporter /
   distro / httpx 計装は `telemetry.py` が entry point 経由で読み込むため、import 名では
-  現れない。OTel を外す・置き換えるときにこの 4 行も消す。
+  現れない。httpx 計装は 0.65b0 で httpx2 を持つ（`HTTPX2ClientInstrumentor` と `httpx2`
+  entry point。回帰は `tests/test_telemetry.py`）。OTel を外す・置き換えるときにこの 4 行も消す。
 
 - `src/jev_research_pipeline/jev/_sdk.py` 先頭の pyright directive（reportUnknownMember /
   Argument / Variable を off）— 2026-09-22。typesafe-sdk 0.7.1 の JSONContent / JSONValue は
