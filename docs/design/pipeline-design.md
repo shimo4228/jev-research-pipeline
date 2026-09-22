@@ -267,6 +267,42 @@ output is question → evidence → how the answer moved. The **Question** is th
 Review-when: fill rate after two weeks; if questions stagnate (no proposals adopted in
 a month) revisit the proposal mechanism.
 
+### Search-first synthesis (2026-09-23) — what the question-centric build adopts
+
+Sources read: LangChain open_deep_research blog + eval post; Anthropic multi-agent
+research post; STORM / Co-STORM; GPT Researcher; Cochrane LSR guidance 2019 + a Cochrane
+living review 2024; SAFE (Boetje & van de Schoot 2024); stopping-method benchmark (Repke
+2026); ASReview insights; jev-paper-screener, paper-radar-jev, jev-papers, jev-search,
+jev-reranker, jevlogs; TypeSafe classifying_rag_passages cookbook; awesome-jev.
+No OSS combines standing pipeline + per-question judgments + stored labels + separate
+prose model; closest are jev-paper-screener (batch) and paper-radar-jev (one profile).
+
+Adopted into the Question-centric design:
+- **Question fields** (jev-paper-screener): title, brief, method_constraints,
+  evidence_constraints, negative_topics (paper-radar-jev), canary papers (SAFE: known
+  key papers that must rank high), status, opened_at, version, retire rule (Cochrane:
+  no longer a priority / certainty reached / no new research), append-only per-question
+  「What's New」 log.
+- **Screening per (item, Q)**: hard gates as Nouls (on_topic, method_transferable,
+  evidence_compatible, injection) → weighted Score dimensions → code routes to Keep /
+  Review / Drop / Incomplete (no abstract). Review = borderline OR Jev confidence < 0.9
+  (jev-papers: ≥0.9 → 98% agreement with an LLM judge, <0.9 → 63%). Contradictions go
+  to a separate block (cookbook). Skip only when every condition holds; store everything
+  (jevlogs).
+- **Per-run question outcome** (Cochrane): {no new evidence, new but unlikely to move,
+  likely to move} = question_movement Score levels; the author's ⭕❌ on a question-day is
+  the "likely to change conclusions" editorial judgment.
+- **Evals** (Anthropic, LangChain): start from ~20 real (item, Q) cases; grade the
+  question-day end state; single-step golden cases replayed from cassettes; citation
+  binding is deterministic — code validates every [n] Qwen writes and attaches links.
+- **Meters**: Time-to-Discovery per ⭕ paper (ASReview), net share, topic cluster count;
+  "n consecutive irrelevant" is NOT a convergence signal (Repke 2026); convergence
+  claims need an author-audited random sample of rejects (CMH hypergeometric bound).
+- **Threshold refit**: evaluate jevcal (awesome-jev) before writing our own fit; refit
+  only when held-out CI stays within a pre-set band (Cochrane RCT classifier practice).
+Not adopted: gold-report LLM judges (RACE), agent loops, keyed neural search, α-nDCG
+(needs sub-aspects per question — revisit later).
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
