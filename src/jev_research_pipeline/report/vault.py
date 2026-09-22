@@ -137,6 +137,14 @@ def _report_id(text: str) -> str | None:
     return value if isinstance(value, str) and kind_of(value) == "report" else None
 
 
+def note_report_id(path: Path) -> str | None:
+    """The jrp_report @id in a note's frontmatter, or None (missing / unreadable / absent)."""
+    try:
+        return _report_id(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def harvest_note(
     path: Path, *, now: AwareDatetime, report_claims: frozenset[str] | None = None
 ) -> HarvestResult:

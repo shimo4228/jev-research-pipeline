@@ -18,7 +18,7 @@ Invariants:
 import json
 import os
 from pathlib import Path
-from typing import Final, TypedDict, override
+from typing import Final, NotRequired, TypedDict, override
 from urllib.parse import parse_qsl, urlencode
 
 import httpx2
@@ -40,6 +40,9 @@ class Entry(TypedDict):
     status: int
     content_type: str
     body: str
+    request_body: NotRequired[str]
+    """The request body as sent (headers are never stored). Lets the drift job replay the
+    recorded Jev inputs against the live model."""
 
 
 def _redacted_url(url: httpx2.URL) -> str:
@@ -82,6 +85,9 @@ class Cassette:
     def get(self, key: str) -> Entry | None:
         return self._records.get(key)
 
+    def entries(self) -> dict[str, Entry]:
+        return dict(self._records)
+
     def put(self, key: str, response: Entry) -> None:
         self._records[key] = response
 
@@ -115,6 +121,8 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
                 content_type=live.headers.get("content-type", ""),
                 body=live.text,
             )
+            if request.content:
+                entry["request_body"] = request.content.decode("utf-8", errors="replace")
             await live.aclose()
             self.cassette.put(key, entry)
             self.cassette.save()

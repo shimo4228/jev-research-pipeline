@@ -159,3 +159,18 @@ def test_live_recordings_go_to_an_ignored_dir(
     transport = cassette(never)._transport  # pyright: ignore[reportPrivateUsage]
     assert isinstance(transport, CassetteTransport)
     assert transport.cassette.path.parent.name == "live"
+
+
+async def test_recording_keeps_the_request_body_for_drift(tmp_path: Path):
+    path = tmp_path / "c.json"
+    recorder = CassetteTransport(
+        Cassette(path), record=True, upstream=httpx2.MockTransport(_upstream_ok)
+    )
+    async with httpx2.AsyncClient(transport=recorder) as client:
+        await client.post(
+            "https://x.org/v1/systemone", json={"state": "s"}, headers={"Authorization": "Bearer K"}
+        )
+    entries = Cassette(path).entries()
+    (entry,) = entries.values()
+    assert json.loads(entry.get("request_body", "")) == {"state": "s"}
+    assert "Bearer" not in path.read_text(encoding="utf-8")

@@ -11,6 +11,7 @@ from . import (
     source_support,
     source_trust,
 )
+from ._sdk import JevState
 from .context import LineContext
 from .core import (
     JEV_MODEL,
@@ -35,6 +36,7 @@ __all__ = [
     "ChoiceQ",
     "JevClient",
     "JevFailure",
+    "JevState",
     "Level",
     "LineContext",
     "NoulQ",

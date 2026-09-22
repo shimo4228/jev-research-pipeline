@@ -301,7 +301,7 @@ async def test_rubric_claim_passes_only_when_every_axis_clears(cassette: ClientF
     st = rubric_claim.state(
         CTX, b.claim(), b.source(), "段落", ["stored"], span=(b.unit().start, b.unit().end)
     )
-    ok = await rubric_claim.judge(_jev(cassette), b.report(), b.claim(), st, now=b.T0)
+    ok = await rubric_claim.judge(_jev(cassette), b.report().id, b.claim(), st, now=b.T0)
     assert rubric_claim.decision(ok).outcome == "accept"
     assert isinstance(ok, Judgment)
     assert rubric_claim.Answers.of(ok).grounded == 1.0
@@ -310,7 +310,7 @@ async def test_rubric_claim_passes_only_when_every_axis_clears(cassette: ClientF
 async def test_rubric_claim_one_low_axis_fails(cassette: ClientFactory):
     st = rubric_claim.state(CTX, b.claim(), b.source(), None, [], span=None)
     low = await rubric_claim.judge(
-        _jev(cassette, {"grounded": (1.0, 0.0, 0.0)}), b.report(), b.claim(), st, now=b.T0
+        _jev(cassette, {"grounded": (1.0, 0.0, 0.0)}), b.report().id, b.claim(), st, now=b.T0
     )
     assert rubric_claim.decision(low).outcome == "reject"
 

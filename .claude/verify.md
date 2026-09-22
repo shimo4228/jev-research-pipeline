@@ -25,6 +25,9 @@ types-defusedxml（defusedxml の型 stub）。外部 API の test は cassette 
 含まれない。外部 API SDK を入れる step 5-6 で追加を再検討する。秘密スキャンは harness 側
 （`hooks/secret-scan-precommit.sh`）。
 
+**shell**: `scripts/launchd-jrp.sh` 1 本のみ。gate には入れず、導入時に shellcheck を
+手動で通した（2026-09-22）。shell script が増えたら shellcheck を full / staged に足す。
+
 ## 例外（許可リスト）
 
 - `src/jev_research_pipeline/jev/_sdk.py` 先頭の pyright directive（reportUnknownMember /

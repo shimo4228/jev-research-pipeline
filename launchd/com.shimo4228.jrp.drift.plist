@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.shimo4228.jrp.drift</string>
+  <!-- Weekly (Monday): replay recorded Jev inputs live; requires JRP_DRIFT_LIVE=1 in ~/.config/jrp/env. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/shimomoto_tatsuya/MyAI_Lab/jev-research-pipeline/scripts/launchd-jrp.sh</string>
+    <string>drift</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>7</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/shimomoto_tatsuya/Library/Logs/jrp-drift.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/shimomoto_tatsuya/Library/Logs/jrp-drift.log</string>
+</dict>
+</plist>

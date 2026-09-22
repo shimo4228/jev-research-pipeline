@@ -197,3 +197,43 @@ def fake_qwen(*contents: str | None, status: int = 200) -> Handler:
         )
 
     return handle
+
+
+E2E_ABSTRACT = (
+    "We decompose research judgment into narrow typed questions. "
+    "Fitted thresholds on author labels raise precision by twelve points. "
+    "The pipeline writes one report per research line each day."
+)
+
+
+def fake_world() -> Handler:
+    """Every upstream of one line-run, routed by host (end-to-end test only)."""
+    jev = fake_jev({"prompt_injection": 0.05, "unsupported_statement": 0.05})
+
+    async def handle(request: httpx2.Request) -> httpx2.Response:
+        host = request.url.host
+        if host == "api.typesafe.ai":
+            return await jev(request)
+        if host == "dashscope-intl.aliyuncs.com":
+            model = json.loads(request.content)["model"]
+            content = (
+                json.dumps({"queries": ["narrow typed questions", "author label thresholds"]})
+                if model == "qwen3.8-flash"
+                else "狭い型付き質問への分解で判定が安定する [1]。"
+            )
+            return await fake_qwen(content)(request)
+        if host == "export.arxiv.org":
+            atom = ARXIV_ATOM.replace(
+                "We decompose judgment into narrow questions.\n  Fitted weights raise accuracy.",
+                E2E_ABSTRACT,
+            )
+            return httpx2.Response(200, text=atom, headers={"content-type": "application/atom+xml"})
+        if host == "huggingface.co":
+            return httpx2.Response(200, json=[])
+        if host == "api.github.com":
+            return httpx2.Response(
+                200, json={"total_count": 0, "incomplete_results": False, "items": []}
+            )
+        return httpx2.Response(404, json={"error": f"unexpected host {host}"})
+
+    return handle

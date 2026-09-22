@@ -14,7 +14,6 @@ from jev_research_pipeline.model import (
     Claim,
     Decision,
     Judgment,
-    Report,
     RubricAxis,
     SourceItem,
     Threshold,
@@ -127,13 +126,13 @@ def state(
 
 async def judge(
     jev: JevClient,
-    report: Report,
+    report_id: str,
     claim: Claim,
     claim_state: dict[str, JsonValue],
     *,
     now: AwareDatetime,
 ) -> Judgment | JevFailure:
-    return await jev.judge(BUNDLE, (claim.id, report.id), claim_state, now=now)
+    return await jev.judge(BUNDLE, (claim.id, report_id), claim_state, now=now)
 
 
 def rule(j: Judgment) -> tuple[bool, float]:
