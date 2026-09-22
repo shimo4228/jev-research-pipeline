@@ -51,9 +51,14 @@ def _pos(key: str) -> Callable[[Judgment], float]:
     return lambda j: score(j, key).expected_position
 
 
-def _p_supports(j: Judgment) -> float:
-    c = choice(j, "support")
-    return c.probabilities[c.options.index("supports")]
+def _p_choice(key: str, *options: str) -> Callable[[Judgment], float]:
+    """The mass a Choice put on one or more of its options."""
+
+    def feature(j: Judgment) -> float:
+        c = choice(j, key)
+        return sum(c.probabilities[c.options.index(o)] for o in options)
+
+    return feature
 
 
 # (spec, feature, the module's current thresholds). query_selection and rubric_report have
@@ -61,12 +66,6 @@ def _p_supports(j: Judgment) -> float:
 SPECS: Final[
     tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...], str], ...]
 ] = (
-    (
-        FitSpec(function="relevance_triage", threshold="relevant", accept_if=">="),
-        _nou("relevant"),
-        relevance_triage.THRESHOLDS,
-        relevance_triage.ASK.sha256,
-    ),
     (
         FitSpec(function="relevance_triage", threshold="contains_evidence", accept_if=">="),
         _nou("contains_evidence"),
@@ -80,20 +79,20 @@ SPECS: Final[
         relevance_triage.ASK.sha256,
     ),
     (
-        FitSpec(function="claim_detection", threshold="checkable_claim", accept_if=">="),
-        _nou("checkable_claim"),
+        FitSpec(function="claim_detection", threshold="bears_on", accept_if=">="),
+        _p_choice("relation", "advances", "contradicts"),
         claim_detection.THRESHOLDS,
         claim_detection.ASK.sha256,
     ),
     (
-        FitSpec(function="claim_detection", threshold="relevant", accept_if=">="),
-        _nou("relevant"),
+        FitSpec(function="claim_detection", threshold="checkable", accept_if=">="),
+        _nou("checkable"),
         claim_detection.THRESHOLDS,
         claim_detection.ASK.sha256,
     ),
     (
         FitSpec(function="source_support", threshold="supports", accept_if=">="),
-        _p_supports,
+        _p_choice("support", "supports"),
         source_support.THRESHOLDS,
         source_support.ASK.sha256,
     ),

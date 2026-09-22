@@ -19,10 +19,20 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
 from .jev.core import score, threshold
-from .model import AxisMeter, Decision, Judgment, Label, Operations, Report, RubricAxis, kind_of
+from .model import (
+    AxisMeter,
+    Decision,
+    Judgment,
+    Label,
+    Operations,
+    Question,
+    Report,
+    RubricAxis,
+    kind_of,
+)
 from .model.jsonld import Value
 from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
-from .qwen.prose import PROSE_TIMEOUT_S
+from .qwen.prose import PROSE_TIMEOUT_S, evidence_text
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -103,13 +113,15 @@ async def rubric_ladder(
     jev: JevClient,
     model: OpenAIChatModel,
     ctx: LineContext,
+    question: Question,
     report_id: str,
     claims: list[str],
     meter: GenerationMeter,
     now: AwareDatetime,
     timeout_s: float = PROSE_TIMEOUT_S,
+    evidence_set: list[str] | None = None,
 ) -> tuple[Rendering, list[Judgment]]:
-    """`claims` = accepted claim texts in report_ordering order.
+    """One question's section: `claims` = its accepted claim texts, in reading order.
 
     Returns the rendering and every draft's rubric_report Judgment (dense labels; each
     draft's prose differs, so each Judgment has its own @id). The Decisions of both drafts
@@ -119,12 +131,21 @@ async def rubric_ladder(
 
     async def write(feedback: str | None) -> ProseResult:
         return await write_prose(
-            model, ctx, claims, feedback=feedback, meter=meter, timeout_s=timeout_s
+            model,
+            ctx,
+            question,
+            claims,
+            feedback=feedback,
+            meter=meter,
+            timeout_s=timeout_s,
+            evidence_set=evidence_set,
         )
 
     async def evaluate(prose: str) -> Decision:
+        # `grounded` is judged on the evidence paragraphs only: the marked inference
+        # paragraph is allowed to go beyond the claims, that is what marking it is for.
         result = await rubric_report.judge(
-            jev, report_id, rubric_report.state(ctx, prose, claims), now=now
+            jev, report_id, rubric_report.state(ctx, evidence_text(prose), claims), now=now
         )
         if isinstance(result, Judged):
             judged.append(result.judgment)

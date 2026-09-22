@@ -20,7 +20,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.usage import RunUsage
 
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import AdapterKind, QueryCandidate
+from jev_research_pipeline.model import AdapterKind, QueryCandidate, Question
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.query_text import clean_query
 
@@ -58,14 +58,19 @@ def instructions(adapter: AdapterKind, n: int) -> str:
     return (
         f"You write search queries for the `{adapter}` source. Return JSON with one field, "
         f"`queries`: a list of {n} short queries (2-6 words each, English) that would find "
-        "recent work on the research line described in the user message. Use its vocabulary; "
-        "do not add commentary."
+        "recent work bearing on the research question in the user message. Use the line's "
+        "vocabulary where it fits the question; do not add commentary."
     )
 
 
-def user_prompt(ctx: LineContext) -> str:
+def user_prompt(ctx: LineContext, question: Question) -> str:
     vocab = "\n".join(f"- {term}" for term in ctx.vocabulary)
-    return f"Research line: {ctx.line.name}\nVocabulary:\n{vocab}"
+    parts = [f"Research line: {ctx.line.name}", f"Question: {question.title}"]
+    if question.brief:
+        parts.append(f"Background: {question.brief}")
+    if question.negative_topics:
+        parts.append("Not this: " + "; ".join(question.negative_topics))
+    return "\n".join(parts) + f"\nVocabulary:\n{vocab}"
 
 
 def _candidates(
@@ -76,14 +81,19 @@ def _candidates(
     return tuple(QueryCandidate.new(line=ctx.line.id, adapter=adapter, text=t) for t in unique)
 
 
-def fallback(ctx: LineContext, adapter: AdapterKind, n: int) -> tuple[QueryCandidate, ...]:
-    return _candidates(ctx, adapter, list(ctx.vocabulary), n)
+def fallback(
+    ctx: LineContext, adapter: AdapterKind, question: Question, n: int
+) -> tuple[QueryCandidate, ...]:
+    """Code-built queries: the question's own words first, then the line vocabulary."""
+    words = [question.title, *question.method_constraints, *ctx.vocabulary]
+    return _candidates(ctx, adapter, words, n)
 
 
 async def query_candidates(
     model: OpenAIChatModel,
     ctx: LineContext,
     adapter: AdapterKind,
+    question: Question,
     *,
     n: int,
     meter: GenerationMeter,
@@ -96,16 +106,20 @@ async def query_candidates(
     )
     usage = RunUsage()  # filled as the run goes, so exhausted retries are metered too
     try:
-        result = await agent.run(user_prompt(ctx), usage=usage)
+        result = await agent.run(user_prompt(ctx, question), usage=usage)
     except AgentRunError as e:
         if isinstance(e, UnexpectedModelBehavior):
             meter.output_violations += 1  # the model kept returning unusable strings
         return QueryResult(
-            candidates=fallback(ctx, adapter, n), fallback=True, failure=type(e).__name__
+            candidates=fallback(ctx, adapter, question, n),
+            fallback=True,
+            failure=type(e).__name__,
         )
     finally:
         meter.add(usage)
     candidates = _candidates(ctx, adapter, result.output.queries, n)
     if not candidates:
-        return QueryResult(candidates=fallback(ctx, adapter, n), fallback=True, failure="empty")
+        return QueryResult(
+            candidates=fallback(ctx, adapter, question, n), fallback=True, failure="empty"
+        )
     return QueryResult(candidates=candidates, fallback=False, failure=None)

@@ -245,7 +245,7 @@ def test_judgment_answer_keys_unique():
     with pytest.raises(ValidationError, match="unique"):
         Judgment.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             model="jev-1.13.0",
             state_sha256="a" * 64,
             bundle_sha256="b" * 64,
@@ -258,7 +258,7 @@ def test_judgment_needs_answers():
     with pytest.raises(ValidationError):
         Judgment.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             model="jev-1.13.0",
             state_sha256="a" * 64,
             bundle_sha256="b" * 64,
@@ -296,7 +296,7 @@ def test_judgment_model_is_pinned_version():
     with pytest.raises(ValidationError):
         Judgment.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             model="jev-latest",
             state_sha256="a" * 64,
             bundle_sha256="b" * 64,
@@ -318,7 +318,7 @@ def test_judgment_answer_lookup():
 def test_unjudged_has_no_judgments_and_no_score():
     d = Decision.new(
         function="claim_detection",
-        subjects=(b.unit().id,),
+        subjects=(b.unit().id, b.question().id),
         policy="claim_detection@v1",
         bundle_sha256="b" * 64,
         judgments=(),
@@ -330,7 +330,7 @@ def test_unjudged_has_no_judgments_and_no_score():
     with pytest.raises(ValidationError, match="unjudged"):
         Decision.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             policy="claim_detection@v1",
             bundle_sha256="b" * 64,
             judgments=(b.judgment().id,),
@@ -344,7 +344,7 @@ def test_judged_decision_needs_judgment_and_score():
     with pytest.raises(ValidationError, match="judgment"):
         Decision.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             policy="claim_detection@v1",
             bundle_sha256="b" * 64,
             judgments=(),
@@ -355,7 +355,7 @@ def test_judged_decision_needs_judgment_and_score():
     with pytest.raises(ValidationError, match="score"):
         Decision.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             policy="claim_detection@v1",
             bundle_sha256="b" * 64,
             judgments=(b.judgment().id,),
@@ -369,7 +369,7 @@ def test_decision_judgments_must_be_judgment_iris():
     with pytest.raises(ValidationError, match="judgments"):
         Decision.new(
             function="claim_detection",
-            subjects=(b.unit().id,),
+            subjects=(b.unit().id, b.question().id),
             policy="claim_detection@v1",
             bundle_sha256="b" * 64,
             judgments=(b.claim().id,),

@@ -35,7 +35,12 @@ async def test_run_emits_stage_and_jev_spans(cassette: ClientFactory, env: dict[
     spans = EXPORTER.get_finished_spans()
     names = {s.name for s in spans}
     assert "jrp.line" in names
-    assert {"jrp.stage.queries", "jrp.stage.fetch", "jrp.stage.claims", "jrp.stage.prose"} <= names
+    assert {
+        "jrp.stage.queries",
+        "jrp.stage.fetch",
+        "jrp.stage.claims",
+        "jrp.stage.sections",
+    } <= names
     jev = [s for s in spans if s.name.startswith("jev.")]
     assert jev, names
     attributes = jev[0].attributes or {}

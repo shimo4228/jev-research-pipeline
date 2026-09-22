@@ -16,6 +16,9 @@ from jev_research_pipeline.jev import (
     claim_detection,
     novelty,
     query_selection,
+    question_movement,
+    question_screening,
+    question_seeding,
     relevance_triage,
     report_ordering,
     rubric_claim,
@@ -40,6 +43,9 @@ from .fakes import fake_jev
 MODULES: list[ModuleType] = [
     query_selection,
     relevance_triage,
+    question_seeding,
+    question_screening,
+    question_movement,
     claim_detection,
     novelty,
     source_support,
@@ -49,6 +55,7 @@ MODULES: list[ModuleType] = [
     rubric_report,
 ]
 CTX = LineContext(line=b.line(), vocabulary=("agent memory", "narrow questions"))
+QUESTION = b.question()
 
 
 def _jev(
@@ -92,7 +99,7 @@ def test_threshold_names_are_unique(module: ModuleType):
     assert len(names) == len(set(names))
 
 
-def test_all_nine_functions_have_a_module():
+def test_every_function_has_a_module():
     assert {m.ASK.function for m in MODULES} == set(SUBJECT_KINDS)
 
 
@@ -128,7 +135,7 @@ async def test_query_selection_keeps_top_k_above_floor(cassette: ClientFactory):
     pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
     for q in queries:
         jev = _jev(cassette, {"expected_yield": dists[q.text]})
-        pairs.append((q, await query_selection.judge(jev, CTX, q, now=b.T0)))
+        pairs.append((q, await query_selection.judge(jev, CTX, q, QUESTION, now=b.T0)))
     decisions = query_selection.rank(pairs)
     kept = [q.text for q, d in zip(queries, decisions, strict=True) if d.outcome == "accept"]
     # q0 (1.0), q2 (0.83), then q1/q3 tie at 0.67 broken by @id; q4 (0.0) is below the floor.
@@ -155,11 +162,11 @@ def test_query_selection_unjudged_is_never_kept():
 @pytest.mark.parametrize(
     ("answers", "outcome"),
     [
-        ({"relevant": 0.9, "contains_evidence": 0.8, "prompt_injection": 0.1}, "accept"),
-        ({"relevant": 0.9, "contains_evidence": 0.8, "prompt_injection": 0.7}, "reject"),
-        ({"relevant": 0.2, "contains_evidence": 0.8, "prompt_injection": 0.1}, "reject"),
+        ({"contains_evidence": 0.8, "prompt_injection": 0.1}, "accept"),
+        ({"contains_evidence": 0.8, "prompt_injection": 0.7}, "reject"),
+        ({"contains_evidence": 0.2, "prompt_injection": 0.1}, "reject"),
     ],
-    ids=["clean", "injection", "off_topic"],
+    ids=["clean", "injection", "no_evidence"],
 )
 async def test_relevance_triage_rule(
     cassette: ClientFactory, answers: dict[str, object], outcome: str
@@ -177,19 +184,19 @@ async def test_relevance_triage_failure_is_unjudged(cassette: ClientFactory):
 
 
 async def test_claim_detection_accepts_checkable_relevant_unit(cassette: ClientFactory):
-    result = await claim_detection.judge(_jev(cassette), CTX, b.unit(), b.source(), now=b.T0)
+    result = await claim_detection.judge(_jev(cassette), QUESTION, b.unit(), b.source(), now=b.T0)
     d = claim_detection.decision(result)
-    assert (d.outcome, d.subjects) == ("accept", (b.unit().id,))
+    assert (d.outcome, d.subjects) == ("accept", (b.unit().id, QUESTION.id))
 
 
 async def test_claim_detection_rejects_non_claim(cassette: ClientFactory):
     result = await claim_detection.judge(
-        _jev(cassette, {"checkable_claim": 0.1}), CTX, b.unit(), b.source(), now=b.T0
+        _jev(cassette, {"checkable": 0.1}), QUESTION, b.unit(), b.source(), now=b.T0
     )
     assert claim_detection.decision(result).outcome == "reject"
 
 
-# --- novelty: code pre-pass, then pairs ----------------------------------------------------
+# --- novelty: code pre-pass, then one judgment per (claim, question) ----------------------
 
 
 def _claim(text: str, url: str) -> Claim:
@@ -208,36 +215,35 @@ def test_novelty_prepass_excludes_self_and_caps_k(tmp_path: Path):
     part = GraphStore(tmp_path).line("akc")
     part.put(stored)
     index = ClaimIndex.rebuild(tmp_path / "i.sqlite", part)
-    pairs = novelty.candidate_pairs(index, stored[0])
-    assert stored[0].id not in pairs
-    assert len(pairs) == 5
+    similar = novelty.similar_claims(index, stored[0])
+    assert stored[0].id not in similar
+    assert len(similar) == 5
 
 
-async def test_novelty_same_claim_pair_marks_duplicate(cassette: ClientFactory):
-    new, old = (
-        _claim("A says B.", "https://arxiv.org/abs/n"),
-        _claim("A states B.", "https://arxiv.org/abs/o"),
+async def test_novelty_same_as_known_is_a_duplicate(cassette: ClientFactory):
+    new = _claim("A says B.", "https://arxiv.org/abs/n")
+    known = ["A states B."]
+    result = await novelty.judge(
+        _jev(cassette, {"novelty": (0.9, 0.1, 0.0)}), QUESTION, new, known, now=b.T0
     )
-    result = await novelty.judge(_jev(cassette, {"relation": (0.0, 0.1, 0.9)}), new, old, now=b.T0)
     d = novelty.decision(result)
-    assert d.subjects == (new.id, old.id)
+    assert d.subjects == (new.id, QUESTION.id)
     assert novelty.verdict([d]) == "duplicate"
 
 
 async def test_novelty_extension_is_novel(cassette: ClientFactory):
-    new, old = (
-        _claim("A says B at scale.", "https://arxiv.org/abs/n"),
-        _claim("A says B.", "https://arxiv.org/abs/o"),
+    new = _claim("A says B at scale.", "https://arxiv.org/abs/n")
+    result = await novelty.judge(
+        _jev(cassette, {"novelty": (0.1, 0.8, 0.1)}), QUESTION, new, ["A says B."], now=b.T0
     )
-    result = await novelty.judge(_jev(cassette, {"relation": (0.1, 0.8, 0.1)}), new, old, now=b.T0)
     assert novelty.verdict([novelty.decision(result)]) == "novel"
 
 
 def test_novelty_verdict_edges():
-    assert novelty.verdict([]) == "novel"  # no candidate pair: nothing to duplicate
+    assert novelty.verdict([]) == "novel"  # nothing judged it a duplicate
     failure = JevFailure(
         function="novelty",
-        subjects=(b.claim().id, b.claim().id),
+        subjects=(b.claim().id, QUESTION.id),
         bundle_sha256=novelty.ASK.sha256,
         reason="timeout",
         detail="",
@@ -400,7 +406,11 @@ async def test_query_selection_top_k_is_per_adapter(cassette: ClientFactory):
             (
                 q,
                 await query_selection.judge(
-                    _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}), CTX, q, now=b.T0
+                    _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}),
+                    CTX,
+                    q,
+                    QUESTION,
+                    now=b.T0,
                 ),
             )
         )
@@ -409,7 +419,11 @@ async def test_query_selection_top_k_is_per_adapter(cassette: ClientFactory):
             (
                 q,
                 await query_selection.judge(
-                    _jev(cassette, {"expected_yield": (0.0, 0.0, 1.0, 0.0)}), CTX, q, now=b.T0
+                    _jev(cassette, {"expected_yield": (0.0, 0.0, 1.0, 0.0)}),
+                    CTX,
+                    q,
+                    QUESTION,
+                    now=b.T0,
                 ),
             )
         )
@@ -437,7 +451,7 @@ async def test_query_selection_falls_back_to_top_k_when_nothing_clears_the_floor
     pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
     for q in queries:
         jev = _jev(cassette, {"expected_yield": dists[q.text]})
-        pairs.append((q, await query_selection.judge(jev, CTX, q, now=b.T0)))
+        pairs.append((q, await query_selection.judge(jev, CTX, q, QUESTION, now=b.T0)))
     decisions = query_selection.rank(pairs)
     kept = [q.text for q, d in zip(queries, decisions, strict=True) if d.outcome == "accept"]
     assert len(kept) == 3
@@ -457,13 +471,21 @@ async def test_floor_fallback_is_per_adapter(cassette: ClientFactory):
         (
             good,
             await query_selection.judge(
-                _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}), CTX, good, now=b.T0
+                _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}),
+                CTX,
+                good,
+                QUESTION,
+                now=b.T0,
             ),
         ),
         (
             weak,
             await query_selection.judge(
-                _jev(cassette, {"expected_yield": (1.0, 0.0, 0.0, 0.0)}), CTX, weak, now=b.T0
+                _jev(cassette, {"expected_yield": (1.0, 0.0, 0.0, 0.0)}),
+                CTX,
+                weak,
+                QUESTION,
+                now=b.T0,
             ),
         ),
     ]

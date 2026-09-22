@@ -1,28 +1,43 @@
-"""Report markdown (packet decision 12).
+"""Report markdown (packet "Question-centric redesign").
 
     ---                                  frontmatter: daily-research keys (date / category /
     date / category: jrp / kind / tags /   kind / tags / topic) + line + jrp_report
     topic / line / jrp_report
     ---
     # <line name> — <date>
-    <prose, or the template notice>
-    ## Claims                            one line per claim, the only machine-read lines:
-    - [ ] <verbatim> — [source](url) <!-- jrp:claim:<claim @id> -->
+    ### <question title>                 one section per question that moved today
+    今日の変化
+    <prose, with [n] and one inference paragraph marked 推論>
+    証拠
+    - <source title> — <gist> — [link](url)
+    - [ ] 読む価値があった <!-- jrp:qday:<question @id>:<date> -->
+    ## Review                            borderline sources, one checkbox each
+    - [ ] <title> — <why> <!-- jrp:source:<source @id> -->
+    ## 問いの候補                          tick = adopt into questions/<slug>.md
+    - [ ] <title> — <brief> <!-- jrp:question:<slug> -->
+    ## 橋渡し                              what the exploration nets connected
+    > [!note]- Claims                    folded: the wall of claims is not the reading surface
+    > - [ ] <verbatim> — [source](url) <!-- jrp:claim:<claim @id> -->
     ## 未判定
     ## 運用
+
+The machine-read lines are exactly the four `<!-- jrp:… -->` marks above; one checkbox
+per question-day is the primary metric's unit, and its tick propagates to the claims and
+sources cited under it (report.vault).
 
 Everything that came from outside (claim text, generated prose, unjudged snippets,
 operations notes) passes through sanitize(). The boundary is *executable or fetching*
 syntax, not markdown: outside text may render as an ordinary link, a bare URL, a #tag or
 an inline code span, but never as a wikilink / embed / remote image / HTML / code fence
 (``` or ~~~) / Dataview or Templater expression / javascript: or data: link — and it
-must never be able to forge a `<!-- jrp:claim -->` line. Source URLs pass through
+must never be able to forge a `<!-- jrp:… -->` line. Source URLs pass through
 safe_url() (http(s) only, markdown-breaking characters percent-encoded).
 """
 
 import json
 import re
 from collections.abc import Callable
+from datetime import date
 from typing import Final
 from urllib.parse import quote
 
@@ -33,6 +48,9 @@ from jev_research_pipeline.model.jsonld import Value
 CATEGORY: Final = "jrp"
 KIND: Final = "report"
 CLAIM_MARK: Final = "jrp:claim:"
+QDAY_MARK: Final = "jrp:qday:"
+SOURCE_MARK: Final = "jrp:source:"
+CANDIDATE_MARK: Final = "jrp:question:"
 
 # Only syntax Obsidian (or a plugin) would *execute or fetch* is neutralized — the live
 # notes showed that escaping every bracket, paren, $ and < made them unreadable in source
@@ -74,6 +92,30 @@ class ClaimEntry(Value):
     source_url: str
 
 
+class SourceEntry(Value):
+    """One source line under 証拠, Review or 橋渡し."""
+
+    source_id: str
+    title: str
+    gist: str
+    url: str
+
+
+class QuestionSection(Value):
+    """One question that moved today. `prose` is None when the ladder fell to template."""
+
+    question_id: str
+    title: str
+    prose: str | None
+    evidence: tuple[SourceEntry, ...]
+
+
+class CandidateEntry(Value):
+    slug: str
+    title: str
+    brief: str
+
+
 def sanitize(text: str, *, one_line: bool = False) -> str:
     """Untrusted text → text that renders but never executes or fetches."""
     out = text
@@ -91,8 +133,8 @@ def safe_url(url: str) -> str | None:
     return quote(url, safe=":/?#@!&=+,;%~-._*'")
 
 
-def _frontmatter(report: Report, ctx: LineContext, n_claims: int) -> str:
-    topic = f"{ctx.line.name} — {n_claims} claims"
+def _frontmatter(report: Report, ctx: LineContext, n_sections: int) -> str:
+    topic = f"{ctx.line.name} — {n_sections} 問い"
     fields = [
         f"date: {report.run_date.isoformat()}",
         f"category: {CATEGORY}",
@@ -111,30 +153,84 @@ def claim_line(entry: ClaimEntry) -> str:
     return f"- [ ] {sanitize(entry.claim.text, one_line=True)}{link} <!-- {CLAIM_MARK}{entry.claim.id} -->"
 
 
+def _source_line(entry: SourceEntry, mark: str | None = None) -> str:
+    url = safe_url(entry.url)
+    link = f" — [link]({url})" if url else ""
+    gist = f" — {sanitize(entry.gist, one_line=True)}" if entry.gist else ""
+    box = "- [ ] " if mark else "- "
+    tail = f" <!-- {mark} -->" if mark else ""
+    return f"{box}{sanitize(entry.title, one_line=True)}{gist}{link}{tail}"
+
+
+def qday_mark(question_id: str, run_date: date) -> str:
+    return f"{QDAY_MARK}{question_id}:{run_date.isoformat()}"
+
+
+def _question_section(section: QuestionSection, run_date: date) -> str:
+    body = (
+        sanitize(section.prose)
+        if section.prose is not None
+        else "本文生成なし (template)。証拠だけを挙げる。"
+    )
+    lines = [
+        f"### {sanitize(section.title, one_line=True)}",
+        "",
+        "今日の変化",
+        "",
+        body,
+        "",
+        "証拠",
+        "",
+        *[_source_line(e) for e in section.evidence],
+        "",
+        f"- [ ] 読む価値があった <!-- {qday_mark(section.question_id, run_date)} -->",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _bullets(lines: list[str]) -> str:
+    return ("\n".join(lines) + "\n") if lines else "(なし)\n"
+
+
 def render_report(
     *,
     report: Report,
     ctx: LineContext,
+    sections: list[QuestionSection],
     claims: list[ClaimEntry],
+    review: list[SourceEntry],
+    candidates: list[CandidateEntry],
+    bridges: list[SourceEntry],
     unjudged: list[str],
     operations: list[str],
 ) -> str:
-    """`claims` in reading order (report.claims). `unjudged` / `operations` are display
-    lines (sanitized here like everything else)."""
-    body = (
-        report.prose
-        if report.prose is not None
-        else ("本文生成なし (template)。受理された claim を以下に列挙する。")
-    )
+    """`sections` = the questions that moved today, in reading order; `claims` is the
+    folded list (report.claims). Everything else is display lines, sanitized here."""
+    date_ = report.run_date
     parts = [
-        _frontmatter(report, ctx, len(claims)),
-        f"# {sanitize(ctx.line.name, one_line=True)} — {report.run_date.isoformat()}\n",
-        sanitize(body) + "\n",
-        "## Claims\n",
-        "\n".join(claim_line(e) for e in claims) + ("\n" if claims else "(なし)\n"),
+        _frontmatter(report, ctx, len(sections)),
+        f"# {sanitize(ctx.line.name, one_line=True)} — {date_.isoformat()}\n",
+        "\n".join(_question_section(s, date_) for s in sections)
+        if sections
+        else "今日動いた問いはない。\n",
+        "## Review\n",
+        _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review]),
+        "## 問いの候補\n",
+        _bullets(
+            [
+                f"- [ ] {sanitize(c.title, one_line=True)}"
+                + (f" — {sanitize(c.brief, one_line=True)}" if c.brief else "")
+                + f" <!-- {CANDIDATE_MARK}{c.slug} -->"
+                for c in candidates
+            ]
+        ),
+        "## 橋渡し\n",
+        _bullets([_source_line(e) for e in bridges]),
+        "> [!note]- Claims\n",
+        _bullets([f"> {claim_line(e)}" for e in claims]),
         "## 未判定\n",
-        "\n".join(f"- {sanitize(u, one_line=True)}" for u in unjudged)
-        + ("\n" if unjudged else "(なし)\n"),
+        _bullets([f"- {sanitize(u, one_line=True)}" for u in unjudged]),
         "## 運用\n",
         "\n".join(f"- {sanitize(o, one_line=True)}" for o in operations) + "\n",
     ]

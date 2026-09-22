@@ -366,6 +366,23 @@ def choice(j: Judgment, key: str) -> ChoiceAnswer:
     return a
 
 
+def certainty(judged: Judged[Any]) -> float:
+    """How sure the least sure answer of this judgment is, in [0, 1].
+
+    Computed from the stored distributions rather than read from the provider: what we
+    keep is the distribution, and a measure derived from it survives a replay from the
+    store. A Noul is its distance from 0.5 doubled (0.5 = undecided); a Score or Choice is
+    the probability of the level or option it landed on.
+    """
+    values: list[float] = []
+    for answer in judged.judgment.answers:
+        if isinstance(answer, NoulAnswer):
+            values.append(abs(answer.p_yes - 0.5) * 2.0)
+        else:
+            values.append(max(answer.probabilities))
+    return min(values) if values else 0.0
+
+
 def position(judged: Judged[Any], key: str) -> float:
     """A Score field's probability-weighted position in [0, 1] (lowest level = 0)."""
     return score(judged.judgment, key).expected_position

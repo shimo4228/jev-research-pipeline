@@ -16,6 +16,7 @@ from jev_research_pipeline.model import (
     GraphNodeType,
     Judgment,
     Label,
+    Question,
     SourceItem,
     Unit,
     kind_of,
@@ -30,6 +31,7 @@ class DecisionLog:
     claims: dict[str, Claim] = field(default_factory=dict[str, Claim])
     units: dict[str, Unit] = field(default_factory=dict[str, Unit])
     sources: dict[str, SourceItem] = field(default_factory=dict[str, SourceItem])
+    questions: dict[str, Question] = field(default_factory=dict[str, Question])
     judgments: list[Judgment] = field(default_factory=list[Judgment])
     decisions: list[Decision] = field(default_factory=list[Decision])
     labels: list[Label] = field(default_factory=list[Label])
@@ -45,6 +47,8 @@ class DecisionLog:
                     log.units[n.id] = n
                 case SourceItem():
                     log.sources[n.id] = n
+                case Question():
+                    log.questions[n.id] = n
                 case Judgment():
                     log.judgments.append(n)
                 case Decision():

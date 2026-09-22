@@ -49,8 +49,8 @@ class Answers(BaseModel):
     )
 
 
-ASK = Ask(function="claim_detection", version="v1", output=Answers, instructions="Judge it.")
-STATE: JevState = {"unit": {"text": "x"}}
+ASK = Ask(function="relevance_triage", version="v1", output=Answers, instructions="Judge it.")
+STATE: JevState = {"source": {"text": "x"}}
 
 
 def _reworded() -> Ask[Any]:
@@ -61,7 +61,7 @@ def _reworded() -> Ask[Any]:
         depth: Depth = Field(description="How specific is the claim?")
         kind: Literal["empirical", "normative"] = Field(description="What kind?")
 
-    return Ask(function="claim_detection", version="v1", output=Other, instructions="Judge it.")
+    return Ask(function="relevance_triage", version="v1", output=Other, instructions="Judge it.")
 
 
 def test_ask_hash_changes_with_wording():
@@ -90,7 +90,7 @@ def test_ask_hash_changes_when_a_score_level_is_reworded():
         )
 
     other: Ask[Any] = Ask(
-        function="claim_detection", version="v1", output=Other, instructions="Judge it."
+        function="relevance_triage", version="v1", output=Other, instructions="Judge it."
     )
     assert other.sha256 != ASK.sha256
 
@@ -99,7 +99,7 @@ def test_ask_hash_changes_with_the_version_and_the_function():
     # A version bump is how a policy revision is marked; it has to invalidate the cache,
     # or the pre-bump judgments keep being replayed and counted as current.
     assert replace(ASK, version="v2").sha256 != ASK.sha256
-    assert replace(ASK, function="novelty").sha256 != ASK.sha256
+    assert replace(ASK, function="source_trust").sha256 != ASK.sha256
 
 
 def test_ask_hash_changes_when_a_score_level_is_renamed():
@@ -122,7 +122,7 @@ def test_ask_hash_changes_when_a_score_level_is_renamed():
         )
 
     other: Ask[Any] = Ask(
-        function="claim_detection", version="v1", output=Other, instructions="Judge it."
+        function="relevance_triage", version="v1", output=Other, instructions="Judge it."
     )
     assert other.sha256 != ASK.sha256
 
@@ -136,18 +136,18 @@ async def test_a_field_jev_cannot_be_asked_about_raises(cassette: ClientFactory)
         checkable: bool = Field(description="Does `unit.text` state a checkable claim?")
 
     wired: Ask[Any] = Ask(
-        function="claim_detection", version="v1", output=Wired, instructions="Judge it."
+        function="relevance_triage", version="v1", output=Wired, instructions="Judge it."
     )
     jev = JevClient(cassette(fake_jev()), api_key="replay")
     with pytest.raises(TypeError, match="not a Jev question type"):
-        await jev.judge(wired, (b.unit().id,), STATE, now=b.T0)
+        await jev.judge(wired, (b.source().id,), STATE, now=b.T0)
 
 
 async def test_every_field_becomes_one_question_in_one_request(
     cassette: ClientFactory, cassette_path: Path
 ):
     jev = JevClient(cassette(fake_jev()), api_key="replay")
-    await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     # Read what went on the wire from the recording: under replay the fake never runs.
     recorded = json.loads(cassette_path.read_text(encoding="utf-8"))
     assert len(recorded) == 1
@@ -165,7 +165,7 @@ async def test_every_field_becomes_one_question_in_one_request(
 
 async def test_judge_returns_the_output_and_the_raw_answers(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev({"checkable": 0.9, "depth": (0.25, 0.75)})), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, Judged)
     assert result.output.checkable == 0.9
     assert result.output.depth is Depth.specific
@@ -184,22 +184,22 @@ async def test_judge_returns_the_output_and_the_raw_answers(cassette: ClientFact
 
 async def test_a_stored_judgment_replays_to_the_same_output(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev({"checkable": 0.9, "depth": (0.6, 0.4)})), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, Judged)
     assert output_of(Answers, result.judgment) == result.output
 
 
 async def test_same_state_same_judgment_id(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev()), api_key="replay")
-    a = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
-    c = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    a = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
+    c = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(a, Judged) and isinstance(c, Judged)
     assert a.judgment.id == c.judgment.id
 
 
 async def test_api_error_is_a_failure_not_an_exception(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev(status=400)), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, JevFailure)
     assert result.reason == "api_error"
     assert jev.questions_asked == 3
@@ -208,22 +208,22 @@ async def test_api_error_is_a_failure_not_an_exception(cassette: ClientFactory):
 async def test_unpinned_model_in_response_is_a_failure(cassette: ClientFactory):
     # Aliases drift: an answer from any model other than the pinned one is not recorded.
     jev = JevClient(cassette(fake_jev(model="jev-1.14.0")), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, JevFailure)
     assert result.reason == "model_mismatch"
 
 
 async def test_malformed_distribution_is_a_failure(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev({"depth": (0.5, 0.2)})), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, JevFailure)
     assert result.reason == "bad_answer"
 
 
 def _failure(sha: str) -> JevFailure:
     return JevFailure(
-        function="claim_detection",
-        subjects=(b.unit().id,),
+        function="relevance_triage",
+        subjects=(b.source().id,),
         bundle_sha256=sha,
         reason="timeout",
         detail="t",
@@ -239,7 +239,7 @@ def test_decide_unjudged_on_failure():
 
 async def test_decide_records_thresholds_and_score(cassette: ClientFactory):
     jev = JevClient(cassette(fake_jev()), api_key="replay")
-    result = await jev.judge(ASK, (b.unit().id,), STATE, now=b.T0)
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, Judged)
     t = (Threshold(name="checkable", value=0.5),)
     d = decide(result, ask=ASK, thresholds=t, rule=lambda j: (False, 0.2))

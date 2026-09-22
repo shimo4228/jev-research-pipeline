@@ -10,6 +10,7 @@ from pydantic_evals import Dataset
 from jev_research_pipeline.jev import claim_detection, relevance_triage
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import (
+    ChoiceAnswer,
     Claim,
     Decision,
     GraphNodeType,
@@ -32,13 +33,14 @@ from jev_research_pipeline.store import GraphStore
 from . import builders as b
 
 CTX = LineContext(line=b.line(), vocabulary=("agent memory",))
+QUESTION = b.question()
 
 
 def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
     """n sources → units → claims, each with a claim_detection judgment whose
     checkable_claim p_yes = i/n, and a Label: correct iff p ≥ 0.7 (so the fitted threshold
     for checkable_claim should move up from 0.5 toward 0.7)."""
-    nodes: list[GraphNodeType] = []
+    nodes: list[GraphNodeType] = [QUESTION]
     for i in range(n):
         p = i / n
         text = f"Claim {i} about agent memory."
@@ -56,13 +58,17 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
         claim = Claim.from_unit(unit, line=b.LINE_IRI)
         j = Judgment.new(
             function="claim_detection",
-            subjects=(unit.id,),
+            subjects=(unit.id, QUESTION.id),
             model="jev-1.13.0",
             state_sha256=claim_detection_state_sha(unit, src),
             bundle_sha256=claim_detection.ASK.sha256,
             answers=(
-                NoulAnswer(key="checkable_claim", p_yes=p),
-                NoulAnswer(key="relevant", p_yes=0.9),
+                ChoiceAnswer(
+                    key="relation",
+                    options=("advances", "contradicts", "unrelated"),
+                    probabilities=(p, 0.0, 1.0 - p),
+                ),
+                NoulAnswer(key="checkable", p_yes=0.9),
             ),
             judged_at=b.T0,
         )
@@ -92,7 +98,7 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
 def claim_detection_state_sha(unit: Unit, src: SourceItem) -> str:
     from jev_research_pipeline.store import input_sha256
 
-    return input_sha256(claim_detection.state(CTX, unit, src))
+    return input_sha256(claim_detection.state(QUESTION, unit, src))
 
 
 # --- decision log --------------------------------------------------------------------------
@@ -110,9 +116,7 @@ def test_log_links_judgments_to_labeled_claims():
 
 def test_fit_moves_threshold_toward_the_gold_boundary():
     proposals = fit_thresholds(DecisionLog.from_nodes(_world(40)), min_gold=10)
-    p = next(
-        p for p in proposals if (p.function, p.threshold) == ("claim_detection", "checkable_claim")
-    )
+    p = next(p for p in proposals if (p.function, p.threshold) == ("claim_detection", "bears_on"))
     assert p.current == 0.5
     assert p.proposed == pytest.approx(0.7)
     assert p.accuracy_proposed > p.accuracy_current
@@ -158,7 +162,7 @@ def test_exported_case_inputs_are_the_judgment_state(tmp_path: Path):
     path = export_cases(DecisionLog.from_nodes(_world(2)), CTX, tmp_path / "cases.yaml")
     dataset = Dataset[dict[str, object], str, dict[str, object]].from_file(path)
     inputs = dataset.cases[0].inputs
-    assert set(inputs) == {"claim_id", "function", "state"}
+    assert set(inputs) == {"claim_id", "function", "question", "state"}
     assert inputs["function"] == "claim_detection"
 
 
@@ -225,9 +229,7 @@ def test_min_gold_counts_distinct_labeled_claims():
 
 def test_fit_uses_only_current_bundle_judgments():
     proposals = fit_thresholds(DecisionLog.from_nodes(_rejudged(_world(40))), min_gold=10)
-    p = next(
-        p for p in proposals if (p.function, p.threshold) == ("claim_detection", "checkable_claim")
-    )
+    p = next(p for p in proposals if (p.function, p.threshold) == ("claim_detection", "bears_on"))
     assert p.n_gold == 40
 
 

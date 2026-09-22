@@ -6,10 +6,15 @@
   source- or model-derived text.
 - A same-day re-run keeps the author's ticks: marks already in the note are carried
   over to the matching claim ids before the file is replaced (atomic write).
-- Harvest (decision 5): only lines `- [x|-| ] … <!-- jrp:claim:<claim @id> -->` are read.
-  [x] = correct, [-] = incorrect, [ ] = no gold: no Label, and an earlier Label for that
-  claim is withdrawn (HarvestResult.cleared). Everything else in the note
-  is the author's to edit. A missing or unreadable note is skipped with a reason.
+- Harvest: only lines `- [x|-| ] … <!-- jrp:<kind>:<payload> -->` are read, for the four
+  kinds the note writes: `qday` (a question-day — the primary unit), `source`, `claim`
+  and `question` (a proposal the author adopts). [x] = correct, [-] = incorrect,
+  [ ] = no gold: no Label, and an earlier Label for that subject is withdrawn
+  (HarvestResult.cleared). A question-day tick propagates to the claims and sources its
+  QuestionLog cites, so the fit layer gets claim-level gold from one checkbox. A ticked
+  proposal is returned as `adopted` for the runner to append to questions/<slug>.md —
+  this module never writes there itself. Everything else in the note is the author's to
+  edit. A missing or unreadable note is skipped with a reason.
 """
 
 import json
@@ -23,17 +28,13 @@ from typing import Final, Literal
 
 from pydantic import AwareDatetime, ValidationError
 
-from jev_research_pipeline.model import Label, kind_of
+from jev_research_pipeline.model import Label, LabelProvenance, QuestionLog, kind_of
 from jev_research_pipeline.model.jsonld import Value
-
-from .markdown import CLAIM_MARK
 
 VAULT_ENV: Final = "JRP_VAULT_DIR"
 REPORT_DIR: Final = "daily-research"
 _SLUG_RE: Final = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-_CLAIM_LINE_RE: Final = re.compile(
-    rf"^(\s*- \[)([xX\- ])(\] .*<!-- {re.escape(CLAIM_MARK)}(\S+) -->)\s*$"
-)
+_MARK_LINE_RE: Final = re.compile(r"^(\s*>?\s*- \[)([xX\- ])(\] .*<!-- jrp:([a-z]+):(\S+) -->)\s*$")
 _REPORT_ID_RE: Final = re.compile(r"^jrp_report:\s*(.+?)\s*$", re.M)
 
 type Verdict = Literal["correct", "incorrect"]
@@ -47,8 +48,11 @@ class VaultNotConfigured(RuntimeError):
 class HarvestResult(Value):
     labels: tuple[Label, ...]
     cleared: tuple[str, ...] = ()
-    """Label @ids of claims shown as `[ ]`: the author withdrew (or never gave) a tick,
-    so any earlier Label for that (claim, report) must be removed from the store."""
+    """Label @ids of subjects shown as `[ ]`: the author withdrew (or never gave) a tick,
+    so any earlier Label for that (subject, report) must be removed from the store."""
+    adopted: tuple[str, ...] = ()
+    """Slugs of question proposals the author ticked; the runner appends them to the
+    question file (this module never writes there)."""
     skipped: SkipReason | None
 
 
@@ -68,36 +72,46 @@ def note_path(vault: Path, slug: str, run_date: date) -> Path:
     return vault / REPORT_DIR / f"{run_date.isoformat()}_jrp_{slug}.md"
 
 
-def _marks(text: str) -> dict[str, str]:
-    marks: dict[str, str] = {}
+def _marks(text: str) -> dict[tuple[str, str], str]:
+    """(kind, payload) → the character inside the box, for every machine-read line."""
+    marks: dict[tuple[str, str], str] = {}
     for line in text.splitlines():
-        m = _CLAIM_LINE_RE.match(line)
+        m = _MARK_LINE_RE.match(line)
         if m:
-            marks[m.group(4)] = m.group(2)
+            marks[(m.group(4), m.group(5))] = m.group(2)
     return marks
 
 
+def _verdict(mark: str) -> Verdict | None:
+    if mark in "xX":
+        return "correct"
+    return "incorrect" if mark == "-" else None
+
+
+def ticks(text: str, kind: str) -> dict[str, Verdict]:
+    """Payload → verdict for one mark kind; unticked payloads are left out."""
+    return {
+        payload: verdict
+        for (k, payload), mark in _marks(text).items()
+        if k == kind and (verdict := _verdict(mark)) is not None
+    }
+
+
 def harvest_text(text: str) -> dict[str, Verdict]:
-    out: dict[str, Verdict] = {}
-    for claim_id, mark in _marks(text).items():
-        if kind_of(claim_id) != "claim":
-            continue
-        if mark in "xX":
-            out[claim_id] = "correct"
-        elif mark == "-":
-            out[claim_id] = "incorrect"
-    return out
+    """Claim ticks, the shape the reduction layer has always read."""
+    return {i: v for i, v in ticks(text, "claim").items() if kind_of(i) == "claim"}
 
 
-def unticked(text: str) -> list[str]:
-    return [c for c, mark in _marks(text).items() if mark == " " and kind_of(c) == "claim"]
+def unticked(text: str, kind: str = "claim") -> list[str]:
+    return [p for (k, p), mark in _marks(text).items() if k == kind and mark == " "]
 
 
-def _carry_over(new_text: str, old_marks: dict[str, str]) -> str:
+def _carry_over(new_text: str, old_marks: dict[tuple[str, str], str]) -> str:
     def replace(line: str) -> str:
-        m = _CLAIM_LINE_RE.match(line)
-        if m and m.group(4) in old_marks:
-            return f"{m.group(1)}{old_marks[m.group(4)]}{m.group(3)}"
+        m = _MARK_LINE_RE.match(line)
+        key = (m.group(4), m.group(5)) if m else None
+        if m and key in old_marks:
+            return f"{m.group(1)}{old_marks[key]}{m.group(3)}"
         return line
 
     return "\n".join(replace(line) for line in new_text.split("\n"))
@@ -145,11 +159,79 @@ def note_report_id(path: Path) -> str | None:
         return None
 
 
+def _labels(
+    text: str,
+    *,
+    report_id: str,
+    now: AwareDatetime,
+    logs: Mapping[str, QuestionLog],
+    report_claims: frozenset[str] | None,
+) -> dict[str, Label]:
+    """One Label per ticked subject. A question-day tick propagates to what that day
+    cited; a claim's own tick wins over a propagated one, because the author said
+    something specific about it."""
+    labels: dict[str, Label] = {}
+
+    def label(subject: str, verdict: Verdict, provenance: LabelProvenance) -> None:
+        try:
+            made = Label.new(
+                subject=subject,
+                report=report_id,
+                verdict=verdict,
+                provenance=provenance,
+                harvested_at=now,
+            )
+        except ValidationError:
+            return
+        if made.id not in labels or provenance != "question_day":
+            labels[made.id] = made
+
+    for mark, verdict in ticks(text, "qday").items():
+        log = logs.get(mark)
+        if log is not None:
+            for subject in (log.id, *log.claims, *log.sources):
+                label(subject, verdict, "question_day")
+    for source_id, verdict in ticks(text, "source").items():
+        label(source_id, verdict, "source")
+    for claim_id, verdict in harvest_text(text).items():
+        if report_claims is None or claim_id in report_claims:
+            label(claim_id, verdict, "claim")
+    return labels
+
+
+def _cleared(
+    text: str,
+    *,
+    report_id: str,
+    logs: Mapping[str, QuestionLog],
+    report_claims: frozenset[str] | None,
+) -> list[str]:
+    """Label @ids to withdraw: every subject the author left, or made, blank."""
+    subjects: list[str] = []
+    for mark in unticked(text, "qday"):
+        log = logs.get(mark)
+        if log is not None:
+            subjects += [log.id, *log.claims, *log.sources]
+    subjects += unticked(text, "source")
+    subjects += [
+        claim_id
+        for claim_id in unticked(text, "claim")
+        if report_claims is None or claim_id in report_claims
+    ]
+    return [Label.id_for(i, report_id) for i in subjects]
+
+
 def harvest_note(
-    path: Path, *, now: AwareDatetime, report_claims: frozenset[str] | None = None
+    path: Path,
+    *,
+    now: AwareDatetime,
+    report_claims: frozenset[str] | None = None,
+    logs: Mapping[str, QuestionLog] | None = None,
 ) -> HarvestResult:
-    """`report_claims` (the stored Report.claims) restricts harvesting to claims that were
-    actually in this report — lines pasted from another note do not become Labels."""
+    """`report_claims` (the stored Report.claims) restricts claim harvesting to claims
+    that were actually in this report — lines pasted from another note do not become
+    Labels. `logs` maps a question-day mark (`<question @id>:<date>`) to its QuestionLog,
+    so one tick propagates to the claims and sources that day cited."""
     if not path.exists():
         return HarvestResult(labels=(), skipped="missing")
     try:
@@ -159,28 +241,15 @@ def harvest_note(
     report_id = _report_id(text)
     if report_id is None:
         return HarvestResult(labels=(), skipped="no_report_id")
-    labels: list[Label] = []
-    for claim_id, verdict in harvest_text(text).items():
-        if report_claims is not None and claim_id not in report_claims:
-            continue
-        try:
-            labels.append(
-                Label.new(
-                    subject=claim_id,
-                    report=report_id,
-                    verdict=verdict,
-                    provenance="claim",
-                    harvested_at=now,
-                )
-            )
-        except ValidationError:
-            continue
-    cleared = tuple(
-        Label.id_for(claim_id, report_id)
-        for claim_id in unticked(text)
-        if report_claims is None or claim_id in report_claims
+    by_mark = logs or {}
+    labels = _labels(text, report_id=report_id, now=now, logs=by_mark, report_claims=report_claims)
+    cleared = _cleared(text, report_id=report_id, logs=by_mark, report_claims=report_claims)
+    return HarvestResult(
+        labels=tuple(labels.values()),
+        cleared=tuple(i for i in dict.fromkeys(cleared) if i not in labels),
+        adopted=tuple(ticks(text, "question")),
+        skipped=None,
     )
-    return HarvestResult(labels=tuple(labels), cleared=cleared, skipped=None)
 
 
 def report_notes(vault: Path, slug: str) -> list[Path]:

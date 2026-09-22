@@ -1,0 +1,109 @@
+"""Qwen site 1b: question candidates for a line (qwen3.8-flash).
+
+Seeds are gathered by code — the line's ResearchLine description and the "Review-when"
+lines of its ADRs, i.e. the conditions the author already wrote down for revisiting a
+decision. Qwen phrases candidate questions from them; Jev (question_seeding) scores them;
+the note proposes them with a checkbox and the author adopts. One candidate per round is
+asked for from a changed vantage point, because a proposal round that only rephrases the
+line's own vocabulary cannot open anything new (packet "Question-centric redesign").
+
+NativeOutput over a Pydantic model, same as the query site; a failed or empty generation
+yields no proposals rather than a made-up one.
+"""
+
+from typing import Final
+
+from pydantic import AwareDatetime, BaseModel, Field
+from pydantic_ai import Agent, NativeOutput
+from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.usage import RunUsage
+
+from jev_research_pipeline.jev.context import LineContext
+from jev_research_pipeline.model import Question
+from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.query_text import clean_query
+from jev_research_pipeline.questions import slugify
+
+from .client import GenerationMeter
+
+PROPOSALS: Final = 5
+"""Per round. The author reads them in the note; more than a handful is a wall."""
+OUTPUT_RETRIES: Final = 2
+
+
+class Candidate(BaseModel):
+    """One proposed research question."""
+
+    title: str = Field(description="The question itself, in Japanese, as one sentence.")
+    brief: str = Field(description="What an answer would settle, in one sentence.")
+
+
+class CandidateList(BaseModel):
+    questions: list[Candidate] = Field(min_length=1)
+
+
+class ProposalResult(Value):
+    questions: tuple[Question, ...]
+    failure: str | None
+
+
+def instructions(n: int) -> str:
+    return (
+        f"あなたは研究ラインの「問い」を提案する。JSON で `questions` という 1 つの field を返す: "
+        f"{n} 件の候補。各候補は `title` に問いそのものを日本語 1 文で、`brief` に答えが何を決めるかを "
+        "1 文で書く。うち 1 件は、与えられた語彙の外側から見た視点で立てる。"
+        "答えが証拠で動く問いにする。前置きや解説は書かない。"
+    )
+
+
+def user_prompt(ctx: LineContext, seeds: list[str]) -> str:
+    vocab = "\n".join(f"- {term}" for term in ctx.vocabulary)
+    lines = [f"研究ライン: {ctx.line.name}", f"語彙:\n{vocab}"]
+    if seeds:
+        joined = "\n".join(f"- {s}" for s in seeds)
+        lines.append(f"著者が書き残した見直し条件:\n{joined}")
+    return "\n\n".join(lines)
+
+
+def _question(ctx: LineContext, candidate: Candidate, now: AwareDatetime) -> Question | None:
+    title = " ".join(candidate.title.split())
+    if clean_query(title) is None:
+        return None  # the same contamination guard as the query site
+    return Question.new(
+        line=ctx.line.id,
+        slug=slugify(title),
+        version=1,
+        title=title,
+        brief=" ".join(candidate.brief.split()),
+        opened_at=now,
+    )
+
+
+async def propose_questions(
+    model: OpenAIChatModel,
+    ctx: LineContext,
+    seeds: list[str],
+    *,
+    n: int = PROPOSALS,
+    meter: GenerationMeter,
+    now: AwareDatetime,
+) -> ProposalResult:
+    agent = Agent(
+        model,
+        output_type=NativeOutput(CandidateList, strict=True),
+        instructions=instructions(n),
+        retries={"output": OUTPUT_RETRIES},
+    )
+    usage = RunUsage()
+    try:
+        result = await agent.run(user_prompt(ctx, seeds), usage=usage)
+    except AgentRunError as e:
+        if isinstance(e, UnexpectedModelBehavior):
+            meter.output_violations += 1
+        return ProposalResult(questions=(), failure=type(e).__name__)
+    finally:
+        meter.add(usage)
+    made = [q for c in result.output.questions[:n] if (q := _question(ctx, c, now)) is not None]
+    unique = list({q.slug: q for q in made}.values())
+    return ProposalResult(questions=tuple(unique), failure=None if unique else "empty")

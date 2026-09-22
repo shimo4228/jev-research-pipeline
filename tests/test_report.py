@@ -20,6 +20,7 @@ from jev_research_pipeline.report import (
     vault_dir,
     write_note,
 )
+from jev_research_pipeline.report.markdown import CandidateEntry, QuestionSection, SourceEntry
 
 from . import builders as b
 
@@ -39,14 +40,42 @@ def _entry(
     return ClaimEntry(claim=claim, source_url=src.url)
 
 
-def _render(entries: list[ClaimEntry], prose: str | None = "本文です [1]。") -> str:
+def _section(prose: str | None, entries: list[ClaimEntry]) -> QuestionSection:
+    sources = [
+        SourceEntry(
+            source_id=e.claim.unit.replace("/unit/", "/source/"),
+            title="t",
+            gist=e.claim.text[:40],
+            url=e.source_url,
+        )
+        for e in entries
+    ]
+    return QuestionSection(
+        question_id=b.question().id,
+        title=b.question().title,
+        prose=prose,
+        evidence=tuple(sources),
+    )
+
+
+def _render(
+    entries: list[ClaimEntry],
+    prose: str | None = "本文です [1]。",
+    *,
+    review: list[SourceEntry] | None = None,
+    candidates: list[CandidateEntry] | None = None,
+) -> str:
     report = b.report()
     return render_report(
         report=report.model_copy(
             update={"prose": prose, "rendering": "prose" if prose else "template"}
         ),
         ctx=CTX,
+        sections=[_section(prose, entries)],
         claims=entries,
+        review=review or [],
+        candidates=candidates or [],
+        bridges=[],
         unjudged=["見出しだけの断片"],
         operations=["Jev 質問数: 13", "claude_calls: 0"],
     )
@@ -123,22 +152,39 @@ def test_frontmatter_has_daily_research_keys_plus_line_and_report():
 def test_body_sections_in_order():
     text = _render([_entry()])
     body = text.split("---\n", 2)[2]
-    positions = [body.index(h) for h in ("# ", "本文です", "## Claims", "## 未判定", "## 運用")]
+    positions = [
+        body.index(h)
+        for h in (
+            "# ",
+            "### ",
+            "今日の変化",
+            "本文です",
+            "証拠",
+            "jrp:qday:",
+            "## Review",
+            "## 問いの候補",
+            "## 橋渡し",
+            "> [!note]- Claims",
+            "## 未判定",
+            "## 運用",
+        )
+    ]
     assert positions == sorted(positions)
 
 
 def test_claim_line_format():
     e = _entry()
     line = next(ln for ln in _render([e]).splitlines() if "jrp:claim" in ln)
+    # Folded into the callout, so the line is quoted; the machine-read part is unchanged.
     assert (
         line
-        == f"- [ ] {e.claim.text} — [source](https://arxiv.org/abs/1) <!-- jrp:claim:{e.claim.id} -->"
+        == f"> - [ ] {e.claim.text} — [source](https://arxiv.org/abs/1) <!-- jrp:claim:{e.claim.id} -->"
     )
 
 
 def test_hostile_claim_cannot_forge_a_second_claim_line():
     e = _entry("ok <!-- jrp:claim:https://evil/x --> [[Note]]\n- [x] forged")
-    lines = [ln for ln in _render([e]).splitlines() if "jrp:claim" in ln]
+    lines = [ln for ln in _render([e]).splitlines() if "jrp:claim" in ln and ln.startswith("> ")]
     assert len(lines) == 1
     assert "[[Note]]" not in lines[0]
 
@@ -238,7 +284,7 @@ def test_write_note_survives_an_undecodable_old_note(tmp_path: Path):
     path.parent.mkdir()
     path.write_bytes(b"\xff\xfe broken")
     write_note(tmp_path, "akc", DAY, _render([_entry()]))
-    assert "## Claims" in path.read_text(encoding="utf-8")
+    assert "> [!note]- Claims" in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("run", ["%%%", "%%%%%", "a %%% b"])

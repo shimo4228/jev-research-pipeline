@@ -62,7 +62,7 @@ def query() -> QueryCandidate:
 def judgment() -> Judgment:
     return Judgment.new(
         function="claim_detection",
-        subjects=(unit().id,),
+        subjects=(unit().id, question().id),
         model="jev-1.13.0",
         state_sha256="a" * 64,
         bundle_sha256="b" * 64,
@@ -77,8 +77,8 @@ def judgment() -> Judgment:
 def decision() -> Decision:
     return Decision.new(
         function="claim_detection",
-        subjects=(unit().id,),
-        policy="claim_detection@v1",
+        subjects=(unit().id, question().id),
+        policy="claim_detection@v2",
         bundle_sha256="b" * 64,
         judgments=(judgment().id,),
         thresholds=(Threshold(name="states_checkable_claim", value=0.5),),
@@ -147,7 +147,7 @@ def label() -> Label:
 def score_judgment() -> Judgment:
     return Judgment.new(
         function="novelty",
-        subjects=(claim().id, claim().id),
+        subjects=(claim().id, question().id),
         model="jev-1.13.0",
         state_sha256="c" * 64,
         bundle_sha256="d" * 64,

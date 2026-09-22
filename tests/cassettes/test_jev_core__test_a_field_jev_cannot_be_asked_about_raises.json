@@ -1,8 +1,8 @@
 {
- "POST https://api.typesafe.ai/v1/systemone body:aee7ec3aceed9023": {
+ "POST https://api.typesafe.ai/v1/systemone body:afd2ae0010be87de": {
   "status": 200,
   "content_type": "application/json",
   "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"checkable\":{\"type\":\"noul\",\"noul\":0.8}}}",
-  "request_body": "{\"state\":\"{\\\"unit\\\": {\\\"text\\\": \\\"x\\\"}}\",\"model\":\"jev-1.13.0\",\"questions\":{\"checkable\":{\"type\":\"noul\",\"instructions\":{\"field\":\"checkable\",\"question\":\"Does `unit.text` state a checkable claim?\",\"goal\":\"Judge one unit of text.\",\"instructions\":\"Judge it.\"}}}}"
+  "request_body": "{\"state\":\"{\\\"source\\\": {\\\"text\\\": \\\"x\\\"}}\",\"model\":\"jev-1.13.0\",\"questions\":{\"checkable\":{\"type\":\"noul\",\"instructions\":{\"field\":\"checkable\",\"question\":\"Does `unit.text` state a checkable claim?\",\"goal\":\"Judge one unit of text.\",\"instructions\":\"Judge it.\"}}}}"
  }
 }

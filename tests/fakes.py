@@ -201,27 +201,65 @@ def fake_qwen(*contents: str | None, status: int = 200) -> Handler:
 
 
 E2E_ABSTRACT = (
+    # Long enough to be an abstract: screening routes anything shorter to "incomplete".
     "We decompose research judgment into narrow typed questions. "
     "Fitted thresholds on author labels raise precision by twelve points. "
-    "The pipeline writes one report per research line each day."
+    "The pipeline writes one report per research line each day. "
+    "We compare the decomposition against a single broad prompt on the same corpus, "
+    "and report agreement with the author's own labels for every question in the set."
+)
+
+
+PROPOSALS = json.dumps(
+    {
+        "questions": [
+            {
+                "title": "記憶機構の差はどこで効くのか",
+                "brief": "下流の精度差を決める条件を切り分ける。",
+            }
+        ]
+    }
 )
 
 
 def fake_world() -> Handler:
-    """Every upstream of one line-run, routed by host (end-to-end test only)."""
-    jev = fake_jev({"prompt_injection": 0.05, "unsupported_statement": 0.05})
+    """Every upstream of one line-run, routed by host (end-to-end test only).
+
+    The Noul answers are deliberately confident: the screening routes a source to Review
+    below certainty 0.9, so the default 0.8 would send every source to the author and the
+    run would produce no claims at all."""
+    jev = fake_jev(
+        {
+            "prompt_injection": 0.05,
+            "unsupported_statement": 0.05,
+            "on_topic": 0.97,
+            "method_transferable": 0.97,
+            "evidence_compatible": 0.97,
+            "contains_evidence": 0.97,
+            "checkable": 0.97,
+            "same_source": 0.03,
+            "contradiction": 0.03,
+            "bridges_line": 0.97,
+            "open_for_line": 0.97,
+            "answerable_by_evidence": 0.97,
+        }
+    )
 
     async def handle(request: httpx2.Request) -> httpx2.Response:
         host = request.url.host
         if host == "api.typesafe.ai":
             return await jev(request)
         if host == "dashscope-intl.aliyuncs.com":
-            model = json.loads(request.content)["model"]
-            content = (
-                json.dumps({"queries": ["narrow typed questions", "author label thresholds"]})
-                if model == "qwen3.8-flash"
-                else "狭い型付き質問への分解で判定が安定する [1]。"
-            )
+            body = json.loads(request.content)
+            asked = json.dumps(body, ensure_ascii=False)
+            if body["model"] != "qwen3.8-flash":
+                content = "狭い型付き質問への分解で判定が安定する [1]。"
+            elif "問い" in asked and "queries" not in asked:
+                content = PROPOSALS
+            else:
+                content = json.dumps(
+                    {"queries": ["narrow typed questions", "author label thresholds"]}
+                )
             return await fake_qwen(content)(request)
         if host == "export.arxiv.org":
             atom = ARXIV_ATOM.replace(

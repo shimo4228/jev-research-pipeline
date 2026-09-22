@@ -36,9 +36,22 @@ def env(tmp_path: Path) -> dict[str, str]:
     )
     vault = tmp_path / "vault"
     vault.mkdir()
+    questions = tmp_path / "questions"
+    questions.mkdir()
+    # The author's own file: without an open question the line does not run at all.
+    (questions / "akc.md").write_text(
+        "<!-- jrp:questions:akc -->\n\n"
+        "## エージェントの記憶は何で決まるのか\n"
+        "- slug: agent-memory\n"
+        "- version: 1\n"
+        "- status: open\n"
+        "- brief: 記憶機構の違いが下流の精度をどれだけ動かすか。\n",
+        encoding="utf-8",
+    )
     return {
         "JRP_VAULT_DIR": str(vault),
         "JRP_STORE_DIR": str(tmp_path / "store"),
+        "JRP_QUESTIONS_DIR": str(questions),
         "JRP_DAILY_RESEARCH_CONFIG": str(cfg),
         "TYPESAFE_API_KEY": "replay",
         "DASHSCOPE_API_KEY": "replay",
@@ -53,7 +66,8 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     note = Path(env["JRP_VAULT_DIR"]) / "daily-research" / "2026-09-22_jrp_akc.md"
     assert outcome.note == note
     text = note.read_text(encoding="utf-8")
-    assert "category: jrp" in text and "## Claims" in text and "## 運用" in text
+    assert "category: jrp" in text and "> [!note]- Claims" in text and "## 運用" in text
+    assert "jrp:qday:" in text  # the primary unit: one checkbox per question-day
     assert "claude_calls: 0" in text
     claim_lines = [ln for ln in text.splitlines() if "jrp:claim:" in ln]
     assert claim_lines, text
@@ -75,9 +89,11 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     from jev_research_pipeline.pipeline.runner import harvest_line
 
     lines = harvest_line(
-        GraphStore(Path(env["JRP_STORE_DIR"])), Path(env["JRP_VAULT_DIR"]), "akc", b.T0
+        GraphStore(Path(env["JRP_STORE_DIR"])), Path(env["JRP_VAULT_DIR"]), "akc", b.T0, env
     )
-    assert lines[0] == f"harvest: label 1 件 / 取り消し {len(claim_lines) - 1} 件"
+    # One claim ticked; every other checkbox of the note (claims, sources, the
+    # question-day and what it cites) is blank, so its label is withdrawn.
+    assert lines[0].startswith("harvest: label 1 件 / 取り消し ")
     labels = [n for n in part.load().values() if isinstance(n, Label)]
     assert [(lb.subject, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
 
@@ -145,7 +161,7 @@ async def test_operations_show_prose_time_and_failure(cassette: ClientFactory, e
 
     (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(no_prose), pacing=False)
     assert outcome.report.rendering == "template"
-    prose_lines = [ln for ln in outcome.operations if ln.startswith("prose 第")]
+    prose_lines = [ln for ln in outcome.operations if " prose 第" in ln]
     assert prose_lines and "失敗" in prose_lines[0]
     assert "s" in prose_lines[0].rsplit(" ", 1)[1]
     assert any("prose 第" in ln for ln in outcome.note.read_text(encoding="utf-8").splitlines())

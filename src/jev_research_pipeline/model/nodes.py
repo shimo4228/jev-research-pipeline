@@ -21,6 +21,9 @@ type AdapterKind = Literal["arxiv", "hf_papers", "github", "web_search"]
 type JevFunction = Literal[
     "query_selection",
     "relevance_triage",
+    "question_seeding",
+    "question_screening",
+    "question_movement",
     "claim_detection",
     "novelty",
     "source_support",
@@ -56,8 +59,11 @@ type JevModel = Annotated[str, StringConstraints(pattern=r"^jev-\d+\.\d+\.\d+$")
 SUBJECT_KINDS: Final[dict[str, tuple[str, ...]]] = {
     "query_selection": ("query",),
     "relevance_triage": ("source",),
-    "claim_detection": ("unit",),
-    "novelty": ("claim", "claim"),
+    "question_seeding": ("question",),
+    "question_screening": ("source", "question"),
+    "question_movement": ("question",),
+    "claim_detection": ("unit", "question"),
+    "novelty": ("claim", "question"),
     "source_support": ("claim", "source"),
     "source_trust": ("source",),
     "report_ordering": ("claim",),
