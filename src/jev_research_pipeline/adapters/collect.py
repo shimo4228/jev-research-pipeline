@@ -26,9 +26,14 @@ async def collect(
     now: AwareDatetime,
     env: Mapping[str, str],
 ) -> FetchOutcome:
-    stage = f"fetch_{adapter.kind}"
+    stage = f"fetch_{adapter.net}_{adapter.kind}"
     key = input_sha256(
-        {"adapter": adapter.kind, "query": query, "run_date": now.date().isoformat()}
+        {
+            "adapter": adapter.kind,
+            "net": adapter.net,
+            "query": query,
+            "run_date": now.date().isoformat(),
+        }
     )
     cache = StageCache(partition)
     done = cache.lookup(stage, key)

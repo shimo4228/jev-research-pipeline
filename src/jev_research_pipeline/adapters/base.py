@@ -1,4 +1,9 @@
-"""Adapter contract: one typed adapter per source, fixed in code per line (decision 4).
+"""Adapter contract: one typed adapter per (source, net), fixed in code (decision 4).
+
+A net is *how* a source was reached — firehose, recommendation, citation, keyword or
+exploration (packet "Discovery"). Keyword search alone converges, so the same source API
+can appear under two adapters: `arxiv` keyword search and `arxiv` new listings are one
+endpoint each, one `net` each, and every SourceItem records which net found it.
 
 An adapter = (build_request, parse, pacing, optional key). fetch() never raises for
 source-side trouble: a missing key, an HTTP error status, a request error (transport,
@@ -19,7 +24,7 @@ from xml.etree.ElementTree import ParseError
 import httpx2
 from pydantic import AwareDatetime, JsonValue, TypeAdapter, ValidationError, model_validator
 
-from jev_research_pipeline.model import AdapterKind, Line, SourceItem
+from jev_research_pipeline.model import AdapterKind, DiscoveryNet, Line, SourceItem
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.model.nodes import NonEmptyText
 from jev_research_pipeline.query_text import clean_query
@@ -134,6 +139,11 @@ class Adapter:
     """Minimum gap between live requests from this adapter (published rate limits)."""
     required_env: str | None = None
     """Env var that must be set or the adapter is skipped (missing_key failure)."""
+    net: DiscoveryNet = "keyword"
+    """Which net this adapter is. Stored on every SourceItem it produces."""
+    query_kind: Literal["keyword", "token"] = "keyword"
+    """A keyword query is a search string and must be searchable text; a token query is a
+    code-built parameter (a category list, a paper id, a topic id) and is passed through."""
     _last_request: float | None = field(default=None, init=False, repr=False)
 
     async def _pace(self) -> None:
@@ -160,9 +170,11 @@ class Adapter:
 
         if self.required_env is not None and not env.get(self.required_env):
             return fail("missing_key", self.required_env)
-        if clean_query(query) is None:
-            # Never send a query with no searchable text: arXiv answers 406 to `all:,`.
-            return fail("invalid_query", query[:80])
+        # A keyword query must be searchable text (arXiv answers 406 to `all:,`); a token
+        # query is code-built, so only an empty one is a wiring mistake worth refusing.
+        unusable = clean_query(query) is None if self.query_kind == "keyword" else not query
+        if unusable:
+            return fail("invalid_query", query[:80] or "empty")
         await self._pace()
         try:
             response = await client.send(self.build_request(query, env))
@@ -182,6 +194,7 @@ class Adapter:
                     SourceItem.new(
                         line=line.id,
                         adapter=self.kind,
+                        net=self.net,
                         url=d.url,
                         title=d.title,
                         text=d.text,

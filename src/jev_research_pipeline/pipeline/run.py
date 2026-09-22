@@ -23,7 +23,7 @@ from typing import Final, override
 import httpx2
 from pydantic import AwareDatetime, BaseModel
 
-from jev_research_pipeline.adapters import Adapter, arxiv, collect, github, hf_papers, web_search
+from jev_research_pipeline.adapters import Adapter, arxiv, github, hf_papers, web_search
 from jev_research_pipeline.jev import (
     Ask,
     JevClient,
@@ -47,6 +47,7 @@ from jev_research_pipeline.model import (
     AdapterKind,
     Claim,
     Decision,
+    DiscoveryNet,
     GraphNodeType,
     Judgment,
     Label,
@@ -82,6 +83,7 @@ from jev_research_pipeline.report import (
 from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input_sha256
 from jev_research_pipeline.telemetry import span
 
+from . import meters, nets
 from .costs import Budget
 from .units import split_units
 
@@ -159,6 +161,9 @@ class _State:
     review: list[SourceEntry] = field(default_factory=list[SourceEntry])
     bridges: list[SourceEntry] = field(default_factory=list[SourceEntry])
     candidates: list[Question] = field(default_factory=list[Question])
+    per_net: dict[DiscoveryNet, int] = field(default_factory=dict[DiscoveryNet, int])
+    discovery: list[str] = field(default_factory=list[str])
+    openalex_credits: int = 0
     partial: bool = False
 
 
@@ -182,6 +187,7 @@ class LineRun:
         env: Mapping[str, str],
         now: AwareDatetime,
         harvest_notes: list[str],
+        net_config: nets.NetConfig | None = None,
         pacing: bool = True,
     ) -> None:
         self.ctx, self.partition, self.index_path, self.vault = ctx, partition, index_path, vault
@@ -193,6 +199,7 @@ class LineRun:
         self.max = qwen_model(MAX, http, api_key=keys.dashscope)
         self.meters = {FLASH: GenerationMeter(), MAX: GenerationMeter()}
         self.budget = Budget(env)
+        self.nets = net_config or nets.NetConfig()
         self.st = _State(notes=list(harvest_notes))
         self.pacing = pacing
 
@@ -269,28 +276,90 @@ class LineRun:
                         kept.append(c)
         return kept
 
+    def _positives_and_negatives(self) -> tuple[list[str], list[str]]:
+        """What the recommender learns from: the author's ⭕ (and the papers behind the
+        claims accepted so far) against the ❌, plus seeded random negatives."""
+        labels = [n for n in self.known.values() if isinstance(n, Label)]
+        by_verdict: dict[str, set[str]] = {"correct": set(), "incorrect": set()}
+        for label in labels:
+            source = self._source_of(label.subject)
+            if source is not None:
+                by_verdict[label.verdict].add(source.url)
+        positives = [
+            i for url in sorted(by_verdict["correct"]) if (i := nets.paper_id(url)) is not None
+        ]
+        negatives = [
+            i for url in sorted(by_verdict["incorrect"]) if (i := nets.paper_id(url)) is not None
+        ]
+        if not negatives:
+            pool = [
+                i
+                for n in self.known.values()
+                if isinstance(n, SourceItem)
+                and (i := nets.paper_id(n.url)) is not None
+                and i not in positives
+            ]
+            negatives = nets.seeded_negatives(pool, seed=self.ctx.line.id)
+        return positives, negatives
+
+    def _source_of(self, subject: str) -> SourceItem | None:
+        node = self.known.get(subject)
+        if isinstance(node, SourceItem):
+            return node
+        if isinstance(node, Claim):
+            unit = self.known.get(node.unit)
+            if isinstance(unit, Unit):
+                source = self.known.get(unit.source)
+                return source if isinstance(source, SourceItem) else None
+        return None
+
+    def _cited_works(self) -> list[str]:
+        """Papers this line already accepted, as OpenAlex `cites:` filter values."""
+        urls: list[str] = []
+        for question in self.questions:
+            for claim_id in reversed(question.evidence):
+                source = self._source_of(claim_id)
+                if source is not None:
+                    urls.append(source.url)
+        works = [w for url in dict.fromkeys(urls) if (w := nets.openalex_work(url)) is not None]
+        return works
+
     async def _fetch(self, queries: list[QueryCandidate]) -> list[SourceItem]:
-        sources: dict[str, SourceItem] = {}
-        adapters: dict[AdapterKind, Adapter] = {}
-        for q in queries:
-            adapter = adapters.setdefault(q.adapter, make_adapter(q.adapter, pacing=self.pacing))
-            out = await collect(
-                adapter,
-                self.http,
-                self.partition,
-                self.ctx.line,
-                q.text,
-                now=self.now,
-                env=self.env,
-            )
-            if out.failure is not None:
-                self.st.notes.append(
-                    f"{q.adapter}: fetch 失敗 ({out.failure.reason} {out.failure.detail})"
-                )
-            if out.skipped:
-                self.st.notes.append(f"{q.adapter}: 検証落ちで {out.skipped} 件 skip")
-            sources.update((s.id, s) for s in out.sources)
-        return list(sources.values())
+        """Every net, in the code-fixed order, within its budget (packet "Discovery")."""
+        keyword = [(make_adapter(q.adapter, pacing=self.pacing), q.text) for q in queries]
+        positives, negatives = self._positives_and_negatives()
+        plan = nets.plan(
+            self.nets,
+            run_date=self.now.date().isoformat(),
+            keyword_queries=keyword,
+            positives=positives,
+            negatives=negatives,
+            cited=self._cited_works(),
+            topics=self._topics(),
+        )
+        outcome = await nets.fetch_nets(
+            plan,
+            self.http,
+            self.partition,
+            self.ctx.line,
+            now=self.now,
+            env=self.env,
+            config=self.nets,
+        )
+        self.st.notes += outcome.notes
+        self.st.per_net = outcome.per_net
+        self.st.openalex_credits = outcome.openalex_credits
+        return outcome.sources
+
+    def _topics(self) -> list[str]:
+        """Topics next to this line's own: the ones its accepted sources sit in, which the
+        exploration net then walks away from. Empty until the citation net has run once."""
+        seen = [
+            n.text.rsplit("OpenAlex topic: ", 1)[-1]
+            for n in self.known.values()
+            if isinstance(n, SourceItem) and n.adapter == "openalex"
+        ]
+        return [t for t in dict.fromkeys(seen) if t.startswith("T")]
 
     async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
         """The question-free pass: evidence and injection, then trust. Whether a source is
@@ -537,6 +606,29 @@ class LineRun:
 
     # --- run ----------------------------------------------------------------------------
 
+    def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
+        """Which net earned its budget, and whether the search is narrowing."""
+        loaded = self.partition.load()
+        units = {i: n for i, n in loaded.items() if isinstance(n, Unit)}
+        sources = {i: n for i, n in loaded.items() if isinstance(n, SourceItem)}
+        shares = meters.share_per_net([i.claim for i in accepted], units, sources)
+        today = [s for s in sources.values() if s.fetched_at.date() == self.now.date()]
+        before = [s for s in sources.values() if s.fetched_at.date() < self.now.date()]
+        reports = sorted(
+            (n for n in loaded.values() if isinstance(n, Report) and n.line == self.ctx.line.id),
+            key=lambda r: r.run_date,
+        )
+        cumulative = [len(r.claims) for r in reports] + [len(accepted)]
+        running = [sum(cumulative[: i + 1]) for i in range(len(cumulative))]
+        return meters.lines(
+            self.st.per_net,
+            shares,
+            clusters=meters.topic_clusters(today),
+            previous_clusters=meters.topic_clusters(before) if before else None,
+            fit=meters.convergence(running),
+            openalex_credits=self.st.openalex_credits,
+        )
+
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
         log = DecisionLog.from_nodes(
             [*self.partition.load().values(), *self.st.nodes, *self.jev.fresh, *self.st.decisions]
@@ -568,6 +660,7 @@ class LineRun:
                 else f"rubric {m.axis}: データなし"
                 for m in meters
             ),
+            *self.st.discovery,
             *rule_candidates(log, RuleConfig(), today=self.now.date()),
         ]
         if self.st.partial:
@@ -602,6 +695,7 @@ class LineRun:
         with span("jrp.line", line=slug, date=self.now.date().isoformat()) as line:
             accepted, screened = await self._gather()
             self.st.notes += self._canaries(screened)
+            self.st.discovery = self._discovery_lines(accepted)
             with span("jrp.stage.sections", line=slug, claims=len(accepted)):
                 for question in self.questions:
                     items = [i for i in accepted if i.question.id == question.id]

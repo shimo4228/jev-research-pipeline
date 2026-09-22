@@ -27,6 +27,7 @@ from jev_research_pipeline.report import harvest_note, note_report_id, report_no
 from jev_research_pipeline.store import GraphStore, advance_rotation
 
 from .config import config_path, line_context, line_seeds, load_tracks, rotation_config
+from .nets import load_nets
 from .run import Keys, LineOutcome, LineRun, adopt_candidates
 
 STORE_ENV: Final = "JRP_STORE_DIR"
@@ -106,6 +107,7 @@ async def run_pipeline(
     cfg = config_path(env)
     tracks = {t.slug: t for t in load_tracks(cfg)}
     rotation = rotation_config(list(tracks.values()), per_tick=lines_per_day(cfg))
+    net_config = load_nets(cfg)
     store = GraphStore(store_dir(env))
     harvested = {slug: harvest_line(store, vault, slug, now, env) for slug in rotation.order}
     outcomes: list[LineOutcome] = []
@@ -130,6 +132,7 @@ async def run_pipeline(
             env=env,
             now=now,
             harvest_notes=harvested[slug],
+            net_config=net_config,
             pacing=pacing,
         )
         outcomes.append(await run.execute())

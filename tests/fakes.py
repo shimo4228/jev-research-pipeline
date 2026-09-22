@@ -222,6 +222,101 @@ PROPOSALS = json.dumps(
 )
 
 
+ARXIV_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <channel>
+    <title>cs.AI</title>
+    <item>
+      <title>Narrow Questions Beat Broad Prompts</title>
+      <link>https://arxiv.org/abs/2609.09876v1</link>
+      <description>arXiv:2609.09876v1 Announce Type: new
+{abstract}</description>
+    </item>
+    <item>
+      <title>A Replaced Paper</title>
+      <link>https://arxiv.org/abs/2609.00001v2</link>
+      <description>arXiv:2609.00001v2 Announce Type: replace
+{abstract}</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+OPENALEX_WORKS = {
+    "results": [
+        {
+            "id": "https://openalex.org/W123",
+            "doi": "https://doi.org/10.48550/arXiv.2609.00002",
+            "title": "Citing Work",
+            "publication_date": "2026-09-20",
+            "primary_topic": {"id": "T10017", "display_name": "Agent memory"},
+        }
+    ]
+}
+
+S2_RECOMMENDATIONS = {
+    "recommendedPapers": [
+        {
+            "title": "Recommended Work",
+            "url": "https://www.semanticscholar.org/paper/abc",
+            "abstract": "A recommended abstract about narrow typed questions and labels.",
+            "externalIds": {"ArXiv": "2609.00003"},
+            "publicationDate": "2026-09-19",
+        }
+    ]
+}
+
+
+def _keyword_response(host: str | None) -> httpx2.Response:
+    """The original keyword net's upstreams (and the 404 for anything unexpected)."""
+    if host == "export.arxiv.org":
+        atom = ARXIV_ATOM.replace(
+            "We decompose judgment into narrow questions.\n  Fitted weights raise accuracy.",
+            E2E_ABSTRACT,
+        )
+        return httpx2.Response(200, text=atom, headers={"content-type": "application/atom+xml"})
+    if host == "huggingface.co":
+        return httpx2.Response(200, json=[])
+    if host == "api.github.com":
+        return httpx2.Response(
+            200, json={"total_count": 0, "incomplete_results": False, "items": []}
+        )
+    return httpx2.Response(404, json={"error": f"unexpected host {host}"})
+
+
+def _discovery_response(request: httpx2.Request, host: str | None) -> httpx2.Response | None:
+    """The nets that are not keyword search: arXiv listings, HF daily, S2, OpenAlex."""
+    if host == "rss.arxiv.org":
+        return httpx2.Response(
+            200,
+            text=ARXIV_RSS.format(abstract=E2E_ABSTRACT),
+            headers={"content-type": "application/rss+xml"},
+        )
+    if host == "api.semanticscholar.org":
+        return httpx2.Response(200, json=S2_RECOMMENDATIONS)
+    if host == "api.openalex.org":
+        return httpx2.Response(
+            200,
+            json=OPENALEX_WORKS,
+            headers={"x-ratelimit-credits-used": "1", "x-ratelimit-remaining": "988"},
+        )
+    if host == "huggingface.co" and request.url.path == "/api/daily_papers":
+        return httpx2.Response(
+            200,
+            json=[
+                {
+                    "paper": {
+                        "id": "2609.00004",
+                        "title": "Daily Paper",
+                        "summary": E2E_ABSTRACT,
+                        "publishedAt": "2026-09-22T00:00:00.000Z",
+                    }
+                }
+            ],
+        )
+    return None
+
+
 def fake_world() -> Handler:
     """Every upstream of one line-run, routed by host (end-to-end test only).
 
@@ -249,6 +344,9 @@ def fake_world() -> Handler:
         host = request.url.host
         if host == "api.typesafe.ai":
             return await jev(request)
+        discovered = _discovery_response(request, host)
+        if discovered is not None:
+            return discovered
         if host == "dashscope-intl.aliyuncs.com":
             body = json.loads(request.content)
             asked = json.dumps(body, ensure_ascii=False)
@@ -261,18 +359,6 @@ def fake_world() -> Handler:
                     {"queries": ["narrow typed questions", "author label thresholds"]}
                 )
             return await fake_qwen(content)(request)
-        if host == "export.arxiv.org":
-            atom = ARXIV_ATOM.replace(
-                "We decompose judgment into narrow questions.\n  Fitted weights raise accuracy.",
-                E2E_ABSTRACT,
-            )
-            return httpx2.Response(200, text=atom, headers={"content-type": "application/atom+xml"})
-        if host == "huggingface.co":
-            return httpx2.Response(200, json=[])
-        if host == "api.github.com":
-            return httpx2.Response(
-                200, json={"total_count": 0, "incomplete_results": False, "items": []}
-            )
-        return httpx2.Response(404, json={"error": f"unexpected host {host}"})
+        return _keyword_response(host)
 
     return handle

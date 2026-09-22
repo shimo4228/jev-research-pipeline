@@ -187,7 +187,7 @@ async def test_collect_stores_sources_and_skips_when_done(cassette: ClientFactor
     ids = {s.id for s in first.sources}
     assert ids <= set(part.load())
     records = [n for n in part.load().values() if isinstance(n, StageRecord)]
-    assert [r.stage for r in records] == ["fetch_hf_papers"]
+    assert [r.stage for r in records] == ["fetch_keyword_hf_papers"]
 
     # Same (adapter, query, run date): no request at all — the empty replay cassette would miss.
     again = await collect(

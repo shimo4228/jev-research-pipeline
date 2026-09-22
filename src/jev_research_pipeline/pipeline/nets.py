@@ -1,0 +1,255 @@
+"""Discovery nets: what the pipeline searches, in a code-fixed order (packet "Discovery").
+
+    firehose → recommendation → citation → keyword → exploration
+
+Keyword search alone is exploitation and converges — one Opus explorer hit 37% single
+theme in 30 days, and keyword-only recall is measured under 20% against citation
+traversal's 80%+. So the keyword net is demoted to fourth and three code-owned nets run
+before it, each with its own per-run request budget from config.toml. The model never
+chooses where to search; it only screens what comes back.
+
+- firehose: today's arXiv announcements in fixed categories + HF daily papers. No query.
+- recommendation: Semantic Scholar, positives = the author's ⭕ and the papers behind
+  accepted claims, negatives = ❌ plus seeded random negatives (Scholar Inbox's recipe
+  against collapse). Best-effort: the keyless pool answers 429 and the net goes quiet.
+- citation: OpenAlex forward citations of papers this line already accepted.
+- keyword: the Qwen queries scored per question (the original net).
+- exploration: a fixed share of the run spent on a topic *next to* the line's own, so
+  bridges_line has something outside the vocabulary to find.
+
+Budgets are request counts, not result counts: a net that is cheap to ask is asked more
+often. The OpenAlex credit cap is a daily budget (keyless: 1,000 credits, $0.10, reset at
+midnight UTC), counted from the response headers.
+"""
+
+import random
+import tomllib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Final, cast
+
+import httpx2
+from pydantic import AwareDatetime, JsonValue
+
+from jev_research_pipeline.adapters import Adapter, collect, firehose, openalex, semantic_scholar
+from jev_research_pipeline.model import DiscoveryNet, Line, SourceItem
+from jev_research_pipeline.store import Partition
+
+NET_ORDER: Final[tuple[DiscoveryNet, ...]] = (
+    "firehose",
+    "recommendation",
+    "citation",
+    "keyword",
+    "exploration",
+)
+DEFAULT_BUDGETS: Final[dict[DiscoveryNet, int]] = {
+    "firehose": 2,
+    "recommendation": 1,
+    "citation": 3,
+    "keyword": 6,
+    "exploration": 1,
+}
+DEFAULT_EXPLORATION_SHARE: Final = 0.2
+DEFAULT_CREDIT_CAP: Final = 400
+"""Requests we allow ourselves against OpenAlex per day; keyless buys 1,000 credits."""
+RANDOM_NEGATIVES: Final = 5
+"""Seeded random negatives, so the recommender has something to move away from even
+before the author has ticked a ❌ (Scholar Inbox: random negatives prevent collapse)."""
+
+
+@dataclass(frozen=True)
+class NetConfig:
+    budgets: Mapping[DiscoveryNet, int] = field(default_factory=lambda: dict(DEFAULT_BUDGETS))
+    exploration_share: float = DEFAULT_EXPLORATION_SHARE
+    categories: tuple[str, ...] = firehose.DEFAULT_CATEGORIES
+    openalex_daily_credits: int = DEFAULT_CREDIT_CAP
+
+    def budget(self, net: DiscoveryNet) -> int:
+        return int(self.budgets.get(net, DEFAULT_BUDGETS.get(net, 0)))
+
+
+def load_nets(config: Path) -> NetConfig:
+    """`[nets]` of the daily-research config.toml; every key optional."""
+    try:
+        raw = tomllib.loads(config.read_text(encoding="utf-8")).get("nets", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return NetConfig()
+    data = cast("dict[str, JsonValue]", raw if isinstance(raw, dict) else {})
+    budgets = dict(DEFAULT_BUDGETS)
+    for net in NET_ORDER:
+        if isinstance(value := data.get(net), int):
+            budgets[net] = max(0, value)
+    share = data.get("exploration_share", DEFAULT_EXPLORATION_SHARE)
+    raw_categories = data.get("arxiv_categories")
+    categories = (
+        tuple(str(c) for c in raw_categories)
+        if isinstance(raw_categories, list)
+        else firehose.DEFAULT_CATEGORIES
+    )
+    credits = data.get("openalex_daily_credits", DEFAULT_CREDIT_CAP)
+    return NetConfig(
+        budgets=budgets,
+        exploration_share=float(share)
+        if isinstance(share, int | float)
+        else DEFAULT_EXPLORATION_SHARE,
+        categories=categories,
+        openalex_daily_credits=int(credits) if isinstance(credits, int) else DEFAULT_CREDIT_CAP,
+    )
+
+
+@dataclass(frozen=True)
+class NetRequest:
+    """One fetch: which net asks, with which code-built query."""
+
+    net: DiscoveryNet
+    adapter: Adapter
+    query: str
+
+
+def arxiv_id_of(url: str) -> str | None:
+    """The arXiv id in an abs/pdf URL, version stripped."""
+    marker = "/abs/" if "/abs/" in url else ("/pdf/" if "/pdf/" in url else None)
+    if marker is None:
+        return None
+    tail = url.split(marker, 1)[1].split("?", 1)[0].removesuffix(".pdf")
+    return tail.split("v")[0] if tail else None
+
+
+def paper_id(url: str) -> str | None:
+    """A Semantic Scholar paper id for a source URL, or None when there is none to build.
+    `ARXIV:<id>` is the documented path-parameter form; DOIs go through `DOI:`."""
+    if (arxiv := arxiv_id_of(url)) is not None:
+        return f"ARXIV:{arxiv}"
+    if "doi.org/" in url:
+        return "DOI:" + url.split("doi.org/", 1)[1]
+    return None
+
+
+def openalex_work(url: str) -> str | None:
+    """The filter value for `cites:` — OpenAlex has no arXiv id filter, so an arXiv paper
+    is addressed through its DataCite DOI (10.48550, ~2022 onward)."""
+    if "openalex.org/" in url:
+        return url.rsplit("/", 1)[-1]
+    if "doi.org/" in url:
+        return "doi:" + url.split("doi.org/", 1)[1]
+    if (arxiv := arxiv_id_of(url)) is not None:
+        return f"doi:10.48550/arXiv.{arxiv}"
+    return None
+
+
+def plan(
+    config: NetConfig,
+    *,
+    run_date: str,
+    keyword_queries: Sequence[tuple[Adapter, str]],
+    positives: Sequence[str],
+    negatives: Sequence[str],
+    cited: Sequence[str],
+    topics: Sequence[str],
+) -> list[NetRequest]:
+    """Every request of one run, in net order and within each net's budget."""
+    out: list[NetRequest] = []
+    firehose_budget = config.budget("firehose")
+    if firehose_budget:
+        out.append(
+            NetRequest(
+                "firehose", firehose.arxiv_adapter(), firehose.categories_token(config.categories)
+            )
+        )
+    if firehose_budget > 1:
+        out.append(NetRequest("firehose", firehose.hf_adapter(), run_date))
+    if positives and config.budget("recommendation"):
+        out.append(
+            NetRequest(
+                "recommendation",
+                semantic_scholar.adapter(),
+                semantic_scholar.token(list(positives), list(negatives)),
+            )
+        )
+    for work in list(cited)[: config.budget("citation")]:
+        out.append(NetRequest("citation", openalex.citation_adapter(), openalex.cites_token(work)))
+    keyword_budget = _keyword_budget(config)
+    for adapter, query in list(keyword_queries)[:keyword_budget]:
+        out.append(NetRequest("keyword", adapter, query))
+    for topic in list(topics)[: config.budget("exploration")]:
+        out.append(
+            NetRequest("exploration", openalex.exploration_adapter(), openalex.topic_token(topic))
+        )
+    return out
+
+
+def _keyword_budget(config: NetConfig) -> int:
+    """The keyword net gives up the exploration share of its own budget: exploration is
+    paid for out of exploitation, or it never happens."""
+    budget = config.budget("keyword")
+    return max(1, round(budget * (1.0 - config.exploration_share))) if budget else 0
+
+
+def seeded_negatives(
+    candidates: Sequence[str], *, seed: str, n: int = RANDOM_NEGATIVES
+) -> list[str]:
+    """Random negatives, drawn from a seed so a re-run asks the same thing."""
+    pool = list(dict.fromkeys(candidates))
+    rng = random.Random(seed)
+    rng.shuffle(pool)
+    return pool[:n]
+
+
+@dataclass
+class NetOutcome:
+    sources: list[SourceItem] = field(default_factory=list[SourceItem])
+    notes: list[str] = field(default_factory=list[str])
+    per_net: dict[DiscoveryNet, int] = field(default_factory=dict[DiscoveryNet, int])
+    topics: list[str] = field(default_factory=list[str])
+    openalex_credits: int = 0
+
+
+async def fetch_nets(
+    requests: Sequence[NetRequest],
+    client: httpx2.AsyncClient,
+    partition: Partition,
+    line: Line,
+    *,
+    now: AwareDatetime,
+    env: Mapping[str, str],
+    config: NetConfig,
+) -> NetOutcome:
+    """Run the plan in order. A net that fails is a line in the operations section, never
+    the end of the run: the next net still gets its turn."""
+    outcome = NetOutcome()
+    seen: set[str] = set()
+    quiet: set[DiscoveryNet] = set()
+    for request in requests:
+        if request.net in quiet:
+            continue
+        if request.adapter.kind == "openalex" and (
+            outcome.openalex_credits >= config.openalex_daily_credits
+        ):
+            outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
+            quiet.add(request.net)
+            continue
+        out = await collect(
+            request.adapter, client, partition, line, request.query, now=now, env=env
+        )
+        if out.failure is not None:
+            outcome.notes.append(
+                f"{request.net}/{request.adapter.kind}: fetch 失敗 "
+                f"({out.failure.reason} {out.failure.detail})"
+            )
+            if "rate_limit" in out.failure.detail:
+                # A shared pool answering 429 is a policy signal, not a transient error.
+                quiet.add(request.net)
+                outcome.notes.append(f"{request.net}: rate limit のため本日は打ち切り")
+            continue
+        if out.skipped:
+            outcome.notes.append(
+                f"{request.net}/{request.adapter.kind}: 検証落ちで {out.skipped} 件 skip"
+            )
+        if request.adapter.kind == "openalex" and not out.cached:
+            outcome.openalex_credits += 1  # a filtered list is one credit (measured)
+        fresh = [s for s in out.sources if s.id not in seen]
+        seen.update(s.id for s in fresh)
+        outcome.sources += fresh
+        outcome.per_net[request.net] = outcome.per_net.get(request.net, 0) + len(fresh)
+    return outcome

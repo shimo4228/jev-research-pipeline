@@ -1,0 +1,8 @@
+{
+ "POST https://api.semanticscholar.org/recommendations/v1/papers?fields=title%2Curl%2Cabstract%2CexternalIds%2CpublicationDate&limit=50 body:dd63f574bce0d179": {
+  "status": 429,
+  "content_type": "application/json",
+  "body": "{\"message\":\"Too Many Requests\"}",
+  "request_body": "{\"positivePaperIds\": [\"A\"], \"negativePaperIds\": []}"
+ }
+}
