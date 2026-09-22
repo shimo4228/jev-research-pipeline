@@ -87,7 +87,9 @@ state (filter state in code), adversarial text (treat as data).
    promotion = **proposal only** (code detects a Jev question predictable from a
    code-computable feature over ≥N labels at ≥X% agreement, prints a candidate rule in
    the report's operations section; author applies), ④ local decision model = deferred
-   until a label-count threshold.
+   until a label-count threshold. As built 2026-09-23: ③ counts **labeled decisions**
+   (N=30, X=0.95, config); ① writes a threshold-diff proposal file, never applies;
+   ② exports pydantic-evals YAML that pytest replays.
 7. **Primary success metric = label fill rate** (ticked / claims per report): proof the
    reports keep being read. Secondary meters per run: generation tokens (↓ wanted), Jev
    question count (↑ wanted), Claude calls (must be 0), ticked-correct rate, cost, run
@@ -132,6 +134,22 @@ state (filter state in code), adversarial text (treat as data).
 13. **New repo** `~/MyAI_Lab/jev-research-pipeline`, uv + Python ≥3.12,
     `verify-bootstrap` first (done 2026-09-22; gate record in `.claude/verify.md`). **Parallel run** with the existing
     daily-research; the author stops the old one when the new fill rate exceeds the old.
+
+### As built (2026-09-23, steps 7–10)
+
+- `jrp run | fit | export-cases | drift` CLI. Env from `~/.config/jrp/env` via
+  `scripts/launchd-jrp.sh`; required: `JRP_VAULT_DIR`, `JRP_STORE_DIR`, `TYPESAFE_API_KEY`,
+  `DASHSCOPE_API_KEY`, `JRP_COST_CAP_USD`, `JRP_JEV_USD_PER_QUESTION` (unset price = 0,
+  shown as "単価未設定"). Optional: `TAVILY_API_KEY`, `GITHUB_TOKEN`, `JRP_SLACK_NOTIFY=1`,
+  `JRP_DRIFT_LIVE=1`, `JRP_CASSETTE_RECORD=1`.
+- Lines and vocabulary come from `~/MyAI_Lab/daily-research/config.toml` tracks + each
+  repo's graph.jsonld (read-only); tracks without a graph (desire, edge) use the track
+  name only.
+- launchd: `launchd/com.shimo4228.jrp.{run,drift}.plist` (07:00 daily / Mon 07:30), not
+  loaded by the build.
+- Same-day re-run carries the author's ticks over; harvester withdraws Labels for `[ ]`.
+- Rubric unjudged → template (no unverifiable prose). Cassettes now keep request bodies
+  (for drift), never headers.
 
 ### Non-goals (explicit)
 
