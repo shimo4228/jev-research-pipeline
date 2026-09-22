@@ -200,6 +200,19 @@ Never measure recall against human citation lists; vendor recall claims are unre
 Review-when: OpenAlex credit pricing or S2 keyless pool changes; an ablation separating
 query generation from snowballing is published.
 
+### Second live run (2026-09-23 JST) — findings
+
+- Fixed and confirmed: prose renders (40.7s for 7 claims), local-date filenames, floor
+  fallback engaged on every adapter, github 403 gone with a token.
+- Query contamination: qwen3.8-flash NativeOutput intermittently leaks chat-template
+  tokens (`<|start|>`, `<|end|>`, `,`, `]`) into query strings → arXiv 406. ToolOutput is
+  rejected by DashScope (tool_choice 400); PromptedOutput was clean in one probe. Fix:
+  strict Pydantic validation of query strings + output retries + deterministic adapter
+  guard; keep NativeOutput and meter its failure rate before switching.
+- Vocabulary loader misses prefixed types (`ans:Concept`, `schema:DefinedTerm`) → the
+  ans line had one vocabulary term. Fix: match type suffix; include DefinedTerm.
+- Homebrew now refuses untrusted taps: `brew trust ctrlspice/otel-desktop-viewer` first.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
