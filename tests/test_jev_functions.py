@@ -407,3 +407,54 @@ async def test_query_selection_top_k_is_per_adapter(cassette: ClientFactory):
     ]
     assert sum(q.adapter == "arxiv" for q in kept) == 3
     assert [q.text for q in kept if q.adapter == "hf_papers"] == ["h0"]
+
+
+async def test_query_selection_falls_back_to_top_k_when_nothing_clears_the_floor(
+    cassette: ClientFactory,
+):
+    # First live run: all 9 candidates scored 0.16-0.38 → nothing fetched. Without labels
+    # there is nothing to fit the floor on, so bootstrap with a relative choice.
+    queries = [_query(f"q{i}") for i in range(4)]
+    dists = {
+        "q0": (1.0, 0.0, 0.0, 0.0),
+        "q1": (0.5, 0.5, 0.0, 0.0),
+        "q2": (0.0, 1.0, 0.0, 0.0),
+        "q3": (1.0, 0.0, 0.0, 0.0),
+    }
+    pairs: list[tuple[QueryCandidate, Judgment | JevFailure]] = []
+    for q in queries:
+        jev = _jev(cassette, {"expected_yield": dists[q.text]})
+        pairs.append((q, await query_selection.judge(jev, CTX, q, now=b.T0)))
+    decisions = query_selection.rank(pairs)
+    kept = [q.text for q, d in zip(queries, decisions, strict=True) if d.outcome == "accept"]
+    assert len(kept) == 3
+    assert "q2" in kept  # the best of a bad field (0.33) is taken
+    assert all(
+        d.policy == query_selection.FLOOR_FALLBACK_POLICY
+        for d in decisions
+        if d.outcome == "accept"
+    )
+    assert query_selection.FLOOR_FALLBACK_POLICY != query_selection.BUNDLE.policy
+
+
+async def test_floor_fallback_is_per_adapter(cassette: ClientFactory):
+    good = QueryCandidate.new(line=b.LINE_IRI, adapter="arxiv", text="good")
+    weak = QueryCandidate.new(line=b.LINE_IRI, adapter="hf_papers", text="weak")
+    pairs = [
+        (
+            good,
+            await query_selection.judge(
+                _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}), CTX, good, now=b.T0
+            ),
+        ),
+        (
+            weak,
+            await query_selection.judge(
+                _jev(cassette, {"expected_yield": (1.0, 0.0, 0.0, 0.0)}), CTX, weak, now=b.T0
+            ),
+        ),
+    ]
+    by_query = dict(zip([good, weak], query_selection.rank(pairs), strict=True))
+    assert by_query[good].policy == query_selection.BUNDLE.policy  # cleared the floor
+    assert by_query[weak].policy == query_selection.FLOOR_FALLBACK_POLICY
+    assert {d.outcome for d in by_query.values()} == {"accept"}

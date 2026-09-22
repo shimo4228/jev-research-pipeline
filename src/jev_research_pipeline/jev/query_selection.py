@@ -48,6 +48,8 @@ BUNDLE: Final = Bundle(
 
 # Initial values = vendor rounding (0.5 midpoint); refit on the author's labels (decision 6①).
 THRESHOLDS: Final = (Threshold(name="min_yield", value=0.5), Threshold(name="top_k", value=3.0))
+FLOOR_FALLBACK_POLICY: Final = "query_selection@v1+floor_fallback"
+"""Policy name recorded when top-k was taken although nothing cleared min_yield."""
 
 
 class Answers(BaseModel):
@@ -74,29 +76,32 @@ async def judge(
 
 def rank(pairs: list[tuple[QueryCandidate, Judgment | JevFailure]]) -> list[Decision]:
     """Per adapter, accept the top_k judged candidates whose yield clears min_yield (ties
-    by @id). Decisions come back in the order of `pairs`."""
+    by @id). When nothing clears the floor, accept the top_k anyway under
+    FLOOR_FALLBACK_POLICY: the floor is a vendor rounding value that only labels can
+    refit, and a line that fetches nothing never produces the labels (first live run,
+    2026-09-22: 9 candidates scored 0.16-0.38, zero sources). Decisions come back in the
+    order of `pairs`."""
     floor = threshold(THRESHOLDS, "min_yield")
     top_k = int(threshold(THRESHOLDS, "top_k"))
     kept: set[str] = set()
+    fallback: set[str] = set()
     for adapter in {c.adapter for c, _ in pairs}:
-        eligible = sorted(
-            (
-                r
-                for c, r in pairs
-                if c.adapter == adapter
-                and isinstance(r, Judgment)
-                and Answers.of(r).expected_yield >= floor
-            ),
+        judged = sorted(
+            (r for c, r in pairs if c.adapter == adapter and isinstance(r, Judgment)),
             key=lambda r: (-Answers.of(r).expected_yield, r.subjects[0]),
         )
-        kept.update(r.id for r in eligible[:top_k])
-    results = [r for _, r in pairs]
+        above = [r for r in judged if Answers.of(r).expected_yield >= floor]
+        chosen = above[:top_k] if above else judged[:top_k]
+        kept.update(r.id for r in chosen)
+        if not above:
+            fallback.update(r.id for r in chosen)
     return [
         decide(
             r,
             bundle=BUNDLE,
             thresholds=THRESHOLDS,
             rule=lambda j: (j.id in kept, Answers.of(j).expected_yield),
+            policy=FLOOR_FALLBACK_POLICY if isinstance(r, Judgment) and r.id in fallback else None,
         )
-        for r in results
+        for _, r in pairs
     ]

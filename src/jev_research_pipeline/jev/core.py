@@ -250,9 +250,11 @@ def decide(
     bundle: Bundle,
     thresholds: tuple[Threshold, ...],
     rule: Rule,
+    policy: str | None = None,
 ) -> Decision:
-    """Policy = bundle.policy, identity includes bundle.sha256. The result must come from
-    this bundle's wording (a mismatch is a wiring error and raises)."""
+    """Policy = bundle.policy unless a variant policy is named (e.g. a fallback rule), and
+    the identity includes bundle.sha256. The result must come from this bundle's wording
+    (a mismatch is a wiring error and raises)."""
     if result.bundle_sha256 != bundle.sha256:
         raise ValueError(f"result was produced by another bundle than {bundle.policy}")
     if isinstance(result, JevFailure):
@@ -266,7 +268,7 @@ def decide(
     return Decision.new(
         function=result.function,
         subjects=result.subjects,
-        policy=bundle.policy,
+        policy=policy or bundle.policy,
         bundle_sha256=bundle.sha256,
         judgments=judgments,
         thresholds=thresholds,
