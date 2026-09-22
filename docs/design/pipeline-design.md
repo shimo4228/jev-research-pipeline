@@ -232,6 +232,41 @@ the primary metric (fill rate).
    (`> [!note]- Claims`), still carrying claim ids so claim-level ticks remain possible.
 4. **Prose covers only the selected top claims**; the rest stay in the fold.
 
+### Question-centric redesign (author verdict 2026-09-23; supersedes the judgment map's
+anchoring, decision 5's label unit, decision 12's body, and the Report redesign above)
+
+Diagnosis: the knowledge unit was a bag of verbatim sentences, so every report was a
+list of sentences, and every Jev question lacked a referent ("relevant to the line's
+vocabulary" passes any paper that shares a term; "checkable claim" passes "experiments
+ran on a Mac Studio"; rubric grounded 0.99 / novel 1.00 were tautologies). Research
+output is question → evidence → how the answer moved. The **Question** is the unit.
+
+- **Question node** per line: text, status {open, answered, dropped}, opened_at, and
+  the running evidence set (accepted claims). 3–5 open per line. Seeded from the
+  ResearchLine description + ADR Review-when lines (code) phrased by Qwen (flash) and
+  scored by Jev (Noul open_for_line, Score impact_on_stance); the author confirms.
+  Questions change weekly, not daily. Author-editable file `questions/<slug>.md` in the
+  repo; the daily note proposes new questions with checkboxes (tick = adopt → harvester
+  appends to the file). "Changed vantage point" candidate = one per proposal round.
+- **Every Jev judgment is anchored on (item, Question)**: source triage Noul
+  bears_on(source, Q) (+ injection per source); claim detection Choice{advances,
+  contradicts, unrelated}(unit, Q) — a claim is a unit that advances or contradicts some
+  open Q; novelty Score{same as known / adds detail / changes answer}(claim, Q,
+  evidence set); question movement per (Q, day) Score{none / new evidence same answer /
+  answer changed}; source trust unchanged; query candidates are generated per Question
+  (Qwen flash) and scored per Question (Jev).
+- **Report = per open question that moved today**: `### Q` → 今日の変化 (evidence
+  paragraphs + one marked inference paragraph) → 証拠 (source lines: title + gist +
+  link). One checkbox per question-day (`jrp:qday:<id>`): ⭕ = this movement was worth
+  reading, ❌ = not. Then 「問いの候補」 (checkbox = adopt), 「橋渡し」 (exploration
+  nets), folded Claims, 未判定, 運用. Fill rate is counted over question-days.
+- **Labels propagate**: a question-day tick propagates to the claims and sources cited
+  under it; fit uses those. rubric_report per question section, `grounded` on evidence
+  paragraphs only.
+- Discovery nets (section above) unchanged; they feed the per-question screens.
+Review-when: fill rate after two weeks; if questions stagnate (no proposals adopted in
+a month) revisit the proposal mechanism.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
