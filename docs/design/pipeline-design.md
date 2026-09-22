@@ -121,8 +121,14 @@ state (filter state in code), adversarial text (treat as data).
 11. **Grok is not the default**: X Premium covers neither xAI API nor X API (both prepaid
     credits, primary sources as-of 2026-09-22). Generation provider is config, swappable
     to Pydantic AI `XaiModel` if the author buys credits.
-12. **Reports go to the Obsidian vault as today** (`$VAULT/daily-research/`, vault = iCloud
-    Obsidian). New pipeline writes to a **separate subfolder** during parallel running.
+12. **Reports go to the Obsidian vault as today**, same folder, mixed in (author decision
+    2026-09-22): `<vault>/daily-research/YYYY-MM-DD_jrp_<line-slug>.md`, vault =
+    `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Obsidian Vault`, path from env
+    `JRP_VAULT_DIR`. Frontmatter keeps the existing keys (date / category: jrp / kind /
+    tags / topic) plus `line` and `jrp_report`. Body: H1 → prose → `## Claims` (one line
+    per claim: `- [ ] <verbatim> — [source](url) <!-- jrp:claim:<id> -->`) → `## 未判定` →
+    `## 運用`. The harvester reads only the line head (`[x]`/`[-]`/`[ ]`) and the comment
+    id; the rest of the file is the author's to edit.
 13. **New repo** `~/MyAI_Lab/jev-research-pipeline`, uv + Python ≥3.12,
     `verify-bootstrap` first (done 2026-09-22; gate record in `.claude/verify.md`). **Parallel run** with the existing
     daily-research; the author stops the old one when the new fill rate exceeds the old.
