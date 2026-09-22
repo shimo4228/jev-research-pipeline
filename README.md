@@ -49,7 +49,9 @@ gh auth token   # gh CLI の token をそのまま使う（repo 等の広い sco
 span は no-op になる。ローカルで見るには Docker 不要の viewer を入れる:
 
 ```bash
-brew tap ctrlspice/otel-desktop-viewer && brew install --cask otel-desktop-viewer
+brew tap ctrlspice/otel-desktop-viewer
+brew trust ctrlspice/otel-desktop-viewer      # untrusted tap なのでこれが先に要る（2026-09-23 実測）
+brew install --cask otel-desktop-viewer
 ```
 
 `~/.config/jrp/env` に 3 行:

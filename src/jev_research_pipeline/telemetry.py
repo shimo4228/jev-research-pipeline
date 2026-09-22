@@ -19,7 +19,8 @@ transport — a cassette-replayed run therefore shows stage and Jev spans but no
 spans, because the cassette transport replaces the wrapped one.
 
 Local viewer (search-first 2026-09-23, README has the three env lines):
-    brew tap ctrlspice/otel-desktop-viewer && brew install --cask otel-desktop-viewer
+    brew tap ctrlspice/otel-desktop-viewer && brew trust ctrlspice/otel-desktop-viewer
+    brew install --cask otel-desktop-viewer   # trust が先。untrusted tap は install が止まる
 """
 
 import logging
