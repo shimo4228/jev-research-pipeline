@@ -7,7 +7,7 @@ import httpx2
 import pytest
 
 from jev_research_pipeline.cassette import Cassette, Entry
-from jev_research_pipeline.pipeline.drift import LIVE_ENV, drift, drift_table
+from jev_research_pipeline.pipeline.drift import LIVE_ENV, drift, drift_table, drift_with_failures
 from jev_research_pipeline.pipeline.notify import NOTIFY_ENV, notify
 
 
@@ -104,3 +104,32 @@ def test_cli_parses_subcommands():
     assert p.parse_args(["drift", "--cassettes", "x"]).command == "drift"
     assert p.parse_args(["fit"]).command == "fit"
     assert p.parse_args(["export-cases"]).command == "export-cases"
+
+
+async def test_drift_counts_failed_replays(tmp_path: Path):
+    async def down(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401, json={"error": "bad key"})
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(down)) as client:
+        rows, failed = await drift_with_failures([_cassette(tmp_path)], client, api_key="k")
+    assert (rows, failed) == ([], 1)
+
+
+def test_cli_run_failure_is_notified(monkeypatch: pytest.MonkeyPatch):
+    from jev_research_pipeline import cli
+
+    sent: list[tuple[str, str]] = []
+
+    async def boom(*args: object, **kwargs: object) -> list[object]:
+        raise RuntimeError("vault missing")
+
+    monkeypatch.setattr(cli, "run_pipeline", boom)
+
+    def fake_notify(title: str, body: str, *, env: object) -> bool:
+        sent.append((title, body))
+        return True
+
+    monkeypatch.setattr(cli, "notify", fake_notify)
+    with pytest.raises(RuntimeError):
+        cli.main(["run"])
+    assert sent and sent[0][0] == "jrp run FAILED" and "vault missing" in sent[0][1]

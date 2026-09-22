@@ -58,7 +58,7 @@ from jev_research_pipeline.qwen import (
 )
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import ClaimEntry, render_report, write_note
-from jev_research_pipeline.store import ClaimIndex, Partition, input_sha256
+from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input_sha256
 
 from .costs import Budget
 from .units import split_units
@@ -169,24 +169,46 @@ class LineRun:
 
     # --- stages -------------------------------------------------------------------------
 
+    async def _candidates(self, kind: AdapterKind) -> tuple[QueryCandidate, ...]:
+        """Qwen query candidates, cached per (adapter, vocabulary, day): a same-day re-run
+        reuses them instead of generating (and paying for) different ones."""
+        cache = StageCache(self.partition)
+        key = input_sha256(
+            {
+                "adapter": kind,
+                "vocabulary": list(self.ctx.vocabulary),
+                "day": self.now.date().isoformat(),
+            }
+        )
+        done = cache.lookup("query_candidates", key)
+        if done is not None:
+            return tuple(
+                n for i in done if isinstance(n := self.partition.load()[i], QueryCandidate)
+            )
+        qr = await query_candidates(
+            self.flash, self.ctx, kind, n=QUERIES_PER_ADAPTER, meter=self.meters[FLASH]
+        )
+        if qr.fallback:
+            self.st.notes.append(f"{kind}: query 候補は fallback (語彙から生成, {qr.failure})")
+        self.partition.put(qr.candidates)
+        cache.record("query_candidates", key, tuple(c.id for c in qr.candidates), self.now)
+        return qr.candidates
+
     async def _queries(self) -> list[QueryCandidate]:
         kept: list[QueryCandidate] = []
         for kind in self.ctx.line.adapters:
+            if self._over_budget():
+                break
             needed = make_adapter(kind).required_env
             if needed is not None and not self.env.get(needed):
                 self.st.notes.append(f"{kind}: key 未設定のため skip")
                 continue
-            qr = await query_candidates(
-                self.flash, self.ctx, kind, n=QUERIES_PER_ADAPTER, meter=self.meters[FLASH]
-            )
-            if qr.fallback:
-                self.st.notes.append(f"{kind}: query 候補は fallback (語彙から生成, {qr.failure})")
-            self.st.nodes += qr.candidates
+            candidates = await self._candidates(kind)
             pairs = [
                 (c, await query_selection.judge(self.jev, self.ctx, c, now=self.now))
-                for c in qr.candidates
+                for c in candidates
             ]
-            for c, d in zip(qr.candidates, query_selection.rank(pairs), strict=True):
+            for c, d in zip(candidates, query_selection.rank(pairs), strict=True):
                 if self._decide(d, f"query: {c.text}").outcome == "accept":
                     kept.append(c)
         return kept
@@ -256,12 +278,21 @@ class LineRun:
     async def _novel(
         self, claims: list[tuple[Claim, SourceItem]]
     ) -> list[tuple[Claim, SourceItem]]:
-        index = ClaimIndex.rebuild(self.index_path, self.partition)  # stored claims only
-        stored = {n.id: n for n in self.known.values() if isinstance(n, Claim)}
+        # "Stored" = claims reported on an EARLIER day. Today's own report (a same-day re-run)
+        # is neither a duplicate source nor a novelty reference — otherwise a re-run would
+        # empty today's report.
+        earlier = {
+            c
+            for n in self.known.values()
+            if isinstance(n, Report) and n.line == self.ctx.line.id and n.run_date < self.now.date()
+            for c in n.claims
+        }
+        stored = {i: n for i, n in self.known.items() if isinstance(n, Claim) and i in earlier}
+        index = ClaimIndex.rebuild(self.index_path, self.partition)
         kept: list[tuple[Claim, SourceItem]] = []
         for claim, src in claims:
             if claim.id in stored or self._over_budget():
-                continue  # already reported before, or no budget left to check it
+                continue  # reported on an earlier day, or no budget left to check it
             candidates = [i for i in novelty.candidate_pairs(index, claim) if i in stored]
             self.st.similar[claim.id] = [stored[i].text for i in candidates]
             pair_decisions = [
@@ -284,6 +315,9 @@ class LineRun:
         by_id = {c.id: (c, s) for c, s in claims}
         decisions: list[Decision] = []
         for c, s in claims:
+            if self._over_budget():
+                del by_id[c.id]
+                continue
             support = await source_support.check(self.jev, c, s, now=self.now)
             if support.decision is not None:
                 self._decide(support.decision, c.text)
@@ -303,6 +337,14 @@ class LineRun:
     async def _render(self, report_id: str, ordered: list[tuple[Claim, SourceItem]]) -> Rendering:
         if not ordered or self._over_budget():
             return Rendering(rendering="template", prose=None, rubric=())
+        done = self.known.get(report_id)
+        if (
+            isinstance(done, Report)
+            and not done.partial
+            and done.claims == tuple(c.id for c, _ in ordered)
+        ):
+            # Same claims as today's stored report: reuse its prose instead of re-generating.
+            return Rendering(rendering=done.rendering, prose=done.prose, rubric=())
         rendering, drafts = await rubric_ladder(
             jev=self.jev,
             model=self.max,
@@ -334,7 +376,9 @@ class LineRun:
     # --- run ----------------------------------------------------------------------------
 
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
-        log = DecisionLog.from_nodes([*self.known.values(), *self.st.nodes, *self.jev.fresh])
+        log = DecisionLog.from_nodes(
+            [*self.partition.load().values(), *self.st.nodes, *self.jev.fresh, *self.st.decisions]
+        )
         agreements = agreement(log.judgments, log.labels)
         meters = axis_meters(today_judgments, agreements)
         cost = self.budget.cost(jev_questions=self.jev.questions_asked, meters=self.meters)
@@ -394,7 +438,7 @@ class LineRun:
             report=report,
             ctx=self.ctx,
             claims=[ClaimEntry(claim=c, source_url=s.url) for c, s in ordered],
-            unjudged=list(self.st.unjudged.values()),
+            unjudged=[self.st.unjudged[i] for i in report.unjudged],
             operations=lines,
         )
         return LineOutcome(

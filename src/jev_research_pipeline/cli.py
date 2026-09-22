@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx2
 
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
-from .pipeline.drift import LIVE_ENV, drift, drift_table
+from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
 from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
@@ -43,8 +43,13 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 
 
 async def _run(env: Mapping[str, str]) -> int:
-    async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
-        outcomes = await run_pipeline(env, now=datetime.now(UTC), http=http)
+    try:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
+            outcomes = await run_pipeline(env, now=datetime.now(UTC), http=http)
+    except Exception as e:
+        # An unattended run that fails must not be silent (the log alone is not read).
+        notify("jrp run FAILED", f"{type(e).__name__}: {e}", env=env)
+        raise
     summary = ", ".join(
         f"{o.report.run_date} {o.note.stem}: {len(o.report.claims)} claims" for o in outcomes
     )
@@ -81,12 +86,17 @@ async def _drift(env: Mapping[str, str], cassettes: Path) -> int:
         sys.stderr.write(f"drift calls the live API: set {LIVE_ENV}=1 and TYPESAFE_API_KEY\n")
         return 2
     async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
-        rows = await drift(sorted(cassettes.glob("*.json")), http, api_key=env["TYPESAFE_API_KEY"])
-    table = drift_table(rows)
-    sys.stdout.write(table)
+        rows, failed = await drift_with_failures(
+            sorted(cassettes.glob("*.json")), http, api_key=env["TYPESAFE_API_KEY"]
+        )
+    sys.stdout.write(drift_table(rows))
     worst = max((r.delta for r in rows), default=0.0)
-    notify("jrp drift", f"{len(rows)} answers compared, max Δp {worst:.3f}", env=env)
-    return 0
+    notify(
+        "jrp drift",
+        f"{len(rows)} answers compared, max Δp {worst:.3f}, {failed} replays failed",
+        env=env,
+    )
+    return 1 if failed and not rows else 0
 
 
 def main(argv: list[str] | None = None) -> int:

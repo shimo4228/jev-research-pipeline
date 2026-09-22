@@ -47,7 +47,16 @@ def _answers(body: str) -> dict[str, JsonValue]:
 
 
 async def drift(paths: list[Path], client: httpx2.AsyncClient, *, api_key: str) -> list[DriftRow]:
+    rows, _ = await drift_with_failures(paths, client, api_key=api_key)
+    return rows
+
+
+async def drift_with_failures(
+    paths: list[Path], client: httpx2.AsyncClient, *, api_key: str
+) -> tuple[list[DriftRow], int]:
+    """(rows, replays that got no 200). All-failed is a failure, never "no drift"."""
     rows: list[DriftRow] = []
+    failed = 0
     for path in paths:
         for key, entry in Cassette(path).entries().items():
             body = entry.get("request_body")
@@ -59,13 +68,14 @@ async def drift(paths: list[Path], client: httpx2.AsyncClient, *, api_key: str) 
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             )
             if live.status_code != 200:
+                failed += 1
                 continue
             recorded, now = _answers(entry["body"]), _answers(live.text)
             for question, answer in recorded.items():
                 old, new = _probs(answer), _probs(now.get(question))
                 delta = max((abs(p - new.get(k, 0.0)) for k, p in old.items()), default=0.0)
                 rows.append(DriftRow(cassette=path.name, question=question, delta=round(delta, 6)))
-    return rows
+    return rows, failed
 
 
 def drift_table(rows: list[DriftRow]) -> str:

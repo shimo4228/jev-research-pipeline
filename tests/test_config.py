@@ -122,3 +122,13 @@ def test_graph_is_only_read(world: Path):
     before = graph.read_bytes()
     line_context(akc)
     assert graph.read_bytes() == before
+
+
+def test_target_repo_tilde_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(
+        '[tracks.akc]\nname = "A"\n[[tracks.akc.repos]]\ntarget_repo = "~/repo"\n', encoding="utf-8"
+    )
+    (track,) = load_tracks(cfg)
+    assert track.repo == tmp_path / "repo"

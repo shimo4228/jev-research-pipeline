@@ -88,7 +88,10 @@ async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env:
     )
     (second,) = await run_pipeline(env, now=b.T0, http=http, pacing=False)
     assert second.report.id == first.report.id
+    assert second.report.claims == first.report.claims  # not emptied by the re-run
+    assert second.report.rendering == first.report.rendering
     assert second.report.operations.jev_questions == 0
+    assert second.report.operations.generation_output_tokens == 0  # Qwen not asked again
 
 
 async def test_missing_vault_env_writes_nothing(cassette: ClientFactory, env: dict[str, str]):
@@ -97,3 +100,13 @@ async def test_missing_vault_env_writes_nothing(cassette: ClientFactory, env: di
     del env["JRP_VAULT_DIR"]
     with pytest.raises(VaultNotConfigured):
         await run_pipeline(env, now=b.T0, http=cassette(fake_world()), pacing=False)
+
+
+async def test_cost_cap_zero_gives_partial_report(cassette: ClientFactory, env: dict[str, str]):
+    env["JRP_COST_CAP_USD"] = "0"
+    env["JRP_JEV_USD_PER_QUESTION"] = "0.001"
+    (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(fake_world()), pacing=False)
+    # The cap is checked between steps: the first spend trips it, the rest is skipped.
+    assert outcome.report.partial
+    assert outcome.report.claims == ()
+    assert outcome.report.rendering == "template"

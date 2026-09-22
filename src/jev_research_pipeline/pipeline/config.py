@@ -48,7 +48,7 @@ def load_tracks(path: Path) -> list[TrackSpec]:
     out: list[TrackSpec] = []
     for slug, spec in tracks.items():
         repos: list[dict[str, Any]] = spec.get("repos", [])
-        repo = Path(str(repos[0]["target_repo"])) if repos else None
+        repo = Path(str(repos[0]["target_repo"])).expanduser() if repos else None
         out.append(
             TrackSpec(
                 slug=slug, name=str(spec["name"]), repo=repo, daily=bool(spec.get("daily", False))
