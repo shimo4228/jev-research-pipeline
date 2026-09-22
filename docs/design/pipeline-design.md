@@ -173,6 +173,33 @@ picked by search-first and documented in the README.
   `GITHUB_TOKEN`.
 - Note escaping over-broad (`\(`, `\$`, `&lt;`); restrict to Obsidian-active syntax.
 
+### Discovery = several code-owned nets, Jev screens (author decision 2026-09-23)
+
+Keyword search alone is exploitation and converges (daily-research's Opus explorer hit
+37% single-theme in 30 days, ADR-0001 there). Evidence as-of 2026-09-23: API keyword
+search alone <20% recall, + citation traversal >80% (arXiv 2605.29234, no ablation);
+database search + snowballing +30% (Wohlin 2022); agentic LLM search independently
+measured ~40% recall (Elicit, Cochrane 2025). Recommenders learn from thumbs (Scholar
+Inbox: per-user classifier on up/down votes + random negatives against collapse).
+No production system separates exploration and reports diversity — built here.
+
+Nets, in code-fixed order, all keyless:
+1. firehose — arXiv new listings (fixed categories) + HF daily → Jev relevance triage.
+2. recommendations — Semantic Scholar `POST /recommendations/v1/papers` with positives =
+   ⭕ + accepted claims' papers, negatives = ❌ + random negatives.
+3. forward citations — OpenAlex `filter=cites:` on accepted papers (1 credit/call,
+   1000/day keyless).
+4. keyword (existing) — demoted to fourth.
+5. exploration budget — fixed share of the per-line budget seeded from neighbouring
+   OpenAlex topics; new Jev Noul `bridges_line` (connects the line's question to a
+   concept outside its vocabulary); report gets a 「橋渡し」 section.
+6. meters — accepted-claim share per net; cluster count over OpenAlex topic ids of
+   accepted papers (falling count = convergence alarm); per-net new-accept rate with a
+   convergence stop (Undermind's f = 1 − e^(−n/τ)).
+Never measure recall against human citation lists; vendor recall claims are unreliable.
+Review-when: OpenAlex credit pricing or S2 keyless pool changes; an ablation separating
+query generation from snowballing is published.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
