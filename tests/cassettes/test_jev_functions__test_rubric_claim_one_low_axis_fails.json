@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:2b28e7329d3e92ee": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"grounded\":{\"type\":\"score\",\"score\":0.0,\"confidence\":1.0,\"legend\":{\"0\":\"The source does not contain what the claim says.\",\"1\":\"The source says something close, but the report overstates it.\",\"2\":\"The source states the claim as the report presents it.\"},\"probabilities\":{\"0\":1.0,\"1\":0.0,\"2\":0.0}},\"relevant\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"It is about none of the terms in `line.vocabulary`.\",\"1\":\"It is about a neighbouring topic that touches `line.vocabulary`.\",\"2\":\"It is directly about a term in `line.vocabulary`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"novel\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"One of `stored_similar` already says this.\",\"1\":\"It adds a condition, number or result to one of `stored_similar`.\",\"2\":\"None of `stored_similar` covers it.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"actionable\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"There is nothing to do with it beyond knowing it.\",\"1\":\"It suggests something to look into once more is known.\",\"2\":\"It names a method, tool or setting the author could try this week.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}}}}"
+ }
+}

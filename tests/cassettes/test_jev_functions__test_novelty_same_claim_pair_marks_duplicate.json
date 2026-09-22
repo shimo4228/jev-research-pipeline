@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:9e7b6e767b4579ca": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"relation\":{\"type\":\"score\",\"score\":1.9000000000000001,\"confidence\":0.9,\"legend\":{\"0\":\"They are about different things.\",\"1\":\"Same topic, but `new_claim` adds a result, condition or detail that `stored_claim` does not state.\",\"2\":\"`new_claim` says what `stored_claim` already says, possibly in other words.\"},\"probabilities\":{\"0\":0.0,\"1\":0.1,\"2\":0.9}},\"contradicts\":{\"type\":\"noul\",\"noul\":0.8},\"same_source\":{\"type\":\"noul\",\"noul\":0.8}}}"
+ }
+}

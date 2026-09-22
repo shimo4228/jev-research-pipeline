@@ -12,6 +12,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "httpx2>=2.13.0",
     "pydantic>=2.13.5",
+    "typesafe-sdk==0.7.1",
 ]
 
 [build-system]

@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:7ef7896bb68d145a": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"trust\":{\"type\":\"score\",\"score\":0.0,\"confidence\":1.0,\"legend\":{\"0\":\"An anonymous or promotional page with no author, no date and no references.\",\"1\":\"A personal blog, newsletter or forum post by a named author, with few or no references to evidence.\",\"2\":\"A preprint, technical report or repository that describes its method and reports results someone could reproduce.\",\"3\":\"A peer-reviewed paper, or official documentation or release notes from the organization that built the system it describes.\"},\"probabilities\":{\"0\":1.0,\"1\":0.0,\"2\":0.0,\"3\":0.0}}}}"
+ }
+}

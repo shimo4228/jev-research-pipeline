@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:0c31ee4b6ac732d2": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"readability\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"Sentences are broken, run on, or mix languages mid-sentence.\",\"1\":\"Readable, but the reader has to re-read to get the point.\",\"2\":\"Each paragraph makes its point on the first read.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"coherence\":{\"type\":\"score\",\"score\":2.0,\"confidence\":1.0,\"legend\":{\"0\":\"Disconnected paragraphs with no thread between them.\",\"1\":\"A loose sequence; connections are implied but not stated.\",\"2\":\"The paragraphs build on each other toward a point about `line`.\"},\"probabilities\":{\"0\":0.0,\"1\":0.0,\"2\":1.0}},\"unsupported_statement\":{\"type\":\"noul\",\"noul\":0.9}}}"
+ }
+}

@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:7f239a030778a39a": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"checkable_claim\":{\"type\":\"noul\",\"noul\":0.1},\"relevant\":{\"type\":\"noul\",\"noul\":0.8}}}"
+ }
+}

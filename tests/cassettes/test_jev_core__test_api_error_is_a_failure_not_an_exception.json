@@ -1,0 +1,7 @@
+{
+ "POST https://api.typesafe.ai/v1/systemone body:d05d3408d7ce0383": {
+  "status": 400,
+  "content_type": "application/json",
+  "body": "{\"error\":{\"message\":\"synthetic failure\"}}"
+ }
+}

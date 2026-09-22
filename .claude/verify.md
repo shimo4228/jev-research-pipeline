@@ -25,6 +25,14 @@ types-defusedxml（defusedxml の型 stub）。外部 API の test は cassette 
 含まれない。外部 API SDK を入れる step 5-6 で追加を再検討する。秘密スキャンは harness 側
 （`hooks/secret-scan-precommit.sh`）。
 
+## 例外（許可リスト）
+
+- `src/jev_research_pipeline/jev/_sdk.py` 先頭の pyright directive（reportUnknownMember /
+  Argument / Variable を off）— 2026-09-22。typesafe-sdk 0.7.1 の JSONContent / JSONValue は
+  文字列前方参照の TypeAliasType で、pyright 1.1.414 が Unknown に解決する。SDK 呼び出しを
+  この 1 file に閉じ、他は JevState と SystemOneResponse だけを見る。typesafe-sdk bump 時に
+  directive を外して再検査する。
+
 ## 発火の実証（2026-09-22）
 
 probe（未整形・未使用 import・`eval`・int を str で返す・transitive 依存 `yaml` の import・
