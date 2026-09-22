@@ -1,0 +1,7 @@
+{
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:ce8d62dd24633335": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"chatcmpl-synthetic\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"qwen3.8-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"queries\\\": [\\\"agent memory\\\", \\\" \\\", \\\"agent memory\\\", \\\"x\\\"]}\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40,\"total_tokens\":160}}"
+ }
+}

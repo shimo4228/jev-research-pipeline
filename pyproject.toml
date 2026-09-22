@@ -12,6 +12,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "httpx2>=2.13.0",
     "pydantic>=2.13.5",
+    "pydantic-ai-slim[openai]==2.47.0",
     "typesafe-sdk==0.7.1",
 ]
 

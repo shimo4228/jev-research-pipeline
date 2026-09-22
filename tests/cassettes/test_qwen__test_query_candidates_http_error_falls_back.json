@@ -1,0 +1,7 @@
+{
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:66094172700eb9dd": {
+  "status": 400,
+  "content_type": "application/json",
+  "body": "{\"error\":{\"message\":\"synthetic\"}}"
+ }
+}

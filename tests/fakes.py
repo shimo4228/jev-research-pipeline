@@ -164,3 +164,36 @@ def fake_json(
         return httpx2.Response(status, text=str(payload), headers={"content-type": content_type})
 
     return handle
+
+
+def fake_qwen(*contents: str | None, status: int = 200) -> Handler:
+    """DashScope OpenAI-compatible /chat/completions. Returns `contents` in order, one per
+    request (retries and rewrites are further requests); None = an HTTP error `status`."""
+    queue = list(contents)
+
+    async def handle(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        content = queue.pop(0) if queue else None
+        if content is None:
+            return httpx2.Response(
+                status if status != 200 else 500, json={"error": {"message": "synthetic"}}
+            )
+        return httpx2.Response(
+            200,
+            json={
+                "id": "chatcmpl-synthetic",
+                "object": "chat.completion",
+                "created": 1790000000,
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160},
+            },
+        )
+
+    return handle

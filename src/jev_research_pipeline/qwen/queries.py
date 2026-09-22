@@ -1,0 +1,89 @@
+"""Qwen site 1: N query candidates per adapter from the line vocabulary (qwen3.8-flash).
+
+Output = NativeOutput over a Pydantic model; the field name `queries` is also spelled
+out in the instructions (packet decision 10). Validation retried up to OUTPUT_RETRIES;
+if it still fails — or the request fails — the adapter runs on code-built fallback
+queries (the line's concept names), flagged in QueryResult.fallback (decision 8).
+The candidates are then scored by Jev (jev.query_selection); Qwen never picks sources.
+"""
+
+from typing import Final
+
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent, NativeOutput
+from pydantic_ai.exceptions import AgentRunError
+from pydantic_ai.models.openai import OpenAIChatModel
+
+from jev_research_pipeline.jev.context import LineContext
+from jev_research_pipeline.model import AdapterKind, QueryCandidate
+from jev_research_pipeline.model.jsonld import Value
+
+from .client import GenerationMeter
+
+OUTPUT_RETRIES: Final = 2
+"""Validation retries after the first attempt (pydantic-ai retries={'output': N})."""
+
+
+class QueryList(BaseModel):
+    """Search queries for one source adapter."""
+
+    queries: list[str] = Field(min_length=1)
+
+
+class QueryResult(Value):
+    candidates: tuple[QueryCandidate, ...]
+    fallback: bool
+    """True when the candidates were built by code, not generated."""
+    failure: str | None
+
+
+def instructions(adapter: AdapterKind, n: int) -> str:
+    return (
+        f"You write search queries for the `{adapter}` source. Return JSON with one field, "
+        f"`queries`: a list of {n} short queries (2-6 words each, English) that would find "
+        "recent work on the research line described in the user message. Use its vocabulary; "
+        "do not add commentary."
+    )
+
+
+def user_prompt(ctx: LineContext) -> str:
+    vocab = "\n".join(f"- {term}" for term in ctx.vocabulary)
+    return f"Research line: {ctx.line.name}\nVocabulary:\n{vocab}"
+
+
+def _candidates(
+    ctx: LineContext, adapter: AdapterKind, texts: list[str], n: int
+) -> tuple[QueryCandidate, ...]:
+    unique = list(dict.fromkeys(" ".join(t.split()) for t in texts if t.strip()))[:n]
+    return tuple(QueryCandidate.new(line=ctx.line.id, adapter=adapter, text=t) for t in unique)
+
+
+def fallback(ctx: LineContext, adapter: AdapterKind, n: int) -> tuple[QueryCandidate, ...]:
+    return _candidates(ctx, adapter, list(ctx.vocabulary), n)
+
+
+async def query_candidates(
+    model: OpenAIChatModel,
+    ctx: LineContext,
+    adapter: AdapterKind,
+    *,
+    n: int,
+    meter: GenerationMeter,
+) -> QueryResult:
+    agent = Agent(
+        model,
+        output_type=NativeOutput(QueryList, strict=True),
+        instructions=instructions(adapter, n),
+        retries={"output": OUTPUT_RETRIES},
+    )
+    try:
+        result = await agent.run(user_prompt(ctx))
+    except AgentRunError as e:
+        return QueryResult(
+            candidates=fallback(ctx, adapter, n), fallback=True, failure=type(e).__name__
+        )
+    meter.add(result.usage)
+    candidates = _candidates(ctx, adapter, result.output.queries, n)
+    if not candidates:
+        return QueryResult(candidates=fallback(ctx, adapter, n), fallback=True, failure="empty")
+    return QueryResult(candidates=candidates, fallback=False, failure=None)

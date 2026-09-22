@@ -1,0 +1,12 @@
+{
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:66094172700eb9dd": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"chatcmpl-synthetic\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"qwen3.8-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"wrong\\\": 1}\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40,\"total_tokens\":160}}"
+ },
+ "POST https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions body:fa00214830e9e7c4": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"chatcmpl-synthetic\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"qwen3.8-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"queries\\\": [\\\"agent memory\\\"]}\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":40,\"total_tokens\":160}}"
+ }
+}
