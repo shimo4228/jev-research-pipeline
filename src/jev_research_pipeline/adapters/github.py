@@ -1,7 +1,9 @@
 """GitHub repository search (api.github.com/search/repositories). As-of 2026-09-22.
 
 Token optional (GITHUB_TOKEN → Authorization: Bearer). Search rate limit is 10/min
-unauthenticated, 30/min with a token; pacing uses the unauthenticated bound (6 s).
+unauthenticated, 30/min with a token; pacing uses the unauthenticated bound (6 s). The
+first live run spent that budget and got three 403s — the failure line now names the
+kind (rate_limit vs forbidden) from the response headers. README: how to set a token.
 Repositories without a description are skipped: there is no text to cut units from.
 """
 
@@ -11,7 +13,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel
 
-from .base import Adapter, RawDraft, iso_date, one_line
+from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://api.github.com/search/repositories"
 API_VERSION: Final = "2026-03-10"
@@ -32,7 +34,11 @@ class _Result(BaseModel):
 
 
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": API_VERSION}
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": API_VERSION,
+        "User-Agent": USER_AGENT,  # GitHub refuses requests without a valid UA
+    }
     token = env.get(TOKEN_ENV)
     if token:
         headers["Authorization"] = f"Bearer {token}"

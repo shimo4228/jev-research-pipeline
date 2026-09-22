@@ -9,7 +9,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel, Field, TypeAdapter
 
-from .base import Adapter, RawDraft, iso_date, one_line
+from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://huggingface.co/api/papers/search"
 LIMIT: Final = 20
@@ -30,7 +30,12 @@ _HITS: Final = TypeAdapter(list[_Hit])
 
 
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
-    return httpx2.Request("GET", ENDPOINT, params={"q": query[:250], "limit": str(LIMIT)})
+    return httpx2.Request(
+        "GET",
+        ENDPOINT,
+        params={"q": query[:250], "limit": str(LIMIT)},
+        headers={"User-Agent": USER_AGENT},
+    )
 
 
 def parse(body: str) -> list[RawDraft]:

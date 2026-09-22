@@ -140,7 +140,8 @@ async def test_http_error_status_is_a_failure(cassette: ClientFactory, status: i
         cassette(fake_json({"error": "x"}, status=status)), b.line(), "q", now=b.T0, env=NO_ENV
     )
     assert out.failure is not None
-    assert (out.failure.reason, out.failure.detail) == ("http_status", str(status))
+    assert out.failure.reason == "http_status"
+    assert out.failure.detail.startswith(str(status))
 
 
 async def test_wrong_json_shape_is_a_parse_failure(cassette: ClientFactory):
@@ -244,3 +245,64 @@ async def test_one_bad_result_is_skipped_not_fatal(cassette: ClientFactory):
     )
     assert [s.title for s in _ok(out)] == ["ok"]
     assert out.skipped == 2
+
+
+# --- first live run: arXiv 406 and GitHub 403 --------------------------------------------
+
+
+def test_arxiv_sends_an_explicit_accept_and_contact_user_agent():
+    # 2026-09-22 live: 406 from the edge in front of export.arxiv.org on the default
+    # httpx2 headers (Accept: */*, User-Agent: python-httpx2/...). Verified 2026-09-23:
+    # an explicit atom Accept + a descriptive UA gets 200.
+    headers = arxiv.adapter().build_request("q", NO_ENV).headers
+    assert headers["accept"] == "application/atom+xml"
+    assert headers["user-agent"].startswith("jev-research-pipeline/")
+    assert "mailto:" in headers["user-agent"]
+
+
+def test_github_sends_a_descriptive_user_agent():
+    headers = github.adapter().build_request("q", NO_ENV).headers
+    assert headers["user-agent"].startswith("jev-research-pipeline/")
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "headers", "expected"),
+    [
+        (
+            403,
+            {"message": "API rate limit exceeded for 1.2.3.4."},
+            {"x-ratelimit-remaining": "0"},
+            "rate_limit",
+        ),
+        (
+            403,
+            {"message": "You have exceeded a secondary rate limit."},
+            {"retry-after": "60"},
+            "rate_limit",
+        ),
+        (403, {"message": "Bad credentials"}, {"x-ratelimit-remaining": "9"}, "forbidden"),
+        (406, {"message": "not acceptable"}, {}, "not_acceptable"),
+    ],
+    ids=["primary", "secondary", "auth", "406"],
+)
+async def test_http_error_detail_explains_itself(
+    cassette: ClientFactory,
+    status: int,
+    body: dict[str, str],
+    headers: dict[str, str],
+    expected: str,
+):
+    async def upstream(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(status, json=body, headers=headers)
+
+    out = await github.adapter().fetch(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(upstream)),
+        b.line(),
+        "q",
+        now=b.T0,
+        env=NO_ENV,
+    )
+    assert out.failure is not None
+    assert out.failure.reason == "http_status"
+    assert out.failure.detail.startswith(f"{status} {expected}")
+    assert body["message"][:20] in out.failure.detail

@@ -13,17 +13,57 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Literal, Self, TypedDict
+from typing import Final, Literal, Self, TypedDict
 from xml.etree.ElementTree import ParseError
 
 import httpx2
-from pydantic import AwareDatetime, ValidationError, model_validator
+from pydantic import AwareDatetime, JsonValue, TypeAdapter, ValidationError, model_validator
 
 from jev_research_pipeline.model import AdapterKind, Line, SourceItem
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.model.nodes import NonEmptyText
 
 type FailureReason = Literal["missing_key", "http_status", "transport", "parse"]
+
+USER_AGENT: Final = (
+    "jev-research-pipeline/0.1 (+https://github.com/shimo4228/jev-research-pipeline; "
+    "mailto:shimo4228@gmail.com)"
+)
+"""Sent by every adapter. Default library UAs are refused by arXiv's edge (406, measured
+2026-09-22) and GitHub requires a valid UA; a contact address is arXiv's ToU etiquette."""
+_MESSAGE_CHARS: Final = 200
+_JSON_BODY: Final = TypeAdapter(dict[str, JsonValue])
+
+
+def http_status_detail(response: httpx2.Response) -> str:
+    """`<status> <kind>: <server message>` — a fetch-failure line that says why.
+
+    kind distinguishes the 403s that look alike: a spent budget (rate limit, headers) from
+    a refused caller (credentials). Headers are authoritative; the message is not
+    documented and is only quoted."""
+    status = response.status_code
+    headers = response.headers
+    if status == 403 and (
+        headers.get("retry-after") or headers.get("x-ratelimit-remaining") == "0"
+    ):
+        kind = "rate_limit"
+    elif status == 403:
+        kind = "forbidden"
+    elif status == 406:
+        kind = "not_acceptable"
+    elif status == 429:
+        kind = "rate_limit"
+    else:
+        kind = "error"
+    message = ""
+    try:
+        body = _JSON_BODY.validate_json(response.content)
+        message = str(body.get("message", ""))[:_MESSAGE_CHARS]
+    except ValidationError:
+        message = response.text[:_MESSAGE_CHARS]
+    reset = headers.get("x-ratelimit-reset") or headers.get("retry-after")
+    suffix = f" (reset {reset})" if kind == "rate_limit" and reset else ""
+    return f"{status} {kind}: {' '.join(message.split())}{suffix}".rstrip()
 
 
 class RawDraft(TypedDict):
@@ -125,7 +165,7 @@ class Adapter:
         except httpx2.RequestError as e:
             return fail("transport", type(e).__name__)
         if response.status_code >= 400:
-            return fail("http_status", response.status_code)
+            return fail("http_status", http_status_detail(response))
         try:
             raws = self.parse(response.text)
         except (ValueError, ValidationError, ParseError, KeyError, TypeError) as e:

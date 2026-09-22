@@ -14,7 +14,7 @@ from typing import Final
 import httpx2
 from pydantic import BaseModel
 
-from .base import Adapter, RawDraft, iso_date, one_line
+from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
 
 ENDPOINT: Final = "https://api.tavily.com/search"
 KEY_ENV: Final = "TAVILY_API_KEY"
@@ -34,7 +34,7 @@ class _Response(BaseModel):
 
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     body = {"query": query, "max_results": MAX_RESULTS, "search_depth": "basic", "topic": "general"}
-    headers = {"Authorization": f"Bearer {env.get(KEY_ENV, '')}"}
+    headers = {"Authorization": f"Bearer {env.get(KEY_ENV, '')}", "User-Agent": USER_AGENT}
     return httpx2.Request("POST", ENDPOINT, json=body, headers=headers)
 
 
