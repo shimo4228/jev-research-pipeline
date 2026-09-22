@@ -2,6 +2,7 @@
 a failed request becomes "unjudged"."""
 
 import json
+from dataclasses import replace
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -92,6 +93,54 @@ def test_ask_hash_changes_when_a_score_level_is_reworded():
         function="claim_detection", version="v1", output=Other, instructions="Judge it."
     )
     assert other.sha256 != ASK.sha256
+
+
+def test_ask_hash_changes_with_the_version_and_the_function():
+    # A version bump is how a policy revision is marked; it has to invalidate the cache,
+    # or the pre-bump judgments keep being replayed and counted as current.
+    assert replace(ASK, version="v2").sha256 != ASK.sha256
+    assert replace(ASK, function="novelty").sha256 != ASK.sha256
+
+
+def test_ask_hash_changes_when_a_score_level_is_renamed():
+    # The level names are what ScoreAnswer.levels stores and what level_probability()
+    # looks up; the schema renders them as bare consts, so they are hashed separately.
+    class Renamed(UseEnumMemberDocstrings, IntEnum):
+        unclear = 0
+        """A slogan with no testable content."""
+        specific = 1
+        """Names a method and a measured effect."""
+
+    class Other(BaseModel):
+        """Judge one unit of text."""
+
+        checkable: Probability = Field(description="Does `unit.text` state a checkable claim?")
+        depth: Renamed = Field(description="How specific is the claim?")
+        kind: Literal["empirical", "normative"] = Field(
+            description="What kind of statement is it? `empirical` reports an observation or "
+            "measurement; `normative` says what should be done."
+        )
+
+    other: Ask[Any] = Ask(
+        function="claim_detection", version="v1", output=Other, instructions="Judge it."
+    )
+    assert other.sha256 != ASK.sha256
+
+
+async def test_a_field_jev_cannot_be_asked_about_raises(cassette: ClientFactory):
+    # A wiring error must not become a forever-"unjudged" Decision that still pays for
+    # a request per subject.
+    class Wired(BaseModel):
+        """Judge one unit of text."""
+
+        checkable: bool = Field(description="Does `unit.text` state a checkable claim?")
+
+    wired: Ask[Any] = Ask(
+        function="claim_detection", version="v1", output=Wired, instructions="Judge it."
+    )
+    jev = JevClient(cassette(fake_jev()), api_key="replay")
+    with pytest.raises(TypeError, match="not a Jev question type"):
+        await jev.judge(wired, (b.unit().id,), STATE, now=b.T0)
 
 
 async def test_every_field_becomes_one_question_in_one_request(

@@ -59,12 +59,13 @@ class Ask[OutputT: BaseModel]:
     """One Jev function: the output model whose fields are its questions, plus the
     instructions that go along with every one of them.
 
-    `sha256` covers the full wording — the instructions, the model docstring and every
-    field description, option name and level description — and is Judgment.bundle_sha256.
-    Rewording a question therefore yields new judgments, never a silent mix of old and new
-    meanings under one id. It hashes the schema pydantic-ai *sends*: plain
-    model_json_schema() drops the member docstrings that become a Score's levels, so a
-    reworded rubric would keep its hash and replay pre-reword judgments from the cache.
+    `sha256` covers everything that decides what a stored answer means: the function, the
+    version, the instructions, and the schema pydantic-ai *sends* (plain
+    model_json_schema() drops the member docstrings that become a Score's levels), plus
+    each Score's level names, which the schema renders as bare consts although
+    ScoreAnswer.levels stores them and the accessors look them up by name. Rewording or
+    renaming therefore yields new judgments, never a silent mix of old and new meanings
+    under one id, and never a cached answer whose levels no longer match the code.
     """
 
     function: JevFunction
@@ -77,7 +78,20 @@ class Ask[OutputT: BaseModel]:
         schema = cast(
             JsonValue, self.output.model_json_schema(schema_generator=GenerateToolJsonSchema)
         )
-        return input_sha256({"instructions": self.instructions, "schema": schema})
+        levels: JsonValue = {
+            name: list(score_levels(field.annotation))
+            for name, field in self.output.model_fields.items()
+            if isinstance(field.annotation, type) and issubclass(field.annotation, IntEnum)
+        }
+        return input_sha256(
+            {
+                "function": self.function,
+                "version": self.version,
+                "instructions": self.instructions,
+                "schema": schema,
+                "levels": levels,
+            }
+        )
 
     @property
     def policy(self) -> str:
@@ -291,17 +305,20 @@ class JevClient:
             run = await agent.run(json.dumps(state, ensure_ascii=False, sort_keys=True))
         except ModelHTTPError as e:
             return fail("api_error", e)
-        except ModelAPIError as e:
-            # The SDK's timeout error is a connection error; only the message tells them apart.
-            return fail("timeout" if "timeout" in str(e).lower() else "connection", e)
         except UnexpectedModelBehavior as e:
             return fail("bad_answer", e)
+        except ModelAPIError as e:
+            # The SDK's timeout is a connection error; only the cause tells them apart.
+            return fail("timeout" if isinstance(e.__cause__, TimeoutError) else "connection", e)
         response: ModelResponse = run.response
         if response.model_name != JEV_MODEL:
             return fail("model_mismatch", f"asked {JEV_MODEL}, answered by {response.model_name}")
         try:
+            # TypeError is not caught: an output field Jev cannot be asked about is a
+            # wiring error, and swallowing it would make every subject pay for a request
+            # whose Decision is "unjudged" forever.
             answers = answers_of(run.output, dict(response.provider_details or {}))
-        except (_BadAnswer, TypeError, ValidationError) as e:
+        except (_BadAnswer, ValidationError) as e:
             return fail("bad_answer", e)
         judgment = Judgment.new(
             function=ask.function,
