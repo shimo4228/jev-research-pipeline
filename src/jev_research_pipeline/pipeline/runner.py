@@ -26,6 +26,7 @@ from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Re
 from jev_research_pipeline.questions import NO_QUESTIONS, NoQuestions, open_questions
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
+from jev_research_pipeline.store.migrate import prepare_store
 
 from .config import config_path, line_context, line_seeds, load_tracks, rotation_config
 from .nets import DayBudget, load_nets
@@ -122,7 +123,16 @@ async def run_pipeline(
     net_config = load_nets(cfg)
     day_budget = DayBudget()  # the daily quotas are shared by every line of the rotation
     store = GraphStore(store_dir(env))
-    harvested = {slug: harvest_line(store, vault, slug, now, env) for slug in rotation.order}
+    # Before anything is read: an old store is migrated (additive) or stops the run here
+    # with one line (incompatible), never halfway through a line.
+    migrated = prepare_store(store.root)
+    harvested = {
+        slug: [
+            *(n for n in migrated if f"lines/{slug}.jsonld" in n),
+            *harvest_line(store, vault, slug, now, env),
+        ]
+        for slug in rotation.order
+    }
     outcomes: list[LineOutcome] = []
     for slug in advance_rotation(store, rotation, now):
         ctx = line_context(tracks[slug])

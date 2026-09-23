@@ -4,6 +4,10 @@ jrp run            harvest, then the next lines in rotation (env: pipeline.runne
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
+jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
+
+A store file from an older build stops every command with one line (store.migrate):
+additive differences are migrated in place first, incompatible ones need `jrp migrate`.
 """
 
 import argparse
@@ -23,6 +27,7 @@ from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
+from .store.migrate import StoreSchemaError, migrate_store, prepare_store
 from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
@@ -36,6 +41,8 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("export-cases")
     d = sub.add_parser("drift")
     d.add_argument("--cassettes", default="tests/cassettes/live", help="dir of live cassettes")
+    m = sub.add_parser("migrate")
+    m.add_argument("--dry-run", action="store_true", help="print the plan, change nothing")
     return p
 
 
@@ -62,6 +69,12 @@ async def _run(env: Mapping[str, str]) -> int:
     skipped = "; ".join(unanswered)
     sys.stdout.write("\n".join(filter(None, [summary, skipped])) + "\n")
     notify("jrp run", "; ".join(filter(None, [summary or "no line ran", skipped])), env=env)
+    return 0
+
+
+def _migrate(env: Mapping[str, str], *, dry_run: bool) -> int:
+    lines = migrate_store(store_dir(env), dry_run=dry_run, today=datetime.now().astimezone().date())
+    sys.stdout.write("\n".join(lines or ["store は現行 schema"]) + "\n")
     return 0
 
 
@@ -110,12 +123,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     env = dict(os.environ)
     setup_telemetry(env)  # no OTEL_EXPORTER_OTLP_ENDPOINT → no SDK, no-op spans
-    match args.command:
-        case "run":
-            return asyncio.run(_run(env))
-        case "fit":
-            return _fit(env)
-        case "export-cases":
-            return _export(env)
-        case _:
-            return asyncio.run(_drift(env, Path(args.cassettes)))
+    try:
+        match args.command:
+            case "run":
+                return asyncio.run(_run(env))  # run_pipeline prepares the store itself
+            case "fit":
+                _prepared(env)
+                return _fit(env)
+            case "export-cases":
+                _prepared(env)
+                return _export(env)
+            case "migrate":
+                return _migrate(env, dry_run=bool(args.dry_run))
+            case _:
+                return asyncio.run(_drift(env, Path(args.cassettes)))
+    except StoreSchemaError as e:
+        sys.stderr.write(f"{e}\n")
+        if args.command == "run":
+            notify("jrp run STOPPED", str(e), env=env)
+        return 2
+
+
+def _prepared(env: Mapping[str, str]) -> None:
+    for note in prepare_store(store_dir(env)):
+        sys.stdout.write(f"{note}\n")

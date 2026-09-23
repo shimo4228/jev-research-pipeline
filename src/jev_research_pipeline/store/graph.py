@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from jev_research_pipeline.model import GraphNodeType, from_document, to_document
+from jev_research_pipeline.model.jsonld import CONTEXT
+
+from .schema import StoreSchemaError, inspect_document
 
 _SLUG_RE: Final = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -40,6 +43,10 @@ class Partition:
         if not self.path.exists():
             return {}
         doc = json.loads(self.path.read_text(encoding="utf-8"))
+        if doc.get("@context") != CONTEXT:
+            # Named, with what to do, instead of from_document's bare ValueError. The
+            # commands migrate additive files before they get here (store.migrate).
+            raise StoreSchemaError(self.path, inspect_document(doc))
         return {node.id: node for node in from_document(doc)}
 
     def get(self, iri: str) -> GraphNodeType | None:
@@ -60,6 +67,11 @@ class Partition:
         if not drop & set(current):
             return
         self._write([current[i] for i in sorted(current) if i not in drop])
+
+    def write_all(self, nodes: list[GraphNodeType]) -> None:
+        """Replace the whole file with `nodes` (a migration's rewrite). Sorted by @id, like
+        every write, so the bytes depend only on the node set."""
+        self._write(sorted(nodes, key=lambda n: n.id))
 
     def _write(self, nodes: list[GraphNodeType]) -> None:
         doc = to_document(nodes)
