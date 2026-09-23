@@ -44,7 +44,7 @@ class StoreSchemaError(ValueError):
     def __init__(self, path: Path, inspection: Inspection) -> None:
         self.path, self.inspection = path, inspection
         super().__init__(
-            f"{store_path(path)} は旧 schema（{inspection.detail}）。`jrp migrate` か退避を"
+            f"{store_path(path)} は旧 schema ({inspection.detail})。`jrp migrate` か退避を"
         )
 
 
@@ -63,7 +63,10 @@ def inspect_document(doc: dict[str, Any]) -> Inspection:
     removed = sorted(k for k in old if k not in CONTEXT)
     changed = sorted(k for k in old if k in CONTEXT and old[k] != CONTEXT[k])
     if removed or changed:
-        what = [f"削除 {', '.join(removed)}" if removed else "", f"変更 {', '.join(changed)}" if changed else ""]
+        what = [
+            f"削除 {', '.join(removed)}" if removed else "",
+            f"変更 {', '.join(changed)}" if changed else "",
+        ]
         return Inspection(
             verdict="incompatible",
             detail=_one_line(f"非互換: @context の項目 {' / '.join(w for w in what if w)}"),
@@ -74,12 +77,16 @@ def inspect_document(doc: dict[str, Any]) -> Inspection:
         try:
             _NODE.validate_python(raw)
         except ValidationError as e:
-            kind = str(cast(dict[str, Any], raw).get("@type", "?")) if isinstance(raw, dict) else "?"
+            kind = (
+                str(cast(dict[str, Any], raw).get("@type", "?")) if isinstance(raw, dict) else "?"
+            )
             failures.append(f"{kind}: {e.errors()[0]['msg']}")
     if failures:
         return Inspection(
             verdict="incompatible",
-            detail=_one_line(f"非互換: 現行 model で読めないノード {len(failures)} 件, 例 {failures[0]}"),
+            detail=_one_line(
+                f"非互換: 現行 model で読めないノード {len(failures)} 件, 例 {failures[0]}"
+            ),
         )
     added = len(CONTEXT) - len(old)
     return Inspection(verdict="additive", detail=f"@context に {added} 項目を追加")

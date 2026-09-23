@@ -81,5 +81,7 @@ def migrate_store(root: Path, *, dry_run: bool, today: date) -> list[str]:
             where = f"retired/{today.isoformat()}/{name}"
             if not dry_run:
                 _retire(root, path, today)
-            lines.append(f"{name}: 非互換 → {'退避予定' if dry_run else '退避'} {where} ({found.detail})")
+            lines.append(
+                f"{name}: 非互換 → {'退避予定' if dry_run else '退避'} {where} ({found.detail})"
+            )
     return lines

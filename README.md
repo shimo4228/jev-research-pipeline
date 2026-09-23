@@ -141,7 +141,7 @@ gh auth token   # gh CLI の token をそのまま使う（repo 等の広い sco
 
 - **追加だけの変更**（新しい項目が増えただけ）: その場で現行 schema に書き直し、運用節に 1 行残す
 - **非互換**（項目の削除・意味の変更、今の model で読めないノード）: 何も読み書きせずに 1 行で止まる。
-  `store/lines/<ライン>.jsonld は旧 schema（…）。` の形
+  `store/lines/<ライン>.jsonld は旧 schema (…)。` の形
 
 止まったら `jrp migrate --dry-run` で計画を見て、`jrp migrate` で実行する。非互換のファイルは
 消さずに `<store>/retired/<日付>/` へ移すので、そのラインは空の store からやり直しになる。
