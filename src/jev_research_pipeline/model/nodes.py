@@ -385,11 +385,13 @@ Answer = Annotated[NoulAnswer | ScoreAnswer | ChoiceAnswer, Field(discriminator=
 
 
 class Judgment(StoreNode):
-    """One Jev request: a bundle of narrow questions over one state, answers kept raw.
+    """One subject's answers to a bundle of narrow questions over one state, kept raw.
 
     Identity = (function, subjects, model, state hash, bundle hash): the same question
     bundle over the same state with the same pinned model is the same judgment, so a
     re-run reuses it. Judgments are facts from the model; thresholds live in Decision.
+    A batched request (JevClient.judge_batch) yields one Judgment per subject: its state
+    hash is the state a single request would have sent, its bundle hash the batched ask's.
     """
 
     type: Literal["Judgment"] = Field(

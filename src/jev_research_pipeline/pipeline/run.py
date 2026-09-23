@@ -32,7 +32,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Final, override
+from typing import Any, Final, override
 
 import httpx2
 from pydantic import AwareDatetime, BaseModel
@@ -63,7 +63,7 @@ from jev_research_pipeline.jev import (
     source_trust,
 )
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.jev.core import JEV_MODEL, output_of
+from jev_research_pipeline.jev.core import JEV_MODEL, batches, output_of
 from jev_research_pipeline.model import (
     AdapterKind,
     Claim,
@@ -144,10 +144,48 @@ class StoredJev(JevClient):
         if isinstance(hit, Judgment):
             return Judged(output=output_of(ask.output, hit), judgment=hit)
         result = await super().judge(ask, subjects, state, now=now)
-        if isinstance(result, Judged):
+        self._remember(result)
+        return result
+
+    @override
+    async def judge_batch[OutputT: BaseModel](
+        self,
+        ask: Ask[OutputT],
+        items: Sequence[tuple[tuple[str, ...], JevState]],
+        *,
+        subject: str,
+        now: AwareDatetime,
+    ) -> list[Judged[OutputT] | JevFailure]:
+        """Only the items with no stored answer are sent. An answer counts whether it was
+        asked alone or in a batch (either bundle): the item is the same question."""
+        bundles = (ask.sha256, ask.batched(subject).sha256)
+        found: dict[int, Judged[OutputT]] = {}
+        for i, (subjects, state) in enumerate(items):
+            for bundle in bundles:
+                jid = Judgment.id_for(
+                    ask.function, subjects, JEV_MODEL, input_sha256(state), bundle
+                )
+                hit = self.known.get(jid)
+                if isinstance(hit, Judgment):
+                    found[i] = Judged(output=output_of(ask.output, hit), judgment=hit)
+                    break
+        missing = [item for i, item in enumerate(items) if i not in found]
+        asked = iter(await super().judge_batch(ask, missing, subject=subject, now=now))
+        out: list[Judged[OutputT] | JevFailure] = []
+        for i in range(len(items)):
+            if i in found:
+                out.append(found[i])
+            else:
+                result = next(asked)
+                self._remember(result)
+                out.append(result)
+        return out
+
+    def _remember(self, result: Judged[Any] | JevFailure) -> None:
+        # A batch of one goes through judge(), which already remembered it.
+        if isinstance(result, Judged) and result.judgment.id not in self.known:
             self.fresh.append(result.judgment)
             self.known[result.judgment.id] = result.judgment
-        return result
 
 
 @dataclass
@@ -189,6 +227,10 @@ class _State:
     discovery: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
     partial: bool = False
+
+
+type _Screened = dict[tuple[str, str], Judged[question_screening.Answers] | JevFailure | None]
+"""(source id, question id) → its screening answer; None where the cost cap stopped it."""
 
 
 def _entry(source: SourceItem, gist: str = "") -> SourceEntry:
@@ -467,28 +509,43 @@ class LineRun:
         results = await asyncio.gather(*(self._triaged(s) for s in sources))
         return self._apply_triage(sources, results)
 
+    async def _screened(self, sources: list[SourceItem]) -> _Screened:
+        """Every (source, question) answer, None where the cost cap stopped it. One request
+        per (question, batch of sources): the question and its evidence set go once, the
+        sources as slots (question_screening.BATCH_ASK)."""
+        screenable = [s for s in sources if not question_screening.no_abstract(s)]
+        work: list[tuple[Question, list[SourceItem], list[tuple[tuple[str, ...], JevState]]]] = []
+        for q in self.questions:
+            items = question_screening.items(self.ctx, screenable, q, self._evidence_texts(q))
+            for idx in batches([st for _, st in items], question_screening.SUBJECT):
+                work.append((q, [screenable[i] for i in idx], [items[i] for i in idx]))
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda chunk=chunk: self.jev.judge_batch(
+                        question_screening.ASK,
+                        chunk,
+                        subject=question_screening.SUBJECT,
+                        now=self.now,
+                    )
+                )
+                for _, _, chunk in work
+            )
+        )
+        screened: _Screened = {}
+        for (q, chunk_sources, _), judged in zip(work, results, strict=True):
+            for i, s in enumerate(chunk_sources):
+                screened[(s.id, q.id)] = None if judged is None else judged[i]
+        return screened
+
     async def _screen(self, sources: list[SourceItem]) -> dict[str, list[SourceItem]]:
         """Screening per (source, question). Code routes: Keep goes on to claims, Review
         into the note for the author, Drop and Incomplete nowhere. bridges_line decides
         separately, so a source from outside the vocabulary still reaches 橋渡し."""
+        screened = await self._screened(sources)
         kept: dict[str, list[SourceItem]] = {q.id: [] for q in self.questions}
         reviewed: set[str] = set()
         bridged: set[str] = set()
-        evidence = {q.id: self._evidence_texts(q) for q in self.questions}
-        pairs = [
-            (s, q) for s in sources if not question_screening.no_abstract(s) for q in self.questions
-        ]
-        results = await asyncio.gather(
-            *(
-                self._jev(
-                    lambda s=s, q=q: question_screening.judge(
-                        self.jev, self.ctx, s, q, evidence[q.id], now=self.now
-                    )
-                )
-                for s, q in pairs
-            )
-        )
-        screened = dict(zip(((s.id, q.id) for s, q in pairs), results, strict=True))
         for s in sources:
             if question_screening.no_abstract(s):
                 # Decided by len(source.text): asking Jev seven questions per open question

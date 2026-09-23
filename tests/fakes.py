@@ -22,7 +22,8 @@ def fake_jev(
     status: int = 200,
 ) -> Handler:
     """TypeSafe /v1/systemone. Unlisted questions get: noul 0.8; score peaked at the top
-    level; choice peaked at the first option. `answers` overrides per question name.
+    level; choice peaked at the first option. `answers` overrides per question name —
+    `on_topic` covers every batch slot's `sN.on_topic`, `s1.on_topic` only that slot.
     """
     overrides = dict(answers or {})
 
@@ -32,7 +33,9 @@ def fake_jev(
         body = json.loads(request.content)
         out: dict[str, object] = {}
         for name, q in body["questions"].items():
-            given = overrides.get(name)
+            # A batched request names a field `sN.<field>`; it answers like `<field>`
+            # unless the slot is overridden on its own.
+            given = overrides.get(name, overrides.get(name.rsplit(".", 1)[-1]))
             if q["type"] == "noul":
                 p = given if isinstance(given, float) else 0.8
                 out[name] = {"type": "noul", "noul": p}

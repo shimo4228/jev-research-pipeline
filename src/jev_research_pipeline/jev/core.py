@@ -4,7 +4,9 @@ Migrated 2026-09-23 from a hand-rolled bundle layer: the same abstraction now dr
 models the pipeline uses, and the questions live on the types instead of in a parallel
 structure that had to be converted.
 
-One Jev use = one output model over one state in one request. A field is one question —
+One Jev use = one output model over one state in one request — or, for the screen, one
+output model per slot over several subjects in one request (judge_batch), each subject
+still stored as its own Judgment. A field is one question —
 `float` bounded 0..1 is a Noul and comes back as the raw probability, a `Literal` is a
 Choice, an `IntEnum` with a docstring per member is a Score. Code owns everything around
 it: the state, the thresholds and the Decision. A failed request never raises into the
@@ -15,16 +17,18 @@ description, so both sides of the condition have to be written into the question
 """
 
 import asyncio
+import copy
+import functools
 import json
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Annotated, Any, Final, Literal, TypeAliasType, cast, get_args, get_origin
 
 import httpx2
-from pydantic import AwareDatetime, BaseModel, JsonValue, ValidationError
+from pydantic import AwareDatetime, BaseModel, Field, JsonValue, ValidationError, create_model
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import ModelResponse
@@ -103,6 +107,91 @@ class Ask[OutputT: BaseModel]:
     @property
     def policy(self) -> str:
         return f"{self.function}@{self.version}"
+
+    def batched(self, subject: str) -> "Ask[OutputT]":
+        """The same questions asked of several `subject`s in one request (judge_batch).
+
+        Its own ask: the instructions say how a slot maps onto the state, so its sha and
+        policy differ from the single request's, and a batched answer is never stored as
+        if it had been asked alone. The output stays the one-subject model — that is what
+        each slot is read back into, and what a stored Judgment replays as."""
+        return Ask(
+            function=self.function,
+            version=f"{self.version}_batch",
+            output=self.output,
+            instructions=self.instructions.replace(f"`{subject}`", f"every `{subject}s.sN`")
+            + "\n\n"
+            + _BATCH_NOTE.format(subject=subject),
+        )
+
+
+_BATCH_NOTE: Final = (
+    "Several {subject}s are judged at once. `{subject}s` holds them under the slot names "
+    "s0, s1, and so on. A question whose field is `sN.<name>` is about `{subject}s.sN` "
+    "alone and names it that way; judge every slot on its own, the other slots are not "
+    "context for it."
+)
+
+BATCH_MAX_ITEMS: Final = 8
+"""Subjects per batched request (judge asked for 5-10 per request)."""
+BATCH_STATE_TOKENS: Final = 24_000
+"""Estimated state size a batch may reach. The limit is 32k tokens for the state plus the
+longest question and 64k per request (docs.typesafe.ai models, as-of 2026-09-23); the
+margin absorbs the estimate's error and the longest question."""
+
+
+def estimated_tokens(value: JsonValue) -> int:
+    """A deliberately high guess: one token per three UTF-8 bytes. A CJK character is three
+    bytes and about one token; English runs about four characters a token."""
+    return len(json.dumps(value, ensure_ascii=False).encode()) // 3 + 1
+
+
+def batches(states: Sequence[JevState], subject: str) -> list[list[int]]:
+    """Indices of `states`, cut greedily into batches that stay within BATCH_MAX_ITEMS
+    and BATCH_STATE_TOKENS (the shared part counted once). An item too big for any
+    batch goes alone — as big as a single request would have sent anyway."""
+    if not states:
+        return []
+    shared = estimated_tokens({k: v for k, v in states[0].items() if k != subject})
+    out: list[list[int]] = []
+    current: list[int] = []
+    tokens = shared
+    for i, state in enumerate(states):
+        size = estimated_tokens(state[subject])
+        if current and (len(current) >= BATCH_MAX_ITEMS or tokens + size > BATCH_STATE_TOKENS):
+            out.append(current)
+            current, tokens = [], shared
+        current.append(i)
+        tokens += size
+    out.append(current)
+    return out
+
+
+@functools.cache
+def batch_output(ask: Ask[Any], subject: str, n: int) -> type[BaseModel]:
+    """The output model of an n-subject request: one nested slot model per subject, each
+    field's question rewritten to name its own slot (`source` → `sources.s3`) so no
+    question can be read as being about another slot's subject."""
+    doc = (ask.output.__doc__ or "").strip()
+
+    def slot(i: int) -> type[BaseModel]:
+        fields: dict[str, Any] = {}
+        for name, info in ask.output.model_fields.items():
+            renamed = copy.copy(info)
+            renamed.description = (info.description or "").replace(
+                f"`{subject}`", f"`{subject}s.s{i}`"
+            )
+            fields[name] = (info.annotation, renamed)
+        return create_model(f"{ask.output.__name__}S{i}", __doc__=doc, **fields)
+
+    slots: dict[str, Any] = {
+        f"s{i}": (slot(i), Field(description=f"`{subject}s.s{i}`")) for i in range(n)
+    }
+    return create_model(
+        f"{ask.output.__name__}Batch",
+        __doc__=f"{doc} Asked once per slot of `{subject}s`.",
+        **slots,
+    )
 
 
 @dataclass(frozen=True)
@@ -273,6 +362,28 @@ class RequestPacer:
             self._sent.append(now)
 
 
+@dataclass(frozen=True)
+class _Sent[OutputT: BaseModel]:
+    """What one request brought back, before it is split into per-subject Judgments."""
+
+    output: OutputT
+    model: str
+    details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _Refused:
+    reason: FailureReason
+    detail: str
+    splittable: bool
+    """A batch that failed for this reason may succeed in halves: the model answered
+    malformed, or refused the request itself (e.g. max_tokens_exceeded) — something in
+    the batch, not the service, is at fault. Timeouts, 408/429 and 5xx are the service."""
+
+
+_TRANSIENT_STATUS: Final = frozenset({408, 429})
+
+
 class JevClient:
     """The only door to Jev. `questions_asked` meters every question sent (operations
     section: Jev question count), including those whose request failed."""
@@ -288,6 +399,14 @@ class JevClient:
     async def aclose(self) -> None:
         """The HTTP client is owned by the caller; nothing of ours outlives a run."""
 
+    @staticmethod
+    def _check_subjects(function: JevFunction, subjects: tuple[str, ...]) -> None:
+        # Wiring errors are programming errors: raise before any request, never "unjudged".
+        want = SUBJECT_KINDS[function]
+        got = tuple(kind_of(s) for s in subjects)
+        if got != want:
+            raise ValueError(f"subjects for {function} must be kinds {want}, got {got}")
+
     async def judge[OutputT: BaseModel](
         self,
         ask: Ask[OutputT],
@@ -296,20 +415,7 @@ class JevClient:
         *,
         now: AwareDatetime,
     ) -> Judged[OutputT] | JevFailure:
-        def fail(reason: FailureReason, detail: object) -> JevFailure:
-            return JevFailure(
-                function=ask.function,
-                subjects=subjects,
-                bundle_sha256=ask.sha256,
-                reason=reason,
-                detail=str(detail),
-            )
-
-        # Wiring errors are programming errors: raise before any request, never "unjudged".
-        want = SUBJECT_KINDS[ask.function]
-        got = tuple(kind_of(s) for s in subjects)
-        if got != want:
-            raise ValueError(f"subjects for {ask.function} must be kinds {want}, got {got}")
+        self._check_subjects(ask.function, subjects)
         questions = len(ask.output.model_fields)
         # Counted before the first await, so a concurrent task that checks the cost cap
         # right after this one was admitted already sees what it is about to spend.
@@ -321,57 +427,185 @@ class JevClient:
             subjects=len(subjects),
             model=JEV_MODEL,
         ) as current:
-            result = await self._ask(ask, subjects, state, fail=fail, now=now)
+            sent = await self._send(ask.output, ask.instructions, state)
+            result = (
+                _failure(ask, subjects, sent)
+                if isinstance(sent, _Refused)
+                else _judged(ask, subjects, state, sent.output, sent, now=now)
+            )
             current.set_attribute(
                 "jrp.outcome", "judged" if isinstance(result, Judged) else result.reason
             )
             return result
 
-    async def _ask[OutputT: BaseModel](
+    async def judge_batch[OutputT: BaseModel](
         self,
         ask: Ask[OutputT],
-        subjects: tuple[str, ...],
-        state: JevState,
+        items: Sequence[tuple[tuple[str, ...], JevState]],
         *,
-        fail: Callable[[FailureReason, object], JevFailure],
+        subject: str,
         now: AwareDatetime,
-    ) -> Judged[OutputT] | JevFailure:
+    ) -> list[Judged[OutputT] | JevFailure]:
+        """Several subjects of one ask in one request: `items` are (subjects, the state a
+        single request would send), and the states differ only under `subject`.
+
+        The request carries the shared part once and the items under `<subject>s.sN`;
+        each field is asked once per slot (`sN.<field>`, pydantic-ai's nested naming). Every
+        item still gets its own Judgment, keyed by its single-request state — so a stored
+        answer is found again whatever batch the item lands in next time. One item is a
+        plain judge(): a batch of one is today's request, byte for byte. A batch that
+        fails for a reason inside it is split in halves until the item at fault stands
+        alone as the only "unjudged" one.
+        """
+        if len(items) <= 1:
+            return [await self.judge(ask, subjects, state, now=now) for subjects, state in items]
+        shared = _without(items[0][1], subject)
+        for subjects, state in items:
+            self._check_subjects(ask.function, subjects)
+            if _without(state, subject) != shared:
+                raise ValueError(f"batched states must differ only under {subject!r}")
+        batch = ask.batched(subject)
+        questions = len(ask.output.model_fields) * len(items)
+        self.questions_asked += questions
+        with span(
+            f"jev.{ask.function}",
+            function=ask.function,
+            questions=questions,
+            subjects=len(items),
+            model=JEV_MODEL,
+            batch=len(items),
+        ) as current:
+            state: JevState = {
+                **shared,
+                f"{subject}s": {f"s{i}": st[subject] for i, (_, st) in enumerate(items)},
+            }
+            sent = await self._send(
+                batch_output(ask, subject, len(items)), batch.instructions, state
+            )
+            current.set_attribute(
+                "jrp.outcome", sent.reason if isinstance(sent, _Refused) else "judged"
+            )
+        if isinstance(sent, _Refused):
+            if not sent.splittable:
+                return [_failure(batch, subjects, sent) for subjects, _ in items]
+            half = len(items) // 2
+            return [
+                *await self.judge_batch(ask, items[:half], subject=subject, now=now),
+                *await self.judge_batch(ask, items[half:], subject=subject, now=now),
+            ]
+        out: list[Judged[OutputT] | JevFailure] = []
+        for i, (subjects, st) in enumerate(items):
+            slot = f"s{i}"
+            try:
+                output = ask.output.model_validate(getattr(sent.output, slot).model_dump())
+            except ValidationError as e:
+                out.append(
+                    _failure(
+                        batch,
+                        subjects,
+                        _Refused(reason="bad_answer", detail=str(e), splittable=False),
+                    )
+                )
+                continue
+            one = _Sent[OutputT](
+                output=output, model=sent.model, details=_slot_details(sent.details, slot)
+            )
+            out.append(_judged(batch, subjects, st, output, one, now=now))
+        return out
+
+    async def _send[OutputT: BaseModel](
+        self, output: type[OutputT], instructions: str, state: JevState
+    ) -> "_Sent[OutputT] | _Refused":
         await self.pacer.admit()
         agent = Agent(
             self._model,
-            output_type=ask.output,
-            instructions=ask.instructions,
+            output_type=output,
+            instructions=instructions,
             model_settings=self._settings,
         )
         try:
             run = await agent.run(json.dumps(state, ensure_ascii=False, sort_keys=True))
         except ModelHTTPError as e:
-            return fail("api_error", e)
+            transient = e.status_code in _TRANSIENT_STATUS or e.status_code >= 500
+            return _Refused(reason="api_error", detail=str(e), splittable=not transient)
         except UnexpectedModelBehavior as e:
-            return fail("bad_answer", e)
+            return _Refused(reason="bad_answer", detail=str(e), splittable=True)
         except ModelAPIError as e:
             # The SDK's timeout is a connection error; only the cause tells them apart.
-            return fail("timeout" if isinstance(e.__cause__, TimeoutError) else "connection", e)
+            reason: FailureReason = (
+                "timeout" if isinstance(e.__cause__, TimeoutError) else "connection"
+            )
+            return _Refused(reason=reason, detail=str(e), splittable=False)
         response: ModelResponse = run.response
         if response.model_name != JEV_MODEL:
-            return fail("model_mismatch", f"asked {JEV_MODEL}, answered by {response.model_name}")
-        try:
-            # TypeError is not caught: an output field Jev cannot be asked about is a
-            # wiring error, and swallowing it would make every subject pay for a request
-            # whose Decision is "unjudged" forever.
-            answers = answers_of(run.output, dict(response.provider_details or {}))
-        except (_BadAnswer, ValidationError) as e:
-            return fail("bad_answer", e)
-        judgment = Judgment.new(
-            function=ask.function,
-            subjects=subjects,
+            return _Refused(
+                reason="model_mismatch",
+                detail=f"asked {JEV_MODEL}, answered by {response.model_name}",
+                splittable=False,
+            )
+        return _Sent[OutputT](
+            output=run.output,
             model=response.model_name,
-            state_sha256=input_sha256(state),
-            bundle_sha256=ask.sha256,
-            answers=answers,
-            judged_at=now,
+            details=dict(response.provider_details or {}),
         )
-        return Judged(output=run.output, judgment=judgment)
+
+
+def _without(state: JevState, key: str) -> JevState:
+    return {k: v for k, v in state.items() if k != key}
+
+
+def _slot_details(details: dict[str, Any], slot: str) -> dict[str, Any]:
+    """One slot's share of provider_details, with its `sN.` prefix taken off — the shape
+    a single request's details have, so answers_of() reads it unchanged."""
+    prefix = f"{slot}."
+    out: dict[str, Any] = {}
+    for kind, per_field in details.items():
+        if isinstance(per_field, dict):
+            fields = cast(dict[str, Any], per_field)
+            out[kind] = {
+                k.removeprefix(prefix): v for k, v in fields.items() if k.startswith(prefix)
+            }
+    return out
+
+
+def _failure(ask: Ask[Any], subjects: tuple[str, ...], refused: _Refused) -> JevFailure:
+    return JevFailure(
+        function=ask.function,
+        subjects=subjects,
+        bundle_sha256=ask.sha256,
+        reason=refused.reason,
+        detail=refused.detail,
+    )
+
+
+def _judged[OutputT: BaseModel](
+    ask: Ask[Any],
+    subjects: tuple[str, ...],
+    state: JevState,
+    output: OutputT,
+    sent: _Sent[Any],
+    *,
+    now: AwareDatetime,
+) -> Judged[OutputT] | JevFailure:
+    try:
+        # TypeError is not caught: an output field Jev cannot be asked about is a
+        # wiring error, and swallowing it would make every subject pay for a request
+        # whose Decision is "unjudged" forever.
+        answers = answers_of(output, sent.details)
+    except (_BadAnswer, ValidationError) as e:
+        return _failure(
+            ask, subjects, _Refused(reason="bad_answer", detail=str(e), splittable=False)
+        )
+    judgment = Judgment.new(
+        function=ask.function,
+        subjects=subjects,
+        model=sent.model,
+        state_sha256=input_sha256(state),
+        bundle_sha256=ask.sha256,
+        answers=answers,
+        judged_at=now,
+    )
+    return Judged(output=output, judgment=judgment)
 
 
 type Rule[OutputT: BaseModel] = Callable[[Judged[OutputT]], tuple[bool, float]]
