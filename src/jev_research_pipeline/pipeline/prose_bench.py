@@ -6,13 +6,16 @@ verdict on it is "weak". This is the loop that improves it without touching a ru
     jrp prose export   question-days with prose, from one or more stores → frozen cases
     jrp prose bench    one variant (prompt file x model x thinking x material) over the
                        cases → drafts, each with the code gates (facts, not taste)
-    jrp prose pairs    two variants → one blind pair file per (case, order), the rubric
-                       inside with its axes shuffled, and a key the judge never sees
-    jrp prose tally    the judge's verdict files + the key → per-axis wins and ties
+    jrp prose read     one or more variants → a blind reading file for the author
+                       (the ground truth for readability) and a key beside it
+    jrp prose gate     one variant → one file per draft for the fidelity judge; with
+                       --verdicts, the pass / fail summary of the judge's verdicts
 
-The judge is a fresh-context Opus run from the author's Claude session, reading one pair
-file and writing one verdict file (docs/prose-rubric.md) — dev time only; no run calls
-Claude. Everything lives under <JRP_STORE_DIR>/prose_bench/, never in the repo: cases
+Roles (skill author-calibrated-eval): the author reads for readability; a fresh-context
+Opus judge (.claude/agents/prose-judge.md) checks fidelity only, one draft at a time, with
+binary checks and a pass / fail verdict (docs/prose-rubric.md) — an Opus judge asked for
+readability picked the more informative draft the author found hard to read (2026-09-23);
+code checks form. Dev time only; no run calls Claude. Everything lives under <JRP_STORE_DIR>/prose_bench/, never in the repo: cases
 carry verbatim third-party text (claims, source excerpts), and the repo is public.
 
 Cases are split by their id alone (about one in three held out), so a case never changes
@@ -361,24 +364,11 @@ def load_drafts(bench: Path, variant: str) -> dict[str, Draft]:
     }
 
 
-# --- pairs ----------------------------------------------------------------------------------
-
-AXIS_HEADING: Final = re.compile(r"^### (.+)$", re.M)
-
-
-def rubric_parts(rubric: str) -> tuple[str, list[str], str]:
-    """docs/prose-rubric.md split at its markers: judge preamble, the quality axes (one
-    `### ` block each, shuffled per pair file), and the closing protocol."""
-    head, rest = rubric.split("<!-- axes -->", 1)
-    axes_text, tail = rest.split("<!-- /axes -->", 1)
-    starts = [m.start() for m in AXIS_HEADING.finditer(axes_text)]
-    axes = [
-        axes_text[a:b].strip() for a, b in zip(starts, [*starts[1:], len(axes_text)], strict=True)
-    ]
-    return head.strip(), axes, tail.strip()
+# --- gate: the LLM judge checks fidelity, one draft at a time -------------------------------
 
 
 def materials(case: BenchCase) -> str:
+    """What the writer was given, as the judge and the author see it: the same excerpts."""
     lines = [
         f"研究ライン: {case.line_name}",
         f"問い: {case.question_title}",
@@ -394,135 +384,132 @@ def materials(case: BenchCase) -> str:
         *(f"- {k}" for k in case.known),
         "",
         "出典(タイトルと抜粋。本文の書き手にこれが渡ったとは限らない):",
-        *(
-            f"S{i}. {s.title} — {s.url}\n    {s.excerpt}"
-            for i, s in enumerate(case.sources, start=1)
-        ),
+        *(f"S{i}. {s.title} — {s.url}\n    {s.excerpt}" for i, s in enumerate(case.sources, 1)),
     ]
     return "\n".join(lines)
 
 
-def make_pairs(
+def _selected(
+    bench: Path, variant: str, split: Split | Literal["all"], only: Collection[str] | None
+):
+    drafts = load_drafts(bench, variant)
+    return [
+        (case, drafts[case.id])
+        for case in load_cases(bench, split)
+        if case.id in drafts and (only is None or case.id in only)
+    ]
+
+
+def gate_files(
     bench: Path,
-    a: str,
-    b: str,
+    variant: str,
     rubric: str,
     *,
     split: Split | Literal["all"],
-    seed: int = 0,
     only: Collection[str] | None = None,
-) -> Path:
-    """Two files per case (A first, then B first) with the axes in a different random order
-    each; key.json maps every file's 草稿X / 草稿Y to its variant. Drafts that failed a code
-    gate still go in — the judge sees the gate result as a fact line."""
-    head, axes, tail = rubric_parts(rubric)
-    da, db = load_drafts(bench, a), load_drafts(bench, b)
-    n_claims = {c.id: len(c.claims) for c in load_cases(bench)}
-
-    def regated(d: Draft) -> Draft:
-        # gates as the code checks them now, not as they were when the draft was stored
-        # (a stricter or corrected check must reach the judge's fact line)
-        if not d.prose:
-            return d
-        return d.model_copy(update={"gates": gates(d.prose, n_claims.get(d.case, 0))})
-
-    da = {k: regated(v) for k, v in da.items()}
-    db = {k: regated(v) for k, v in db.items()}
-    out = bench / "pairs" / f"{a}__vs__{b}"
+) -> tuple[Path, int]:
+    """One file per draft — the rubric, the materials, the draft — for a fresh-context judge
+    that writes one GateVerdict. The code gates are re-run first and shown as a fact line: a
+    check corrected after the draft was stored must reach the judge."""
+    out = bench / "gate" / variant
     out.mkdir(parents=True, exist_ok=True)
-    rng = random.Random(f"{a}|{b}|{seed}")
+    selected = _selected(bench, variant, split, only)
+    for case, d in selected:
+        failed = gates(d.prose, len(case.claims)) if d.prose else d.gates
+        code = "コード検査: 通過" if not failed else f"コード検査: 不合格({' / '.join(failed)})"
+        body = "\n\n".join(
+            [rubric.strip(), "## 材料", materials(case), "## 草稿", code, d.prose or "(生成なし)"]
+        )
+        (out / f"{case.id}.md").write_text(body + "\n", encoding="utf-8")
+    return out, len(selected)
+
+
+class Check(Value):
+    question: str
+    answer: Literal["Yes", "No"]
+    detail: str = ""
+
+
+class GateVerdict(Value):
+    """docs/prose-rubric.md's output: binary checks as evidence, one named verdict, no score
+    (skill llm-as-judge)."""
+
+    verdict: Literal["pass", "fail"]
+    evidence: tuple[Check, ...] = ()
+    reason: str = ""
+
+
+def gate_summary(bench: Path, variant: str, verdicts: Path | None = None) -> list[str]:
+    """Lines for the terminal: pass / fail counts, then every failing draft with its reason."""
+    directory = verdicts or bench / "gate" / variant / "verdicts"
+    judged = {
+        path.stem: GateVerdict.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted(directory.glob("*.json"))
+    }
+    failed = {k: v for k, v in judged.items() if v.verdict == "fail"}
+    return [
+        f"{variant}: pass {len(judged) - len(failed)} / fail {len(failed)} / judged {len(judged)}",
+        *(f"fail: {k} {' '.join(v.reason.split())[:200]}" for k, v in failed.items()),
+    ]
+
+
+# --- read: the author reads the drafts blind ------------------------------------------------
+
+
+def read_file(
+    bench: Path,
+    variants: Sequence[str],
+    out: Path,
+    *,
+    split: Split | Literal["all"] = "all",
+    only: Collection[str] | None = None,
+    seed: str = "read",
+) -> tuple[Path, int]:
+    """The author's reading file: per case, the variants' drafts under shuffled letters (one
+    variant = one draft), the claims folded above them, and the two questions to answer. The
+    letter -> variant key goes to <out>.key.json; the reading file never names a variant."""
+    by_variant = {v: load_drafts(bench, v) for v in variants}
+    cases = [
+        c
+        for c in load_cases(bench, split)
+        if all(c.id in d for d in by_variant.values()) and (only is None or c.id in only)
+    ]
+    ask = (
+        "「一番良いのはどれか」「なぜか(一言)」"
+        if len(variants) > 1
+        else "「読めるか」「どこで止まったか」"
+    )
+    lines = [
+        "# 読み比べ",
+        "",
+        f"各 case について {ask} を書いてください。版の名前は伏せてあります。",
+        "",
+    ]
     key: dict[str, dict[str, str]] = {}
-    for case in load_cases(bench, split):
-        if case.id not in da or case.id not in db or (only is not None and case.id not in only):
-            continue
-        for order, (x, y) in enumerate(((da[case.id], db[case.id]), (db[case.id], da[case.id])), 1):
-            shuffled = axes[:]
-            rng.shuffle(shuffled)
-            name = f"{case.id}__{order}"
-            body = "\n\n".join(
-                [
-                    head,
-                    "## 評価軸(この順に判定する)",
-                    *shuffled,
-                    tail,
-                    "## 材料",
-                    materials(case),
-                    "## 草稿X",
-                    _shown(x),
-                    "## 草稿Y",
-                    _shown(y),
-                ]
-            )
-            (out / f"{name}.md").write_text(body + "\n", encoding="utf-8")
-            key[name] = {"X": x.variant, "Y": y.variant, "case": case.id}
-    (out / "key.json").write_text(json.dumps(key, ensure_ascii=False, indent=2), encoding="utf-8")
-    return out
-
-
-def _shown(d: Draft) -> str:
-    gate = "コード検査: 通過" if not d.gates else f"コード検査: 不合格({' / '.join(d.gates)})"
-    return f"{gate}\n\n{d.prose or '(生成なし)'}"
-
-
-# --- tally ----------------------------------------------------------------------------------
-
-
-class AxisVerdict(Value):
-    winner: Literal["X", "Y", "tie"]
-    quote_x: str = ""
-    quote_y: str = ""
-    why: str = ""
-
-
-class Verdict(Value):
-    gate: dict[str, Literal["pass", "fail"]]
-    gate_why: str = ""
-    axes: dict[str, AxisVerdict]
-    overall: AxisVerdict
-
-
-def tally(pairs: Path, a: str, b: str, verdicts: Path | None = None) -> list[str]:
-    """Per case, an axis is won only when both orders pick the same variant (else a tie);
-    a gate failure in either order loses the case's overall. Lines for the terminal."""
-    key: dict[str, dict[str, str]] = json.loads((pairs / "key.json").read_text(encoding="utf-8"))
-    per_case: dict[str, list[tuple[dict[str, str], Verdict]]] = {}
-    for name, k in key.items():
-        path = (verdicts or pairs / "verdicts") / f"{name}.json"
-        if path.is_file():
-            per_case.setdefault(k["case"], []).append(
-                (k, Verdict.model_validate_json(path.read_text(encoding="utf-8")))
-            )
-    axes: dict[str, dict[str, int]] = {}
-    gate_fail = {a: 0, b: 0}
-
-    def to_variant(k: dict[str, str], w: str) -> str:
-        return k[w] if w in ("X", "Y") else "tie"
-
-    for runs in per_case.values():
-        if len(runs) < 2:
-            continue
-        failed = {
-            k[slot] for k, v in runs for slot, g in v.gate.items() if g == "fail" and slot in k
-        }
-        for f in failed:
-            gate_fail[f] = gate_fail.get(f, 0) + 1
-        names = {n for _, v in runs for n in v.axes} | {"総合"}
-        for axis in names:
-            given = [(k, v.overall if axis == "総合" else v.axes.get(axis)) for k, v in runs]
-            # Won only when every order gave a verdict and they agree (code review: an axis
-            # one order left out used to be decided by the other order alone).
-            picks = {to_variant(k, av.winner) for k, av in given if av is not None}
-            complete = all(av is not None for _, av in given)
-            winner = picks.pop() if complete and len(picks) == 1 else "tie"
-            if axis == "総合" and failed:
-                # the rubric: a gate failure loses the overall; both failing is a tie
-                winner = ({a, b} - failed).pop() if len(failed) == 1 else "tie"
-            axes.setdefault(axis, {a: 0, b: 0, "tie": 0})[winner] += 1
-    lines = [f"cases judged in both orders: {sum(1 for r in per_case.values() if len(r) >= 2)}"]
-    lines += [f"gate failures: {a} {gate_fail[a]} / {b} {gate_fail[b]}"]
-    for axis, c in sorted(axes.items(), key=lambda kv: kv[0] != "総合"):
-        lines.append(f"{axis}: {a} {c[a]} / {b} {c[b]} / tie {c['tie']}")
-    return lines
+    for n, case in enumerate(cases, start=1):
+        order = list(variants)
+        random.Random(f"{seed}|{case.id}").shuffle(order)
+        letters = [chr(ord("A") + i) for i in range(len(order))]
+        key[f"case{n}"] = {"id": case.id, **dict(zip(letters, order, strict=True))}
+        lines += [
+            f"## case {n}: {case.question_title}",
+            "",
+            f"> [!note]- 材料(claim {len(case.claims)} 件)",
+        ]
+        for i, c in enumerate(case.claims, start=1):
+            source = case.sources[c.source - 1].title if c.source else ""
+            lines.append(f"> [{i}] {c.text}" + (f" — {source}" if source else "") + "  ")
+        lines.append("")
+        for letter, v in zip(letters, order, strict=True):
+            prose = by_variant[v][case.id].prose or "(生成なし)"
+            lines += ([f"### {letter}", ""] if len(order) > 1 else []) + [prose, ""]
+        lines += ["**答え:**  ", "", "---", ""]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines), encoding="utf-8")
+    out.with_suffix(".key.json").write_text(
+        json.dumps(key, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return out, len(cases)
 
 
 def lengths(bench: Path, variant: str) -> str:

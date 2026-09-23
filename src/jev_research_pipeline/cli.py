@@ -7,8 +7,9 @@ jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
 jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
-jrp prose export|bench|pairs|tally
-                   the prose bench: frozen inputs, variants, blind pairs (pipeline.prose_bench)
+jrp prose export|bench|read|gate
+                   the prose bench: frozen inputs, variants, the author's blind reading file,
+                   the fidelity judge's gate files (pipeline.prose_bench)
 
 A store file from an older build stops every command with one line (store.migrate):
 additive differences are migrated in place first, incompatible ones need `jrp migrate`.
@@ -59,7 +60,7 @@ def parser() -> argparse.ArgumentParser:
     q.add_argument("action", choices=["check"])
     q.add_argument("--line", required=True, help="line slug (config.toml track)")
     pr = sub.add_parser("prose")
-    pr.add_argument("action", choices=["export", "bench", "pairs", "tally"])
+    pr.add_argument("action", choices=["export", "bench", "read", "gate"])
     pr.add_argument("--from", dest="roots", action="append", default=[], help="extra store root")
     pr.add_argument("--variant", help="bench: variant name (drafts/<name>/)")
     pr.add_argument("--prompt", help="bench: instructions file; omitted = the run's prompt")
@@ -67,11 +68,11 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--no-thinking", action="store_true")
     pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
     pr.add_argument("--check", help="bench: self-check instructions file (second pass)")
-    pr.add_argument("--cases", help="bench/pairs: comma-separated case ids (default all)")
+    pr.add_argument("--cases", help="bench/read/gate: comma-separated case ids (default all)")
     pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
-    pr.add_argument("--a", help="pairs/tally: baseline variant")
-    pr.add_argument("--b", help="pairs/tally: candidate variant")
-    pr.add_argument("--verdicts", help="tally: verdict dir (default pairs/<a>__vs__<b>/verdicts)")
+    pr.add_argument("--variants", help="read: comma-separated variants to show side by side")
+    pr.add_argument("--out", help="read: the reading file to write")
+    pr.add_argument("--verdicts", help="gate: summarize the judge's verdict dir instead")
     return p
 
 
@@ -188,6 +189,9 @@ def _ids(raw: str | None) -> set[str] | None:
 async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
     root = store_dir(env)
     bench = pb.bench_dir(root)
+    # named cases are taken as named, whichever split they sit in (the default split is dev,
+    # and a holdout id under it used to select nothing without a word: code review)
+    split = "all" if args.cases else args.split
     match args.action:
         case "export":
             tracks = load_tracks(config_path(env))
@@ -214,23 +218,34 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                     variant,
                     http=http,
                     api_key=env["DASHSCOPE_API_KEY"],
-                    split=args.split,
+                    split=split,
                     concurrency=prose_concurrency(env),
                     only=_ids(args.cases),
                 )
-        case "pairs":
-            rubric = RUBRIC.read_text(encoding="utf-8")
-            out = pb.make_pairs(
-                bench, str(args.a), str(args.b), rubric, split=args.split, only=_ids(args.cases)
+        case "read":
+            out, n = pb.read_file(
+                bench,
+                [v for v in str(args.variants).split(",") if v],
+                Path(args.out),
+                split=split,
+                only=_ids(args.cases),
             )
-            lines = [f"pairs → {out} (verdicts go to {out / 'verdicts'})"]
+            if not n:
+                sys.stderr.write("no case has a draft from every variant given\n")
+                return 1
+            lines = [f"reading file → {out}, {n} cases (key: {out.with_suffix('.key.json')})"]
         case _:
-            lines = pb.tally(
-                bench / "pairs" / f"{args.a}__vs__{args.b}",
-                str(args.a),
-                str(args.b),
-                Path(args.verdicts) if args.verdicts else None,
-            )
+            if args.verdicts:
+                lines = pb.gate_summary(bench, str(args.variant), Path(args.verdicts))
+            else:
+                rubric = RUBRIC.read_text(encoding="utf-8")
+                out, n = pb.gate_files(
+                    bench, str(args.variant), rubric, split=split, only=_ids(args.cases)
+                )
+                if not n:
+                    sys.stderr.write(f"no draft of {args.variant} in the selected cases\n")
+                    return 1
+                lines = [f"gate files → {out}, {n} drafts"]
     sys.stdout.write("\n".join(lines) + "\n")
     return 0
 

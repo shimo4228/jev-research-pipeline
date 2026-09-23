@@ -87,69 +87,41 @@ def _bench(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_pairs_are_blind_both_orders_with_the_rubric_inside(tmp_path: Path):
-    out = pb.make_pairs(_bench(tmp_path), "base", "cand", RUBRIC, split="all")
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    assert len(key) == 2
-    assert {k["X"] for k in key.values()} == {"base", "cand"}  # each variant first once
-    text = next(out.glob("*.md")).read_text(encoding="utf-8")
-    assert "base" not in text and "cand" not in text  # variant names never shown
-    assert "### わかりやすさ" in text and "## 草稿X" in text and "## 材料" in text
+def test_gate_files_hold_rubric_materials_one_draft_and_the_current_code_check(tmp_path: Path):
+    out, n = pb.gate_files(_bench(tmp_path), "base", RUBRIC, split="all")
+    assert n == 1
+    (text,) = [p.read_text(encoding="utf-8") for p in out.glob("*.md")]
+    assert "Q1 数値" in text and "## 材料" in text and "## 草稿" in text
+    assert "短い [1]。" in text
+    # the stored draft had no inference paragraph: the check is re-run and shown
+    assert "コード検査: 不合格(推論段落が最後に 1 つではない)" in text
 
 
-def _verdict(winner: str, gate_y: str = "pass") -> str:
-    axis = {"winner": winner, "quote_x": "", "quote_y": "", "why": ""}
-    return json.dumps(
-        {
-            "gate": {"X": "pass", "Y": gate_y},
-            "axes": {"統合": axis, "日本語": {**axis, "winner": "tie"}},
-            "overall": axis,
-        }
+def test_gate_summary_counts_and_lists_the_failures(tmp_path: Path):
+    verdicts = tmp_path / "v"
+    verdicts.mkdir()
+    (verdicts / "c1.json").write_text(json.dumps({"verdict": "pass"}), encoding="utf-8")
+    (verdicts / "c2.json").write_text(
+        json.dumps({"verdict": "fail", "reason": "Q1: 比較の相手が違う"}), encoding="utf-8"
     )
+    assert pb.gate_summary(tmp_path, "base", verdicts) == [
+        "base: pass 1 / fail 1 / judged 2",
+        "fail: c2 Q1: 比較の相手が違う",
+    ]
 
 
-def test_an_axis_is_won_only_when_both_orders_agree(tmp_path: Path):
-    out = pb.make_pairs(_bench(tmp_path), "base", "cand", RUBRIC, split="all")
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    (out / "verdicts").mkdir()
-    for name, k in key.items():
-        # the judge prefers "cand" in both orders, wherever it sits
-        winner = "X" if k["X"] == "cand" else "Y"
-        (out / "verdicts" / f"{name}.json").write_text(_verdict(winner), encoding="utf-8")
-    lines = pb.tally(out, "base", "cand")
-    assert "総合: base 0 / cand 1 / tie 0" in lines
-    assert "統合: base 0 / cand 1 / tie 0" in lines
-    assert "日本語: base 0 / cand 0 / tie 1" in lines
+def test_the_reading_file_hides_variant_names_and_keeps_the_key_beside_it(tmp_path: Path):
+    bench = _bench(tmp_path)
+    out, n = pb.read_file(bench, ["base", "cand"], tmp_path / "read.md", split="all")
+    assert n == 1
+    text = out.read_text(encoding="utf-8")
+    assert "base" not in text and "cand" not in text
+    assert "### A" in text and "### B" in text and "一番良いのはどれか" in text
+    key = json.loads(out.with_suffix(".key.json").read_text(encoding="utf-8"))
+    assert set(key["case1"].values()) >= {"base", "cand"}
 
 
-def test_a_split_decision_across_orders_is_a_tie(tmp_path: Path):
-    out = pb.make_pairs(_bench(tmp_path), "base", "cand", RUBRIC, split="all")
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    (out / "verdicts").mkdir()
-    for name in key:
-        (out / "verdicts" / f"{name}.json").write_text(_verdict("X"), encoding="utf-8")
-    assert "統合: base 0 / cand 0 / tie 1" in pb.tally(out, "base", "cand")
-
-
-def test_both_drafts_failing_the_gate_is_an_overall_tie(tmp_path: Path):
-    out = pb.make_pairs(_bench(tmp_path), "base", "cand", RUBRIC, split="all")
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    (out / "verdicts").mkdir()
-    for name, k in key.items():
-        winner = "X" if k["X"] == "cand" else "Y"
-        body = json.loads(_verdict(winner))
-        body["gate"] = {"X": "fail", "Y": "fail"}
-        (out / "verdicts" / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
-    assert "総合: base 0 / cand 0 / tie 1" in pb.tally(out, "base", "cand")
-
-
-def test_an_axis_missing_from_one_order_is_a_tie(tmp_path: Path):
-    out = pb.make_pairs(_bench(tmp_path), "base", "cand", RUBRIC, split="all")
-    key = json.loads((out / "key.json").read_text(encoding="utf-8"))
-    (out / "verdicts").mkdir()
-    for i, (name, k) in enumerate(key.items()):
-        body = json.loads(_verdict("X" if k["X"] == "cand" else "Y"))
-        if i == 1:
-            del body["axes"]["統合"]
-        (out / "verdicts" / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
-    assert "統合: base 0 / cand 0 / tie 1" in pb.tally(out, "base", "cand")
+def test_a_single_variant_reading_file_asks_whether_it_reads(tmp_path: Path):
+    out, _ = pb.read_file(_bench(tmp_path), ["cand"], tmp_path / "one.md", split="all")
+    text = out.read_text(encoding="utf-8")
+    assert "読めるか" in text and "### A" not in text

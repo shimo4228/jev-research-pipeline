@@ -469,37 +469,42 @@ judgment map's "query candidates" / "query selection" rows, the "Qwen 2 sites" f
 Review-when: a line's authored queries return 0 hits on three runs in a row, or the author
 wants proposals back (the removed code is in git: commit before this one).
 
-### Prose bench (author decision 2026-09-23)
+### Prose bench (author decisions 2026-09-23)
 
-The prose is the one generation site left and reads weak: 343-1,108 chars per question-day
-on 2026-09-23, mostly claim paraphrases. Two causes: the prompt accumulated fidelity
-constraints ("evidence paragraphs only paraphrase claims", "1-3 paragraphs"), and the
-writer gets one-sentence claims without the source's context. The loop, in
-`pipeline/prose_bench.py`, runs at dev time only:
+The prose was the one generation site left and read weak (343-1,108 chars per question-day,
+mostly claim paraphrases). The loop that fixed it runs at dev time only
+(`pipeline/prose_bench.py`, `jrp prose export|bench|read|gate`; the method is skill
+author-calibrated-eval, the steps AGENTS.md):
 - **Frozen cases** under `<JRP_STORE_DIR>/prose_bench/` (never the repo: verbatim
-  third-party text): every question-day with prose in the given stores, with claims,
-  their sources' title and excerpt, and the run's own prose; about one case in three
-  held out, chosen from the case id alone so later exports never move a case.
-- **Variants** = prompt file (`bench/prose/prompts/`) x DashScope model x thinking x
-  material (claims only / claims + source excerpts). Tuning uses a model with its own free
-  quota (qwen3.7-max), not the production model's.
-- **Judge = a fresh-context Opus reading a blind pair** (author decision: prose quality is
-  read, not machine-scored). This supersedes the non-goal "LLM-as-judge with another LLM as
-  the truth source" for dev-time prose evaluation only; runs still call no Claude. The
-  rubric (`docs/prose-rubric.md`) has a gate layer (fidelity, citations, marked inference)
-  and six quality axes — synthesis, reasoning between claims, development/pacing, why it
-  matters, inference quality, Japanese — plus a holistic "which would the researcher rather
-  read". Sources as-of 2026-09-23: 6+1 Trait (reasoning, pacing rows), AAC&U VALUE,
-  synthesis-vs-summary guides, WritingBench (query-dependent criteria agree with humans
-  79-87% vs 65-69% static), LongJudgeBench and arXiv 2602.02219 (surface richness mistaken
-  for substance; criterion order shifts scores up to 0.8/5).
-- **Protocol**: both orders per case (a split decision is a tie), axis order shuffled per
-  file, quote the decisive sentence before each verdict, lengths hidden, per-axis verdicts
-  never averaged; code gates are facts only (citations, marks).
-Open: anchor pairs (clear win / borderline / longer-loses) once drafts exist; ~5 cases
-judged blind by the author to measure agreement; per-question criteria (WritingBench style).
-Review-when: the author's blind verdicts disagree with the judge on more than 1 of 5, or
-longer drafts win more than ~70% of decided pairs (audit against the padding anchor).
+  third-party text): every question-day with prose, with claims, their sources' title and
+  excerpt, and the run's own prose; about one case in three held out, chosen from the case id.
+- **Roles.** Readability is judged by the author reading drafts blind; a fresh-context Opus
+  judge (`.claude/agents/prose-judge.md`, Read/Write only, ~25k tokens a call vs ~85k for a
+  general subagent) checks fidelity only, one draft at a time, with binary checks and a
+  pass / fail verdict (`docs/prose-rubric.md`, the skill llm-as-judge shape); code checks
+  form. This supersedes the non-goal "LLM-as-judge with another LLM as the truth source"
+  for the dev-time fidelity gate only; runs call no Claude.
+- **Why the judge does not judge readability.** On one case the author found qwen3.7-max's
+  628-char draft "very clear" and Opus's 1,267-char draft "informative but hard to read";
+  the Opus judge, under a rubric saying information volume is no reason to win, chose Opus
+  in both orders, on readability and overall. The same judge caught a comparator swap the
+  author read past. An earlier pairwise, per-axis quality rubric mostly measured compliance
+  with rules this session wrote and wins over a weak baseline.
+- **What the author's reading changed.** Blind read of v0 / v3 / Opus-on-v3: all "make the
+  eyes slide" and "skip the premise", Opus too — the cause was the framing (a claim per
+  sentence, [n] everywhere, no room for background), not the model. The prompt was rebuilt
+  as explaining today's study to a reader who has not read it (v4-v7): a plain lead;
+  per study, problem -> what they did -> what they found; terms glossed on first use; 1-2
+  numbers per study with the comparator; 700-1,000 chars; citations at paragraph end; no
+  "this study does not address the question" disclaimer; hedges and design intent never
+  written as results. Readability tracked the number of facts and names, not sentence
+  length (Opus: 34 sentences averaging 37 chars read worse than qwen: 11 averaging 57).
+- **Result.** v7 + self-check pass (check6) on qwen3.7-max: the author read the 3 hard dev
+  cases and 3 holdout cases as "very readable", "the inference is really useful"; the
+  judge passed 5 of 6 cases in both orders (one holdout case generalized a table-QA result
+  to all models in the inference paragraph; the run's own v0 prose failed that case too).
+Review-when: the author's reading of a new batch disagrees with the fidelity gate's
+direction, or production notes read as "eyes slide" again.
 
 ### Non-goals (explicit)
 

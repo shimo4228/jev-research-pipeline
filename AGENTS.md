@@ -43,20 +43,27 @@
 
 ## 本文を磨く（prose bench）
 
-本番の run は Claude を呼ばない。本文の改善は開発時のループで行う（design「Prose bench」、
-`docs/prose-rubric.md`）。材料は非公開の `<JRP_STORE_DIR>/prose_bench/` にだけ置く。
+本番の run は Claude を呼ばない。本文の改善は開発時のループで行う。ループの組み方の正本は
+skill: `author-calibrated-eval`、この repo での経緯と決定は design「Prose bench」。材料は非公開の
+`<JRP_STORE_DIR>/prose_bench/` にだけ置く（第三者の原文を含むため）。
 
-1. `uv run jrp prose export --from <store> ...` — 本文のある question-day を固定する
-2. 候補のプロンプトを `bench/prose/prompts/<name>.md` に書き、
-   `uv run jrp prose bench --variant <name> --prompt <file> [--sources] --model qwen3.7-max`
-   （基準版は `--prompt` 無し。磨く作業は本番と別の無料枠のモデルで）
-3. `uv run jrp prose pairs --a <基準> --b <候補>` — case ごとに順番違いの 2 ファイルができる
-4. 判定: pair ファイル 1 つにつき、文脈を持たない Opus のサブエージェントを 1 つ起動し、
-   ファイルだけを読ませて `pairs/<a>__vs__<b>/verdicts/<同名>.json` に書かせる。
-   実装者（このセッション）は判定に口を出さない。worktree のセッションからは base の store に
-   Write できない（hook が止める）ので、そのときは verdict を session の scratchpad に書かせる
-5. `uv run jrp prose tally --a <基準> --b <候補> [--verdicts <dir>]` — 両方の順番で一致した軸だけが勝ち
-6. 採用は dev で勝ち、holdout で負けないとき。最後に著者が数件を blind で読む
+役割: 読みやすさの正解は**著者の blind 読み**。LLM の判定役（`.claude/agents/prose-judge.md`）は
+**忠実さの足切りだけ**を草稿 1 本ずつ判定する（`docs/prose-rubric.md`）。形式はコードが見る。
+
+1. `uv run jrp prose export --from <store> ...` — 本文のある question-day を固定する（dev / holdout は id で決まる）
+2. `uv run jrp prose bench --variant <name> --prompt bench/prose/prompts/<file> --check bench/prose/prompts/check6.md --sources --model qwen3.7-max --cases <ids>`
+   — 候補の草稿を作る（磨く作業は本番と別の無料枠のモデルで。難所セットの数件に絞る）
+3. `uv run jrp prose read --variants <a>,<b>,... --cases <ids> --out <scratchpad>/read.md`
+   — 著者向けの blind 読み比べを作り、著者に送る。聞くのは「一番良いのはどれか・なぜか」か
+   「読めるか・どこで止まったか」だけ。対応表は `read.key.json`
+4. `uv run jrp prose gate --variant <name> --cases <ids>` — 草稿 1 本ごとの gate ファイルを作り、
+   1 ファイルにつき prose-judge を 1 つ起動して verdict を書かせる。worktree のセッションからは
+   base の store に Write できない（hook）ので、書き出し先は session の scratchpad にする
+5. `uv run jrp prose gate --variant <name> --verdicts <dir>` — pass / fail の集計
+6. 難所セットで著者の読みと足切りの両方を通ったら、holdout から型の違う数件で 3〜5 を繰り返す
+
+現行の本文プロンプトの候補は `bench/prose/prompts/v7.md` + `check6.md`（著者の読みと足切りを
+難所セットと holdout で通した版）。
 
 ## 触ってはいけないもの
 
