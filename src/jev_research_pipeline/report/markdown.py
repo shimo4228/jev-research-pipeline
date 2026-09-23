@@ -10,6 +10,7 @@
     <prose, with [n] and one inference paragraph marked 推論>
     証拠
     - <source title> — <gist> — [link](url)
+    反証                                 claims that count against the answer, if any
     - [ ] 読む価値があった <!-- jrp:qday:<question @id>:<date> -->
     ## Review                            borderline sources, one checkbox each
     - [ ] <title> — <why> <!-- jrp:source:<source @id> -->
@@ -108,6 +109,10 @@ class QuestionSection(Value):
     title: str
     prose: str | None
     evidence: tuple[SourceEntry, ...]
+    contradictions: tuple[str, ...] = ()
+    """Claims that count against the answer the evidence set supports. They get their own
+    block rather than being folded into the day's prose: a contradiction the reader has to
+    dig for is a contradiction that does not do its work."""
 
 
 class CandidateEntry(Value):
@@ -183,6 +188,11 @@ def _question_section(section: QuestionSection, run_date: date) -> str:
         "",
         *[_source_line(e) for e in section.evidence],
         "",
+        *(
+            ["反証", "", *[f"- {sanitize(c, one_line=True)}" for c in section.contradictions], ""]
+            if section.contradictions
+            else []
+        ),
         f"- [ ] 読む価値があった <!-- {qday_mark(section.question_id, run_date)} -->",
         "",
     ]

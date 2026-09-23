@@ -148,6 +148,8 @@ class _Accepted:
     claim: Claim
     source: SourceItem
     question: Question
+    contradicts: bool = False
+    """The claim counts against the answer the evidence set supports (claim_detection)."""
 
 
 @dataclass
@@ -423,7 +425,13 @@ class LineRun:
                     d = self._decide(claim_detection.decision(result), u.text)
                     if d.outcome == "accept":
                         out.append(
-                            _Accepted(Claim.from_unit(u, line=self.ctx.line.id), s, question)
+                            _Accepted(
+                                Claim.from_unit(u, line=self.ctx.line.id),
+                                s,
+                                question,
+                                contradicts=isinstance(result, Judged)
+                                and claim_detection.contradicts(result),
+                            )
                         )
         return out
 
@@ -496,6 +504,7 @@ class LineRun:
                     evidence=tuple(
                         _entry(s) for s in {i.source.id: i.source for i in items}.values()
                     ),
+                    contradictions=tuple(i.claim.text for i in items if i.contradicts),
                 ),
                 done,
                 Rendering(rendering="prose", prose=done.text, rubric=()),
@@ -538,6 +547,7 @@ class LineRun:
             title=question.title,
             prose=rendering.prose,
             evidence=tuple(_entry(s) for s in sources),
+            contradictions=tuple(i.claim.text for i in items if i.contradicts),
         )
         return section, log, rendering
 

@@ -347,3 +347,26 @@ def test_script_schemes_cannot_stay_a_link(hostile: str):
 def test_odd_bracket_runs_leave_no_wikilink():
     assert "[[" not in sanitize("[[[Secret Note]]]")
     assert "[[" not in sanitize("x [[[[Secret]]]] y")
+
+
+def test_contradictions_get_their_own_block():
+    # A claim that counts against the answer is not folded into the prose: the reader must
+    # not have to dig for it.
+    entries = [_entry()]
+    section = _section("本文です [1]。", entries).model_copy(
+        update={"contradictions": ("逆の結果を報告している。",)}
+    )
+    text = render_report(
+        report=b.report(),
+        ctx=CTX,
+        sections=[section],
+        claims=entries,
+        review=[],
+        candidates=[],
+        bridges=[],
+        unjudged=[],
+        operations=["Jev 質問数: 1"],
+    )
+    body = text.split("---\n", 2)[2]
+    assert body.index("証拠") < body.index("反証") < body.index("jrp:qday:")
+    assert "- 逆の結果を報告している。" in body
