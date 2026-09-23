@@ -1,8 +1,0 @@
-{
- "POST https://api.typesafe.ai/v1/systemone body:82fa3b42ecab1d66": {
-  "status": 200,
-  "content_type": "application/json",
-  "body": "{\"model\":\"jev-1.13.0\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5},\"answers\":{\"checkable\":{\"type\":\"noul\",\"noul\":0.9},\"depth\":{\"type\":\"score\",\"score\":0.75,\"confidence\":0.75,\"legend\":{\"0\":\"A slogan with no testable content.\",\"1\":\"Names a method and a measured effect.\"},\"probabilities\":{\"0\":0.25,\"1\":0.75}},\"kind\":{\"type\":\"choice\",\"choice\":\"empirical\",\"confidence\":1.0,\"probabilities\":{\"empirical\":1.0,\"normative\":0.0}}}}",
-  "request_body": "{\"state\":{\"unit\":{\"text\":\"Narrow questions beat one broad question.\"}},\"model\":\"jev-1.13.0\",\"questions\":{\"checkable\":{\"type\":\"noul\",\"instructions\":\"Does `unit.text` state a checkable claim?\"},\"depth\":{\"type\":\"score\",\"instructions\":\"How specific is the claim?\",\"criteria\":[\"A slogan with no testable content.\",\"Names a method and a measured effect.\"]},\"kind\":{\"type\":\"choice\",\"instructions\":\"What kind of statement is it?\",\"criteria\":{\"empirical\":\"Reports an observation or measurement.\",\"normative\":\"Says what should be done.\"}}}}"
- }
-}
