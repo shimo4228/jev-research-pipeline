@@ -146,6 +146,18 @@ async def test_a_service_outage_is_not_split():
     assert [len(r) for r in counting.requests] == [4 * len(ASK.output.model_fields)] * 3
 
 
+@pytest.mark.parametrize("status", [400, 401, 403])
+async def test_a_refusal_every_half_would_get_is_not_split(status: int):
+    """A bad key, or a 400 that is not about size, fails every half alike."""
+    counting = Counting(fake_jev(status=status))
+    jev = JevClient(_live(counting), api_key="replay")
+    results = await jev.judge_batch(
+        ASK, _items([_source(i) for i in range(8)]), subject="source", now=b.T0
+    )
+    assert all(isinstance(r, JevFailure) for r in results)
+    assert len(counting.requests) == 1
+
+
 async def test_states_that_differ_outside_the_subject_are_a_wiring_error(
     cassette: ClientFactory,
 ):

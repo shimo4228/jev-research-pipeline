@@ -376,12 +376,16 @@ class _Refused:
     reason: FailureReason
     detail: str
     splittable: bool
-    """A batch that failed for this reason may succeed in halves: the model answered
-    malformed, or refused the request itself (e.g. max_tokens_exceeded) — something in
-    the batch, not the service, is at fault. Timeouts, 408/429 and 5xx are the service."""
+    """A batch that failed for this reason may succeed in halves, because one item can be
+    the cause: a malformed answer, or a request too big (413, or a 400/422 that says
+    max_tokens). Everything else fails every half the same way — a bad key (401/403), a
+    timeout, 408/429, 5xx — so splitting would only multiply requests that fail."""
 
 
-_TRANSIENT_STATUS: Final = frozenset({408, 429})
+def _size_refusal(e: ModelHTTPError) -> bool:
+    return e.status_code == 413 or (
+        e.status_code in (400, 422) and "max_tokens" in f"{e.body} {e.message}"
+    )
 
 
 class JevClient:
@@ -526,8 +530,7 @@ class JevClient:
         try:
             run = await agent.run(json.dumps(state, ensure_ascii=False, sort_keys=True))
         except ModelHTTPError as e:
-            transient = e.status_code in _TRANSIENT_STATUS or e.status_code >= 500
-            return _Refused(reason="api_error", detail=str(e), splittable=not transient)
+            return _Refused(reason="api_error", detail=str(e), splittable=_size_refusal(e))
         except UnexpectedModelBehavior as e:
             return _Refused(reason="bad_answer", detail=str(e), splittable=True)
         except ModelAPIError as e:
