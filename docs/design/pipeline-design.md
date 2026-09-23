@@ -372,6 +372,40 @@ First pilot run measured: akc note 283 KB, 20,573 Jev questions, $0.415, bridges
 accepted 2,509/2,570 pairs, unjudged routed to Review, HF date must be ≤ yesterday UTC,
 arXiv 406 only from httpx2 (curl 200 with identical URL/headers).
 
+### Throughput and store migration (as built 2026-09-23, judge-requested)
+
+Judge measured 15-20 min for 3 lines: every (source, question) Jev call awaited the one
+before it. Built, design unchanged (questions, nets, report format as above):
+- **Within a stage everything independent is in flight at once**: Jev under
+  `JRP_JEV_CONCURRENCY` (12), Qwen (query candidates, per-question prose ladder) under
+  `JRP_PROSE_CONCURRENCY` (3); stages stay sequential. Cost cap read after a slot is
+  taken; JevClient's RequestPacer holds 1,200 requests per sliding minute (published
+  limit, as-of 2026-09-23). Results applied in input order — a test pins that concurrency
+  1 and 12 write the same note and store bytes. StoredJev joins an identical in-flight
+  request (same judgment @id), which a sequential run found in the store.
+- **Screening is batched**: one request per (question, ≤8 sources, estimated state ≤24k
+  tokens; limit 32k state + longest question, 64k per request). Nested slots `sN.<field>`
+  with each question rewritten to name `sources.sN`; still one Judgment per (source,
+  question), state hash = the single-request state; ask `question_screening@v1_batch`
+  (a batch of one = the plain v1 request). A batch refused for its content (4xx other
+  than 408/429, malformed answer) is bisected until the bad source stands alone.
+  Unverified live: whether answers bleed between slots — compare batched vs single on a
+  sample before trusting the Review band.
+- **Fetch and triage overlap**: triage starts on each net's sources as they arrive while
+  later nets sit out their ToU gap. Found and fixed on the way: the pacing gap was kept
+  per Adapter object, and the run builds one per keyword query, so arXiv requests went
+  out back to back; the gap is now process-wide per adapter kind.
+- **Store schema**: every command first inspects the store. Additive (@context a strict
+  subset, shared terms unchanged, every node valid) is rewritten in place; anything else
+  stops with one line naming the file. `jrp migrate [--dry-run]` rewrites additive files
+  and moves incompatible ones to `<store>/retired/<date>/`.
+- **Packet discrepancy**: Jev is priced per input token ($0.042/Mtok, output free —
+  docs.typesafe.ai models, as-of 2026-09-23), but the cost meter multiplies
+  `JRP_JEV_USD_PER_QUESTION` by the question count. Batching changes tokens per question
+  (shared state sent once), so a per-question price calibrated on single requests now
+  over-counts. Not changed here (meter design is the author's); Review-when: the first
+  live batched run's usage.input_tokens is in hand.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

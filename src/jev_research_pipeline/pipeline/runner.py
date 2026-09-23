@@ -11,6 +11,10 @@ Environment (nothing is guessed):
     JRP_JEV_USD_PER_QUESTION  optional Jev price for the cost meter
     JRP_DAILY_RESEARCH_CONFIG  optional config.toml path
     JRP_QUESTIONS_DIR      optional question-file root (default ./questions)
+    JRP_JEV_CONCURRENCY    optional Jev requests in flight (default 12; pipeline.concurrency)
+    JRP_PROSE_CONCURRENCY  optional Qwen calls in flight (default 3)
+
+The store is checked before anything else (store.migrate.prepare_store).
 """
 
 import tomllib

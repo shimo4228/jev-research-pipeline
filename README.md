@@ -13,6 +13,7 @@ uv run jrp run            # 記入を取り込み → 輪番で次の 3 ライ�
 uv run jrp fit            # 閾値の再推定を提案ファイルに書く（自動適用はしない）
 uv run jrp export-cases   # ⭕❌ の付いた claim を pydantic-evals の Case に出す
 uv run jrp drift          # 録画した Jev 入力を live に投げ直して確率差を出す
+uv run jrp migrate --dry-run   # store を現行 schema に上げる計画を表示（--dry-run なしで実行）
 ```
 
 ## 最初にやること: 問いを立てる
@@ -103,6 +104,8 @@ openalex_daily_credits = 400     # keyless は 1 日 1,000 credit ($0.10)
 | `TAVILY_API_KEY` | 任意 | web 検索。未設定ならその adapter は skip（運用節に記録） |
 | `GITHUB_TOKEN` | 任意 | GitHub 検索の上限を 10/分 → 30/分 に上げる |
 | `JRP_PROSE_TIMEOUT_S` | 任意 | 本文生成の timeout（既定 300 秒） |
+| `JRP_JEV_CONCURRENCY` | 任意 | 同時に投げる Jev request の数（既定 12）。rate は別に 1,200 回/分で抑える |
+| `JRP_PROSE_CONCURRENCY` | 任意 | 同時に走らせる Qwen 呼び出しの数（既定 3。検索語の生成と問いごとの本文） |
 | `JRP_SLACK_NOTIFY` | 任意 | `1` で実行結果を Slack に 1 行通知 |
 | `JRP_DRIFT_LIVE` | 任意 | `1` で `jrp drift` が live に投げる |
 | `JRP_DAILY_RESEARCH_CONFIG` | 任意 | ライン一覧と `[nets]` を書く config.toml の path |
@@ -123,6 +126,25 @@ gh auth token   # gh CLI の token をそのまま使う（repo 等の広い sco
 公開 repo の検索だけなら、権限を 1 つも付けない fine-grained PAT で足りる（fine-grained token は
 公開 repo への read を常に持つ）。常用にはこちらを薦める。どちらも
 `GITHUB_TOKEN=...` として `~/.config/jrp/env` に書く。
+
+## 速さ
+
+1 ラインの中で、同じ段の判定は並列に投げる（`JRP_JEV_CONCURRENCY`）。screening は 1 つの問いに
+対して source を最大 8 本まとめて 1 request にする。問いごとの本文生成も並列（`JRP_PROSE_CONCURRENCY`）。
+取得は ToU の間隔を守ったまま（arXiv 3 秒、GitHub / HF 6 秒）、届いた net の分から判定を始める。
+並列度を変えても、note と store に書かれる中身は変わらない（並列度 1 と同じ bytes になることを
+テストで固定している）。
+
+## store の schema が変わったとき
+
+古い build が書いた store は、どのコマンドも最初に検査する。
+
+- **追加だけの変更**（新しい項目が増えただけ）: その場で現行 schema に書き直し、運用節に 1 行残す
+- **非互換**（項目の削除・意味の変更、今の model で読めないノード）: 何も読み書きせずに 1 行で止まる。
+  `store/lines/<ライン>.jsonld は旧 schema（…）。` の形
+
+止まったら `jrp migrate --dry-run` で計画を見て、`jrp migrate` で実行する。非互換のファイルは
+消さずに `<store>/retired/<日付>/` へ移すので、そのラインは空の store からやり直しになる。
 
 ## Observability
 
