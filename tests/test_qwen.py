@@ -21,6 +21,7 @@ from jev_research_pipeline.qwen import (
     render,
     write_prose,
 )
+from jev_research_pipeline.qwen.prose import check_citations
 
 from . import builders as b
 from .conftest import ClientFactory
@@ -276,3 +277,30 @@ async def test_clean_queries_are_kept_verbatim(cassette: ClientFactory):
     model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
     result = await query_candidates(model, CTX, "arxiv", QUESTION, n=2, meter=GenerationMeter())
     assert [c.text for c in result.candidates] == ["agent memory benchmark", "狭い質問 判定"]
+
+
+# --- citation binding is deterministic (search-first synthesis) --------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "kept", "dropped"),
+    [
+        ("根拠がある [1]。", "根拠がある [1]。", ()),
+        ("存在しない引用 [9] を書いた。", "存在しない引用 を書いた。", (9,)),
+        ("ゼロは claim ではない [0]。", "ゼロは claim ではない。", (0,)),
+        ("[1][2] 両方ある。", "[1][2] 両方ある。", ()),
+    ],
+    ids=["valid", "out_of_range", "zero", "several"],
+)
+def test_code_decides_which_citations_survive(text: str, kept: str, dropped: tuple[int, ...]):
+    # The model proposes the number; code decides whether that claim exists.
+    assert check_citations(text, 2) == (kept, dropped)
+
+
+async def test_prose_reports_the_citations_it_dropped(cassette: ClientFactory):
+    model = qwen_model(MAX, cassette(fake_qwen("本文 [7] です。")), api_key="replay")
+    result = await write_prose(
+        model, CTX, QUESTION, ["claim 1"], feedback=None, meter=GenerationMeter()
+    )
+    assert result.invalid_citations == (7,)
+    assert result.prose is not None and "[7]" not in result.prose

@@ -51,6 +51,8 @@ INSTRUCTIONS: Final = (
 )
 
 _CITATION_RE: Final = re.compile(r"\[(\d+)\]")
+_GAP_RE: Final = re.compile(r"[ \t]{2,}")
+_BEFORE_PUNCTUATION_RE: Final = re.compile("[ \t]+([\u3001\u3002\uff09\uff0c\uff0e)\\]])")
 
 
 def check_citations(text: str, n_claims: int) -> tuple[str, tuple[int, ...]]:
@@ -69,7 +71,11 @@ def check_citations(text: str, n_claims: int) -> tuple[str, tuple[int, ...]]:
         return ""
 
     cleaned = _CITATION_RE.sub(replace, text)
-    return " ".join(cleaned.split(" ")).strip(), tuple(invalid)
+    # Removing a citation leaves a hole: a doubled space, or a space before the sentence's
+    # own punctuation. Tidy exactly those, so the paragraph reads as if it was never there.
+    cleaned = _GAP_RE.sub(" ", cleaned)
+    cleaned = _BEFORE_PUNCTUATION_RE.sub(r"\1", cleaned)
+    return cleaned.strip(), tuple(invalid)
 
 
 def inference_paragraphs(text: str) -> tuple[str, ...]:

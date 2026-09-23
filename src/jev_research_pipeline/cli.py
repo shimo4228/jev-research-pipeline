@@ -44,9 +44,12 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 
 
 async def _run(env: Mapping[str, str]) -> int:
+    unanswered: list[str] = []
     try:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
-            outcomes = await run_pipeline(env, now=datetime.now().astimezone(), http=http)
+            outcomes = await run_pipeline(
+                env, now=datetime.now().astimezone(), http=http, unanswered=unanswered
+            )
     except Exception as e:
         # An unattended run that fails must not be silent (the log alone is not read).
         notify("jrp run FAILED", f"{type(e).__name__}: {e}", env=env)
@@ -54,8 +57,11 @@ async def _run(env: Mapping[str, str]) -> int:
     summary = ", ".join(
         f"{o.report.run_date} {o.note.stem}: {len(o.report.claims)} claims" for o in outcomes
     )
-    sys.stdout.write(summary + "\n")
-    notify("jrp run", summary or "no line ran", env=env)
+    # A line skipped for having no open question is the author's to fix, so it is said
+    # out loud rather than looking like a quiet success.
+    skipped = "; ".join(unanswered)
+    sys.stdout.write("\n".join(filter(None, [summary, skipped])) + "\n")
+    notify("jrp run", "; ".join(filter(None, [summary or "no line ran", skipped])), env=env)
     return 0
 
 
