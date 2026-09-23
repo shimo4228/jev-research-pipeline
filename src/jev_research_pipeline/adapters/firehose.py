@@ -16,12 +16,14 @@ No key, no query — the "query" is the code-built category token or the date.
 
 import re
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import httpx2
 from defusedxml import ElementTree
 from pydantic import BaseModel, Field, TypeAdapter
 
+from .arxiv import ARXIV_RETRY, ARXIV_RETRY_WAITS
 from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
 
 ARXIV_RSS: Final = "https://rss.arxiv.org/rss/"
@@ -61,6 +63,13 @@ def arxiv_parse(body: str) -> list[RawDraft]:
             )
         )
     return drafts
+
+
+def hf_date(now: datetime) -> str:
+    """The newest day HF daily_papers accepts: yesterday in UTC. A later date is a 400,
+    "date must be less than or equal to <yesterday UTC>" (measured 2026-09-23 at 00:46 UTC
+    — the local date, 09-23 JST, was refused)."""
+    return (now.astimezone(UTC).date() - timedelta(days=1)).isoformat()
 
 
 def hf_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
@@ -103,6 +112,8 @@ def arxiv_adapter() -> Adapter:
         build_request=arxiv_request,
         parse=arxiv_parse,
         min_interval_s=3.0,  # arXiv ToU, one request every three seconds
+        retry_status=ARXIV_RETRY,
+        retry_waits=ARXIV_RETRY_WAITS,
         net="firehose",
         query_kind="token",
     )

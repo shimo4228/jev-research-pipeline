@@ -191,20 +191,20 @@ async def test_several_question_days_in_parallel_write_the_sequential_note(
     assert notes[0] == notes[1]
 
 
-async def test_triage_starts_before_the_last_net_is_fetched(env: dict[str, str]):
-    """The firehose's sources are judged while the keyword net is still being fetched,
-    instead of the whole run waiting for the slowest (paced) net first."""
+async def test_prefilter_starts_before_the_last_net_is_fetched(env: dict[str, str]):
+    """The firehose's sources are prefiltered while the keyword net is still being
+    fetched, instead of the whole run waiting for the slowest (paced) net first."""
     order: list[str] = []
     world = fake_world()
 
     async def record(request: httpx2.Request) -> httpx2.Response:
         body = request.content.decode() if request.url.host == "api.typesafe.ai" else ""
-        order.append("triage" if "contains_evidence" in body else request.url.host or "")
+        order.append("prefilter" if "q0_on_topic" in body else request.url.host or "")
         if request.url.host == "export.arxiv.org":
             await asyncio.sleep(0.05)  # a keyword request that takes its time (pacing, network)
         return await world(request)
 
     await run_pipeline(env, now=b.T0, http=_client(record), pacing=False)
-    first_triage = order.index("triage")
+    first_prefilter = order.index("prefilter")
     last_keyword_fetch = max(i for i, host in enumerate(order) if host == "export.arxiv.org")
-    assert first_triage < last_keyword_fetch
+    assert first_prefilter < last_keyword_fetch

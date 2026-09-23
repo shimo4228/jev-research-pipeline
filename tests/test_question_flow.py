@@ -102,7 +102,8 @@ def test_a_source_without_an_abstract_is_incomplete_before_anything_is_asked():
     assert question_screening.route(failure, source=short) == "incomplete"
 
 
-def test_an_unjudged_source_is_the_authors_call_not_a_silent_drop():
+def test_a_jev_failure_goes_to_unjudged_not_review():
+    """Review is for judged borderlines; the first pilot routed every Jev failure there."""
     source = _source()
     failure = JevFailure(
         function="question_screening",
@@ -111,7 +112,7 @@ def test_an_unjudged_source_is_the_authors_call_not_a_silent_drop():
         reason="timeout",
         detail="",
     )
-    assert question_screening.route(failure, source=source) == "review"
+    assert question_screening.route(failure, source=source) == "unjudged"
 
 
 def test_a_canary_that_does_not_survive_screening_is_reported():

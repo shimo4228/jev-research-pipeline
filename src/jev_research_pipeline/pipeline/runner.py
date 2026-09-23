@@ -17,6 +17,7 @@ Environment (nothing is guessed):
 The store is checked before anything else (store.migrate.prepare_store).
 """
 
+import asyncio
 import tomllib
 from collections.abc import Mapping
 from datetime import date
@@ -26,6 +27,7 @@ from typing import Final
 import httpx2
 from pydantic import AwareDatetime
 
+from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
 from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Report
 from jev_research_pipeline.questions import NO_QUESTIONS, NoQuestions, open_questions
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
@@ -130,15 +132,20 @@ async def run_pipeline(
     # Before anything is read: an old store is migrated (additive) or stops the run here
     # with one line (incompatible), never halfway through a line.
     migrated = prepare_store(store.root)
+    # A daily track runs on every tick, beside the rotation (daily-research's `daily = true`).
+    daily = tuple(t.slug for t in tracks.values() if t.daily)
     harvested = {
         slug: [
             *(n for n in migrated if f"lines/{slug}.jsonld" in n),
             *harvest_line(store, vault, slug, now, env),
         ]
-        for slug in rotation.order
+        for slug in (*rotation.order, *daily)
     }
-    outcomes: list[LineOutcome] = []
-    for slug in advance_rotation(store, rotation, now):
+    picked = (*advance_rotation(store, rotation, now), *daily)
+    # One Jev rate window for the whole tick: the limit is per key, not per line.
+    pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
+
+    async def one(slug: str) -> LineOutcome | None:
         ctx = line_context(tracks[slug])
         try:
             nodes = store.line(slug).load()
@@ -154,7 +161,7 @@ async def run_pipeline(
             # By design: a line with no open question has nothing to anchor a judgment on.
             # The rotation has already advanced, so the next run moves on to the next line.
             unanswered.append(f"{slug}: {NO_QUESTIONS} ({e.path})")
-            continue
+            return None
         run = LineRun(
             ctx=ctx,
             questions=questions,
@@ -171,5 +178,11 @@ async def run_pipeline(
             day_budget=day_budget,
             pacing=pacing,
         )
-        outcomes.append(await run.execute())
-    return outcomes
+        run.jev.pacer = pacer
+        return await run.execute()
+
+    # The lines run side by side: each has its own partition, meters and note; what they
+    # share (the Jev rate window, adapter pacing per source, the day's OpenAlex credits)
+    # is shared explicitly.
+    ran = await asyncio.gather(*(one(slug) for slug in picked))
+    return [o for o in ran if o is not None]

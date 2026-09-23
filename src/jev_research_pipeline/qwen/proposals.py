@@ -17,6 +17,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
 from jev_research_pipeline.jev.context import LineContext
@@ -80,6 +81,11 @@ def _question(ctx: LineContext, candidate: Candidate, now: AwareDatetime) -> Que
     )
 
 
+PROPOSAL_TIMEOUT_S: Final = 120.0
+"""Per request, over the shared client's 30 s: the first pilot's proposal call died with a
+bare ModelAPIError on every line (2026-09-23), the way the prose call did at 30 s."""
+
+
 async def propose_questions(
     model: OpenAIChatModel,
     ctx: LineContext,
@@ -94,6 +100,7 @@ async def propose_questions(
         output_type=NativeOutput(CandidateList, strict=True),
         instructions=instructions(n),
         retries={"output": OUTPUT_RETRIES},
+        model_settings=ModelSettings(timeout=PROPOSAL_TIMEOUT_S),
     )
     usage = RunUsage()
     try:
@@ -101,7 +108,8 @@ async def propose_questions(
     except AgentRunError as e:
         if isinstance(e, UnexpectedModelBehavior):
             meter.output_violations += 1
-        return ProposalResult(questions=(), failure=type(e).__name__)
+        detail = " ".join(str(e).split())[:120]
+        return ProposalResult(questions=(), failure=f"{type(e).__name__}: {detail}")
     finally:
         meter.add(usage)
     made = [q for c in result.output.questions[:n] if (q := _question(ctx, c, now)) is not None]

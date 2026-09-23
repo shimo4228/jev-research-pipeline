@@ -1,5 +1,5 @@
 {
- "GET https://huggingface.co/api/daily_papers?date=2026-09-22&limit=50": {
+ "GET https://huggingface.co/api/daily_papers?date=2026-09-21&limit=50": {
   "status": 200,
   "content_type": "application/json",
   "body": "[{\"paper\":{\"id\":\"2609.00004\",\"title\":\"Daily Paper\",\"summary\":\"We decompose research judgment into narrow typed questions. Fitted thresholds on author labels raise precision by twelve points. The pipeline writes one report per research line each day. We compare the decomposition against a single broad prompt on the same corpus, and report agreement with the author's own labels for every question in the set.\",\"publishedAt\":\"2026-09-22T00:00:00.000Z\"}}]"

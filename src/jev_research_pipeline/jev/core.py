@@ -132,6 +132,9 @@ _BATCH_NOTE: Final = (
     "context for it."
 )
 
+BATCH_SUBJECT: Final = "source"
+"""What every batched ask varies: the pipeline batches sources, never questions or claims."""
+
 BATCH_MAX_ITEMS: Final = 8
 """Subjects per batched request (judge asked for 5-10 per request)."""
 BATCH_STATE_TOKENS: Final = 24_000
@@ -686,11 +689,13 @@ def decide[OutputT: BaseModel](
     rule: Rule[OutputT],
     policy: str | None = None,
 ) -> Decision:
-    """Policy = ask.policy unless a variant policy is named (e.g. a fallback rule), and the
-    identity includes ask.sha256. The result must come from this ask's wording (a mismatch
-    is a wiring error and raises)."""
+    """Policy = the asking ask's policy unless a variant policy is named (e.g. a fallback
+    rule), and the identity includes its sha256. The result must come from this ask's
+    wording, asked alone or batched over sources (anything else is a wiring error)."""
     if result.bundle_sha256 != ask.sha256:
-        raise ValueError(f"result was produced by another ask than {ask.policy}")
+        ask = ask.batched(BATCH_SUBJECT)
+        if result.bundle_sha256 != ask.sha256:
+            raise ValueError(f"result was produced by another ask than {ask.policy}")
     if isinstance(result, JevFailure):
         judgments: tuple[str, ...] = ()
         outcome: Literal["accept", "reject", "unjudged"] = "unjudged"

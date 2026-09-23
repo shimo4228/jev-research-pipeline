@@ -32,7 +32,14 @@ from typing import Final, cast
 import httpx2
 from pydantic import AwareDatetime, JsonValue
 
-from jev_research_pipeline.adapters import Adapter, collect, firehose, openalex, semantic_scholar
+from jev_research_pipeline.adapters import (
+    Adapter,
+    FetchOutcome,
+    collect,
+    firehose,
+    openalex,
+    semantic_scholar,
+)
 from jev_research_pipeline.model import DiscoveryNet, Line, SourceItem
 from jev_research_pipeline.store import Partition
 
@@ -58,12 +65,17 @@ RANDOM_NEGATIVES: Final = 5
 before the author has ticked a ❌ (Scholar Inbox: random negatives prevent collapse)."""
 
 
+DEFAULT_FIREHOSE_MAX: Final = 300
+
+
 @dataclass(frozen=True)
 class NetConfig:
     budgets: Mapping[DiscoveryNet, int] = field(default_factory=lambda: dict(DEFAULT_BUDGETS))
     exploration_share: float = DEFAULT_EXPLORATION_SHARE
     categories: tuple[str, ...] = firehose.DEFAULT_CATEGORIES
     openalex_daily_credits: int = DEFAULT_CREDIT_CAP
+    firehose_max: int = DEFAULT_FIREHOSE_MAX
+    """Firehose sources kept per line-run, in feed order (the first pilot took 836)."""
 
     def budget(self, net: DiscoveryNet) -> int:
         return int(self.budgets.get(net, DEFAULT_BUDGETS.get(net, 0)))
@@ -88,7 +100,11 @@ def load_nets(config: Path) -> NetConfig:
         else firehose.DEFAULT_CATEGORIES
     )
     credits = data.get("openalex_daily_credits", DEFAULT_CREDIT_CAP)
+    firehose_max = data.get("firehose_max", DEFAULT_FIREHOSE_MAX)
     return NetConfig(
+        firehose_max=max(0, firehose_max)
+        if isinstance(firehose_max, int)
+        else DEFAULT_FIREHOSE_MAX,
         budgets=budgets,
         exploration_share=float(share)
         if isinstance(share, int | float)
@@ -141,7 +157,7 @@ def openalex_work(url: str) -> str | None:
 def plan(
     config: NetConfig,
     *,
-    run_date: str,
+    hf_date: str,
     keyword_queries: Sequence[tuple[Adapter, str]],
     positives: Sequence[str],
     negatives: Sequence[str],
@@ -158,7 +174,7 @@ def plan(
             )
         )
     if firehose_budget > 1:
-        out.append(NetRequest("firehose", firehose.hf_adapter(), run_date))
+        out.append(NetRequest("firehose", firehose.hf_adapter(), hf_date))
     if positives and config.budget("recommendation"):
         out.append(
             NetRequest(
@@ -235,6 +251,25 @@ class NetOutcome:
     openalex_credits: int = 0
 
 
+def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
+    """Operations lines of one successful fetch: resends and dropped results."""
+    where = f"{request.net}/{request.adapter.kind}"
+    notes: list[str] = []
+    if out.retried:
+        notes.append(f"{where}: {out.retried} 回待って再送 (406 の波)")
+    if out.skipped:
+        notes.append(f"{where}: 検証落ちで {out.skipped} 件 skip")
+    return notes
+
+
+def _capped(fresh: list[SourceItem], cap: int, outcome: NetOutcome) -> list[SourceItem]:
+    """The firehose's share of a line-run, in feed order (NetConfig.firehose_max)."""
+    room = max(cap - outcome.per_net.get("firehose", 0), 0)
+    if len(fresh) > room:
+        outcome.notes.append(f"firehose: 上限 {cap} 件のため {len(fresh) - room} 件を省略")
+    return fresh[:room]
+
+
 async def fetch_nets(
     requests: Sequence[NetRequest],
     client: httpx2.AsyncClient,
@@ -278,16 +313,15 @@ async def fetch_nets(
                 budget.quiet.add(request.net)
                 outcome.notes.append(f"{request.net}: rate limit のため本日は打ち切り")
             continue
-        if out.skipped:
-            outcome.notes.append(
-                f"{request.net}/{request.adapter.kind}: 検証落ちで {out.skipped} 件 skip"
-            )
+        outcome.notes += _fetch_notes(request, out)
         if request.adapter.kind == "openalex" and not out.cached:
             # A filtered list costs one credit (measured 2026-09-23 from
             # x-ratelimit-credits-used); the header itself is not visible here because
             # collect() returns parsed sources, not the response.
             budget.spent += 1
         fresh = [s for s in out.sources if s.id not in seen]
+        if request.net == "firehose":
+            fresh = _capped(fresh, config.firehose_max, outcome)
         seen.update(s.id for s in fresh)
         outcome.sources += fresh
         if on_sources is not None and fresh:

@@ -86,7 +86,7 @@ async def test_three_sources_go_in_one_request_and_come_back_as_three_judgments(
         assert j.judgment.subjects == subjects
         assert j.judgment.state_sha256 == input_sha256(state)  # the single-request state
         assert j.judgment.bundle_sha256 == batch.sha256
-        assert question_screening.decision(j).policy == "question_screening@v1_batch"
+        assert question_screening.decision(j).policy == "question_screening@v2_batch"
         assert output_of(ASK.output, j.judgment) == j.output  # a stored answer replays
 
 
@@ -108,7 +108,7 @@ async def test_a_batch_of_one_is_the_plain_request(cassette: ClientFactory):
     (result,) = await jev.judge_batch(ASK, _items([_source(0)]), subject="source", now=b.T0)
     assert isinstance(result, Judged)
     assert result.judgment.bundle_sha256 == ASK.sha256
-    assert question_screening.decision(result).policy == "question_screening@v1"
+    assert question_screening.decision(result).policy == "question_screening@v2"
 
 
 async def test_a_source_the_service_refuses_sinks_alone():

@@ -19,6 +19,13 @@ _NS: Final = {"a": "http://www.w3.org/2005/Atom"}
 # (measured 2026-09-22; explicit atom Accept + descriptive UA → 200 on 2026-09-23).
 HEADERS: Final = {"Accept": "application/atom+xml", "User-Agent": USER_AGENT}
 
+ARXIV_RETRY: Final = frozenset({406})
+"""export.arxiv.org's edge answers 406 in bursts to a client it has scored (measured
+2026-09-23: the same request 406 from httpx2 and 200 from curl in the same minute, and
+200 from httpx2 again minutes later; not header order, query encoding, HTTP version or
+the query text). Undocumented, so it is waited out rather than worked around."""
+ARXIV_RETRY_WAITS: Final = (10.0, 20.0)
+
 
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     terms = " AND ".join(f"all:{word}" for word in query.split())
@@ -54,4 +61,11 @@ def parse(body: str) -> list[RawDraft]:
 
 
 def adapter() -> Adapter:
-    return Adapter(kind="arxiv", build_request=build_request, parse=parse, min_interval_s=3.0)
+    return Adapter(
+        kind="arxiv",
+        build_request=build_request,
+        parse=parse,
+        min_interval_s=3.0,
+        retry_status=ARXIV_RETRY,
+        retry_waits=ARXIV_RETRY_WAITS,
+    )

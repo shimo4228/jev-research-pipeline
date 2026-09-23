@@ -40,6 +40,7 @@ from pydantic import AwareDatetime, BaseModel
 from jev_research_pipeline.adapters import (
     Adapter,
     arxiv,
+    firehose,
     github,
     hf_papers,
     openalex,
@@ -55,6 +56,7 @@ from jev_research_pipeline.jev import (
     novelty,
     query_selection,
     question_movement,
+    question_prefilter,
     question_screening,
     question_seeding,
     relevance_triage,
@@ -63,7 +65,7 @@ from jev_research_pipeline.jev import (
     source_trust,
 )
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.jev.core import JEV_MODEL, batches, output_of
+from jev_research_pipeline.jev.core import BATCH_SUBJECT, JEV_MODEL, batches, output_of
 from jev_research_pipeline.model import (
     AdapterKind,
     Claim,
@@ -240,6 +242,13 @@ class _State:
     discovery: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
     partial: bool = False
+    pairs: int = 0
+    """(source, question) pairs the prefilter asked about."""
+    pairs_screened: int = 0
+    failed_pairs: int = 0
+    """Pairs whose Jev request failed (prefilter or full screen) — the 未判定 share."""
+    incomplete: int = 0
+    """Sources with too little text to screen: counted, not listed."""
 
 
 @dataclass
@@ -251,6 +260,34 @@ class _SectionDay:
     nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
     notes: list[str] = field(default_factory=list[str])
     made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
+
+
+REVIEW_MAX: Final = 10
+"""Review lines per note (author mandate 2026-09-23); nearest the cut first."""
+BRIDGES_PER_QUESTION: Final = 3
+BRIDGES_MAX: Final = 5
+"""橋渡し per question and per note (author mandate 2026-09-23: 2,509 of 2,570 pairs
+accepted on the first pilot); likeliest first."""
+
+
+def _top_bridges(found: list[tuple[str, float, SourceItem]]) -> list[SourceEntry]:
+    """The likeliest BRIDGES_PER_QUESTION per question, then the likeliest BRIDGES_MAX of
+    those, each source once."""
+    per_question: dict[str, list[tuple[float, SourceItem]]] = {}
+    for qid, p, s in found:
+        per_question.setdefault(qid, []).append((p, s))
+    shortlist = [
+        pair
+        for pairs in per_question.values()
+        for pair in sorted(pairs, key=lambda x: -x[0])[:BRIDGES_PER_QUESTION]
+    ]
+    seen: set[str] = set()
+    out: list[SourceEntry] = []
+    for _p, s in sorted(shortlist, key=lambda x: -x[0]):
+        if s.id not in seen and len(out) < BRIDGES_MAX:
+            seen.add(s.id)
+            out.append(_entry(s))
+    return out
 
 
 type _Screened = dict[tuple[str, str], Judged[question_screening.Answers] | JevFailure | None]
@@ -477,7 +514,7 @@ class LineRun:
         positives, negatives = self._positives_and_negatives()
         plan = nets.plan(
             self.nets,
-            run_date=self.now.date().isoformat(),
+            hf_date=firehose.hf_date(self.now),
             keyword_queries=keyword,
             positives=positives,
             negatives=negatives,
@@ -512,111 +549,158 @@ class LineRun:
         ]
         return list(dict.fromkeys(seen))
 
-    async def _triaged(self, s: SourceItem) -> list[Decision]:
-        """Evidence and injection, then trust — the Decisions made, in that order. The
-        source is safe when there are two and the last accepts."""
-        tri = await self._jev(lambda: relevance_triage.judge(self.jev, self.ctx, s, now=self.now))
-        if tri is None:
-            return []
-        first = relevance_triage.decision(tri)
-        if first.outcome != "accept":
-            return [first]
-        trust = await self._jev(lambda: source_trust.judge(self.jev, s, now=self.now))
-        return [first] if trust is None else [first, source_trust.decision(trust)]
+    async def _batched[OutputT: BaseModel](
+        self, ask: Ask[OutputT], items: Sequence[tuple[tuple[str, ...], JevState]]
+    ) -> list[Judged[OutputT] | JevFailure | None]:
+        """One Jev function over many sources, several sources per request (core.batches),
+        results back in item order; None where the cost cap stopped it."""
+        chunks = batches([st for _, st in items], BATCH_SUBJECT)
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda c=c: self.jev.judge_batch(
+                        ask, [items[i] for i in c], subject=BATCH_SUBJECT, now=self.now
+                    )
+                )
+                for c in chunks
+            )
+        )
+        out: list[Judged[OutputT] | JevFailure | None] = [None] * len(items)
+        for chunk, judged in zip(chunks, results, strict=True):
+            if judged is not None:
+                for j, i in enumerate(chunk):
+                    out[i] = judged[j]
+        return out
 
-    def _apply_triage(self, sources: Sequence[SourceItem], results: Sequence[list[Decision]]):
-        kept: list[SourceItem] = []
-        for s, decisions in zip(sources, results, strict=True):
-            for d in decisions:
-                self._decide(d, s.title)
-            if len(decisions) == 2 and decisions[1].outcome == "accept":
-                kept.append(s)
-        return kept
+    def _screenable(self, s: SourceItem) -> bool:
+        return not question_screening.no_abstract(s)
 
-    async def _fetch_and_triage(self, queries: list[QueryCandidate]) -> list[SourceItem]:
-        """Fetch every net and run the question-free pass (triage, trust) on what they
-        bring, overlapped: a source is triaged as soon as its request is in, while the
-        later requests still sit out their pacing gap (arXiv 3 s, GitHub and HF 6 s).
-        Whether a source is relevant is a per-question judgment, and happens in _screen().
-        Triage reads nothing that a later fetch writes, and the Decisions are applied in
+    async def _fetch_and_prefilter(
+        self, queries: list[QueryCandidate]
+    ) -> tuple[list[SourceItem], dict[str, list[int]]]:
+        """Fetch every net and prefilter what they bring, overlapped: each net's sources are
+        prefiltered as soon as its request is in, while later requests sit out their pacing
+        gap. Returns the sources and, per source id, the indices of the questions it passed.
+        The prefilter reads nothing a later fetch writes and its Decisions are applied in
         fetch order afterwards, so the overlap changes when, not what."""
-        triage: list[asyncio.Task[list[Decision]]] = []
+        n = len(self.questions)
+        ask = question_prefilter.ask(n)
+        started: list[tuple[list[SourceItem], asyncio.Task[list[Any]]]] = []
 
         def start(fresh: list[SourceItem]) -> None:
-            triage.extend(asyncio.ensure_future(self._triaged(s)) for s in fresh)
+            screen = [s for s in fresh if self._screenable(s)]
+            items = question_prefilter.items(self.ctx, screen, self.questions)
+            started.append((screen, asyncio.ensure_future(self._batched(ask, items))))
 
         slug = self.ctx.line.slug
         with span("jrp.stage.fetch", line=slug, queries=len(queries)):
             try:
                 sources = await self._fetch(queries, on_sources=start)
             except BaseException:
-                for task in triage:
+                for _, task in started:
                     task.cancel()  # nothing is waiting on them any more
                 raise
-        with span("jrp.stage.triage", line=slug, sources=len(sources)):
-            return self._apply_triage(sources, await asyncio.gather(*triage))
+        with span("jrp.stage.prefilter", line=slug, sources=len(sources)):
+            passing: dict[str, list[int]] = {}
+            for screen, task in started:
+                for s, result in zip(screen, await task, strict=True):
+                    if result is None:
+                        continue
+                    self._decide(question_prefilter.decision(result, n), s.title)
+                    self.st.pairs += n
+                    if isinstance(result, JevFailure):
+                        self.st.failed_pairs += n
+                    if hits := question_prefilter.passing(result, n):
+                        passing[s.id] = hits
+        self.st.incomplete = sum(1 for s in sources if not self._screenable(s))
+        return sources, passing
 
-    async def _screened(self, sources: list[SourceItem]) -> _Screened:
-        """Every (source, question) answer, None where the cost cap stopped it. One request
-        per (question, batch of sources): the question and its evidence set go once, the
-        sources as slots (question_screening.BATCH_ASK)."""
-        screenable = [s for s in sources if not question_screening.no_abstract(s)]
-        work: list[tuple[Question, list[SourceItem], list[tuple[tuple[str, ...], JevState]]]] = []
-        for q in self.questions:
-            items = question_screening.items(self.ctx, screenable, q, self._evidence_texts(q))
-            for idx in batches([st for _, st in items], question_screening.SUBJECT):
-                work.append((q, [screenable[i] for i in idx], [items[i] for i in idx]))
+    async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
+        """The question-free pass on the sources some question is about: evidence and
+        injection, then trust, each batched. Nothing is accepted before this pass."""
+        tri = await self._batched(
+            relevance_triage.ASK,
+            [((s.id,), relevance_triage.state(self.ctx, s)) for s in sources],
+        )
+        evidenced: list[SourceItem] = []
+        for s, result in zip(sources, tri, strict=True):
+            if result is not None:
+                if self._decide(relevance_triage.decision(result), s.title).outcome == "accept":
+                    evidenced.append(s)
+        trust = await self._batched(
+            source_trust.ASK, [((s.id,), source_trust.state(s)) for s in evidenced]
+        )
+        kept: list[SourceItem] = []
+        for s, result in zip(evidenced, trust, strict=True):
+            if result is not None:
+                if self._decide(source_trust.decision(result), s.title).outcome == "accept":
+                    kept.append(s)
+        return kept
+
+    async def _screened(
+        self, sources: list[SourceItem], passing: Mapping[str, list[int]]
+    ) -> _Screened:
+        """The full bundle for every (source, question) pair the prefilter passed. One
+        request per (question, batch of sources): the question and its evidence set go
+        once, the sources as slots (question_screening.BATCH_ASK)."""
+        work: list[tuple[Question, list[SourceItem]]] = [
+            (q, [s for s in sources if i in passing.get(s.id, [])])
+            for i, q in enumerate(self.questions)
+        ]
         results = await asyncio.gather(
             *(
-                self._jev(
-                    lambda chunk=chunk: self.jev.judge_batch(
-                        question_screening.ASK,
-                        chunk,
-                        subject=question_screening.SUBJECT,
-                        now=self.now,
-                    )
+                self._batched(
+                    question_screening.ASK,
+                    question_screening.items(self.ctx, chosen, q, self._evidence_texts(q)),
                 )
-                for _, _, chunk in work
+                for q, chosen in work
             )
         )
         screened: _Screened = {}
-        for (q, chunk_sources, _), judged in zip(work, results, strict=True):
-            for i, s in enumerate(chunk_sources):
-                screened[(s.id, q.id)] = None if judged is None else judged[i]
+        for (q, chosen), judged in zip(work, results, strict=True):
+            for s, result in zip(chosen, judged, strict=True):
+                screened[(s.id, q.id)] = result
         return screened
 
-    async def _screen(self, sources: list[SourceItem]) -> dict[str, list[SourceItem]]:
+    async def _screen(
+        self, sources: list[SourceItem], passing: Mapping[str, list[int]]
+    ) -> dict[str, list[SourceItem]]:
         """Screening per (source, question). Code routes: Keep goes on to claims, Review
-        into the note for the author, Drop and Incomplete nowhere. bridges_line decides
-        separately, so a source from outside the vocabulary still reaches 橋渡し."""
-        screened = await self._screened(sources)
+        (judged borderlines only, capped) into the note, Drop nowhere, a Jev failure to
+        未判定. bridges_line decides separately; the note shows the likeliest few."""
+        screened = await self._screened(sources, passing)
         kept: dict[str, list[SourceItem]] = {q.id: [] for q in self.questions}
-        reviewed: set[str] = set()
-        bridged: set[str] = set()
-        for s in sources:
-            if question_screening.no_abstract(s):
-                # Decided by len(source.text): asking Jev seven questions per open question
-                # about a title would pay for a route that is already known. It still
-                # reaches the author, in Review, rather than being dropped in silence.
-                if s.id not in reviewed:
-                    reviewed.add(s.id)
-                    self.st.review.append(_entry(s, "本文が取得できず未判定"))
-                continue
-            for question in self.questions:
-                result = screened[(s.id, question.id)]
-                if result is None:
-                    continue  # the cost cap stopped it
-                self._decide(question_screening.decision(result), s.title)
-                bridges = self._decide(question_screening.bridges_decision(result), s.title)
-                if bridges.outcome == "accept" and s.id not in bridged:
-                    bridged.add(s.id)
-                    self.st.bridges.append(_entry(s))
-                route = question_screening.route(result, source=s)
-                if route == "keep":
-                    kept[question.id].append(s)
-                elif route == "review" and s.id not in reviewed:
-                    reviewed.add(s.id)
-                    self.st.review.append(_entry(s, f"「{question.title}」に対して判定保留"))
+        review: dict[str, tuple[float, SourceEntry]] = {}
+        bridges: list[tuple[str, float, SourceItem]] = []
+        for (sid, qid), result in screened.items():
+            if result is None:
+                continue  # the cost cap stopped it
+            s = next(x for x in sources if x.id == sid)
+            question = next(q for q in self.questions if q.id == qid)
+            self.st.pairs_screened += 1
+            self._decide(question_screening.decision(result), s.title)
+            bridged = self._decide(question_screening.bridges_decision(result), s.title)
+            if bridged.outcome == "accept" and isinstance(result, Judged):
+                bridges.append((qid, result.output.bridges_line, s))
+            route = question_screening.route(result, source=s)
+            if route == "keep":
+                kept[qid].append(s)
+            elif route == "unjudged":
+                self.st.failed_pairs += 1
+            elif route == "review" and isinstance(result, Judged):
+                distance = question_screening.review_distance(result)
+                reason = f"「{question.title}」: {question_screening.review_reason(result)}"
+                if sid not in review or distance < review[sid][0]:
+                    review[sid] = (distance, _entry(s, reason))
+        ranked = sorted(review.values(), key=lambda r: r[0])
+        self.st.review += [entry for _, entry in ranked[:REVIEW_MAX]]
+        if len(ranked) > REVIEW_MAX:
+            self.st.notes.append(f"Review: {len(ranked)} 件のうち境界に近い {REVIEW_MAX} 件を表示")
+        self.st.bridges += _top_bridges(bridges)
+        if len({s.id for _, _, s in bridges}) > len(self.st.bridges):
+            self.st.notes.append(
+                f"橋渡し: {len(bridges)} 対が閾値を超え、確率上位 {len(self.st.bridges)} 件を表示"
+            )
         return kept
 
     async def _claims(self, screened: Mapping[str, list[SourceItem]]) -> list[_Accepted]:
@@ -943,6 +1027,14 @@ class LineRun:
             *self.st.discovery,
             *rule_candidates(log, RuleConfig(), today=self.now.date()),
         ]
+        if self.st.pairs:
+            share = self.st.failed_pairs / self.st.pairs
+            lines.append(
+                f"未判定 (Jev 失敗): {self.st.failed_pairs} / (source, 問い) {self.st.pairs} 対"
+                f" ({share:.1%}); full screen {self.st.pairs_screened} 対"
+            )
+        if self.st.incomplete:
+            lines.append(f"本文なし: {self.st.incomplete} 件 (screening 対象外)")
         if self.st.partial:
             lines.append("partial: 費用上限に達したため以降の判定を省略")
         return ops, lines + self.st.notes
@@ -953,9 +1045,11 @@ class LineRun:
             return [], {}
         with span("jrp.stage.queries", line=slug, questions=len(self.questions)):
             queries = await self._queries()
-        safe = await self._fetch_and_triage(queries)
+        sources, passing = await self._fetch_and_prefilter(queries)
+        with span("jrp.stage.triage", line=slug, sources=len(passing)):
+            safe = await self._safe_sources([s for s in sources if s.id in passing])
         with span("jrp.stage.screen", line=slug, sources=len(safe)):
-            screened = await self._screen(safe)
+            screened = await self._screen(safe, passing)
         with span("jrp.stage.claims", line=slug):
             detected = await self._claims(screened)
         with span("jrp.stage.novelty", line=slug, claims=len(detected)):

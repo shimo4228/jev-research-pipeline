@@ -25,7 +25,7 @@ DEFAULTS = nets.NetConfig()
 def _plan(config: nets.NetConfig = DEFAULTS) -> list[nets.NetRequest]:
     return nets.plan(
         config,
-        run_date="2026-09-22",
+        hf_date="2026-09-22",
         keyword_queries=KEYWORD,
         positives=["ARXIV:2609.01234"],
         negatives=["ARXIV:2609.00009"],

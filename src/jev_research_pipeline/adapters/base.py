@@ -107,6 +107,8 @@ class FetchOutcome(Value):
     cached: bool = False
     skipped: int = 0
     """Results dropped individually for failing validation (empty text, non-http URL)."""
+    retried: int = 0
+    """Requests sent again after a status in Adapter.retry_status (see there)."""
 
     @model_validator(mode="after")
     def _failure_has_no_sources(self) -> Self:
@@ -153,6 +155,10 @@ class Adapter:
     """Env var that must be set or the adapter is skipped (missing_key failure)."""
     net: DiscoveryNet = "keyword"
     """Which net this adapter is. Stored on every SourceItem it produces."""
+    retry_waits: tuple[float, ...] = ()
+    """Seconds to wait before each resend of a request answered with a status in
+    retry_status. Empty = no retry."""
+    retry_status: frozenset[int] = frozenset()
     query_kind: Literal["keyword", "token"] = "keyword"
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
@@ -169,6 +175,20 @@ class Adapter:
                 if wait > 0:
                     await asyncio.sleep(wait)
             _LAST_REQUEST[self.kind] = time.monotonic()
+
+    async def _send(
+        self, client: httpx2.AsyncClient, query: str, env: Mapping[str, str]
+    ) -> tuple[httpx2.Response, int]:
+        """One paced request, resent after retry_waits while the status is in
+        retry_status. Returns the last response and how many resends it took."""
+        retried = 0
+        while True:
+            await self._pace()
+            response = await client.send(self.build_request(query, env))
+            if response.status_code not in self.retry_status or retried >= len(self.retry_waits):
+                return response, retried
+            await asyncio.sleep(self.retry_waits[retried])
+            retried += 1
 
     async def fetch(
         self,
@@ -192,9 +212,8 @@ class Adapter:
         unusable = clean_query(query) is None if self.query_kind == "keyword" else not query
         if unusable:
             return fail("invalid_query", query[:80] or "empty")
-        await self._pace()
         try:
-            response = await client.send(self.build_request(query, env))
+            response, retried = await self._send(client, query, env)
         except httpx2.RequestError as e:
             return fail("transport", type(e).__name__)
         if response.status_code >= 400:
@@ -227,4 +246,5 @@ class Adapter:
             sources=tuple(sources),
             failure=None,
             skipped=len(raws) - len(sources),
+            retried=retried,
         )
