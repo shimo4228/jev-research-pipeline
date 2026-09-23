@@ -24,7 +24,7 @@ midnight UTC), counted from the response headers.
 
 import random
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, cast
@@ -245,10 +245,13 @@ async def fetch_nets(
     env: Mapping[str, str],
     config: NetConfig,
     day: DayBudget | None = None,
+    on_sources: Callable[[list[SourceItem]], None] | None = None,
 ) -> NetOutcome:
     """Run the plan in order. A net that fails is a line in the operations section, never
     the end of the run: the next net still gets its turn. `day` carries the quotas that
-    are shared across the rotation's lines; without one they are this call's alone."""
+    are shared across the rotation's lines; without one they are this call's alone.
+    `on_sources` sees each request's new sources as soon as they are in, in plan order,
+    so the caller can start judging them while the later (paced) requests still wait."""
     outcome = NetOutcome()
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     seen: set[str] = set()
@@ -287,6 +290,8 @@ async def fetch_nets(
         fresh = [s for s in out.sources if s.id not in seen]
         seen.update(s.id for s in fresh)
         outcome.sources += fresh
+        if on_sources is not None and fresh:
+            on_sources(fresh)
         outcome.per_net[request.net] = outcome.per_net.get(request.net, 0) + len(fresh)
     outcome.openalex_credits = budget.spent
     return outcome

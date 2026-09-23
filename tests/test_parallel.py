@@ -14,6 +14,7 @@ from jev_research_pipeline.pipeline.concurrency import jev_concurrency, prose_co
 from jev_research_pipeline.pipeline.runner import run_pipeline
 
 from . import builders as b
+from .conftest import Handler
 from .fakes import fake_world
 from .test_e2e import env as env  # the fixture, re-exported
 
@@ -46,7 +47,7 @@ class InFlight:
             self.now -= 1
 
 
-def _client(handler: InFlight) -> httpx2.AsyncClient:
+def _client(handler: Handler) -> httpx2.AsyncClient:
     return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
 
 
@@ -188,3 +189,22 @@ async def test_several_question_days_in_parallel_write_the_sequential_note(
             (outcome.note.read_text(encoding="utf-8"), _store_bytes(Path(run_env["JRP_STORE_DIR"])))
         )
     assert notes[0] == notes[1]
+
+
+async def test_triage_starts_before_the_last_net_is_fetched(env: dict[str, str]):
+    """The firehose's sources are judged while the keyword net is still being fetched,
+    instead of the whole run waiting for the slowest (paced) net first."""
+    order: list[str] = []
+    world = fake_world()
+
+    async def record(request: httpx2.Request) -> httpx2.Response:
+        body = request.content.decode() if request.url.host == "api.typesafe.ai" else ""
+        order.append("triage" if "contains_evidence" in body else request.url.host or "")
+        if request.url.host == "export.arxiv.org":
+            await asyncio.sleep(0.05)  # a keyword request that takes its time (pacing, network)
+        return await world(request)
+
+    await run_pipeline(env, now=b.T0, http=_client(record), pacing=False)
+    first_triage = order.index("triage")
+    last_keyword_fetch = max(i for i, host in enumerate(order) if host == "export.arxiv.org")
+    assert first_triage < last_keyword_fetch

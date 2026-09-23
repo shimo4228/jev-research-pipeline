@@ -466,8 +466,13 @@ class LineRun:
         works = [w for url in dict.fromkeys(urls) if (w := nets.openalex_work(url)) is not None]
         return works
 
-    async def _fetch(self, queries: list[QueryCandidate]) -> list[SourceItem]:
-        """Every net, in the code-fixed order, within its budget (packet "Discovery")."""
+    async def _fetch(
+        self,
+        queries: list[QueryCandidate],
+        on_sources: Callable[[list[SourceItem]], None] | None = None,
+    ) -> list[SourceItem]:
+        """Every net, in the code-fixed order, within its budget (packet "Discovery").
+        `on_sources` sees each request's new sources as they arrive (nets.fetch_nets)."""
         keyword = [(make_adapter(q.adapter, pacing=self.pacing), q.text) for q in queries]
         positives, negatives = self._positives_and_negatives()
         plan = nets.plan(
@@ -488,6 +493,7 @@ class LineRun:
             env=self.env,
             config=self.nets,
             day=self.day,
+            on_sources=on_sources,
         )
         self.st.notes += outcome.notes
         self.st.per_net = outcome.per_net
@@ -527,11 +533,28 @@ class LineRun:
                 kept.append(s)
         return kept
 
-    async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
-        """The question-free pass. Whether a source is relevant is a per-question
-        judgment, and happens in _screen()."""
-        results = await asyncio.gather(*(self._triaged(s) for s in sources))
-        return self._apply_triage(sources, results)
+    async def _fetch_and_triage(self, queries: list[QueryCandidate]) -> list[SourceItem]:
+        """Fetch every net and run the question-free pass (triage, trust) on what they
+        bring, overlapped: a source is triaged as soon as its request is in, while the
+        later requests still sit out their pacing gap (arXiv 3 s, GitHub and HF 6 s).
+        Whether a source is relevant is a per-question judgment, and happens in _screen().
+        Triage reads nothing that a later fetch writes, and the Decisions are applied in
+        fetch order afterwards, so the overlap changes when, not what."""
+        triage: list[asyncio.Task[list[Decision]]] = []
+
+        def start(fresh: list[SourceItem]) -> None:
+            triage.extend(asyncio.ensure_future(self._triaged(s)) for s in fresh)
+
+        slug = self.ctx.line.slug
+        with span("jrp.stage.fetch", line=slug, queries=len(queries)):
+            try:
+                sources = await self._fetch(queries, on_sources=start)
+            except BaseException:
+                for task in triage:
+                    task.cancel()  # nothing is waiting on them any more
+                raise
+        with span("jrp.stage.triage", line=slug, sources=len(sources)):
+            return self._apply_triage(sources, await asyncio.gather(*triage))
 
     async def _screened(self, sources: list[SourceItem]) -> _Screened:
         """Every (source, question) answer, None where the cost cap stopped it. One request
@@ -930,10 +953,7 @@ class LineRun:
             return [], {}
         with span("jrp.stage.queries", line=slug, questions=len(self.questions)):
             queries = await self._queries()
-        with span("jrp.stage.fetch", line=slug, queries=len(queries)):
-            sources = await self._fetch(queries)
-        with span("jrp.stage.triage", line=slug, sources=len(sources)):
-            safe = await self._safe_sources(sources)
+        safe = await self._fetch_and_triage(queries)
         with span("jrp.stage.screen", line=slug, sources=len(safe)):
             screened = await self._screen(safe)
         with span("jrp.stage.claims", line=slug):
