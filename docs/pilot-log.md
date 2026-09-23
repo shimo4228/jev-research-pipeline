@@ -207,3 +207,24 @@ contemplative + jev.
   sentence "この問いの対象への直接の証拠は無い" — the pipeline's own statement, not a
   claim's. Excluded from the fidelity check (fixed wording, stripped by code): 0.26/0.28.
 - canaries: all 4 keep (jev line, same-day).
+
+## Run 10 — 2026-09-23 12:53 JST (scratch; a copy of the real store) — extension time cap reached
+
+Change: 1897fd4 (no conclusions in evidence paragraphs; the no-direct-evidence sentence
+left out of the fidelity check; a day with prose is not a template day). Lines: edge, akc,
+contemplative + jev.
+
+- akc, contemplative, jev notes written by 12:56 (≈ 2.5 min); **edge's note at 14:38** —
+  wall 6,238 s. edge's stage timers add up to ≈ 220 s, so ≈ 100 min passed outside every
+  stage timer. Cause not found before the cap. Leads: edge logged "Jev 再試行: 6 回" and a
+  keyword/arxiv ConnectError (urllib — its timeout does not bound DNS resolution); the
+  other three lines had neither. Needs a per-line watchdog and a timer around the code
+  outside the stages before the next live run.
+- cost: edge $0.0300, akc $0.0462, contemplative $0.0486, jev $0.0003 = $0.125.
+- notes: akc 11.9 KB, 3 sections, all prose; contemplative **16.4 KB** (3 sections, one
+  template) — over 12 KB; edge 4.8 KB, its one section on the template.
+- canaries: 4/4 keep. Jev retries: 6 on edge, 0 elsewhere.
+
+Extension totals: 2 of 3 live runs (9, 10), ≈ $0.30 (runs + probes), 12:38 → 14:40 JST.
+Stopped at the 2-hour cap. The final real run was not made; the real vault and store hold
+run 8's notes.
