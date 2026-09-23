@@ -259,3 +259,41 @@ The two fidelity flags on "off" are the two cases the judge faulted for conclusi
 evidence paragraphs — Jev and the judge agree. "off" also joined unrelated claims with
 "これに対し" (my connective example in the prompt) → the instruction now allows a connective
 only when the claims state that relation. Decision: prose thinking always, timeout 900 s.
+
+## Run 11 — 2026-09-23 15:17 JST (FINAL of the extension, real vault and store)
+
+Change: 1af1f4b (FLASH = deepseek-v4.1-flash with PromptedOutput; claims ≤ 9 per note and
+the 12 KB guard; prose thinking always, timeout 900 s; connectives only where the claims
+relate). Lines: edge, akc, contemplative + jev. Real notes and store backed up to
+/tmp/jrp-scratch/old/real-backup-1530 first; the jev note carried one author tick (a ⭕
+on a question-day), harvested and kept in the rewritten note.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 10 min (relaxed), cost ≤ $0.30 | **601 s** (1 s over); $0.1041 + 0.0450 + 0.1476 + 0.0003 = $0.297 | ❌ by 1 s on wall; cost ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | 7.4–11.996 KB (contemplative: the guard dropped 4 proposals); Review ≤ 5; 橋渡し ≤ 3; ≤ 0.3% | ✅ |
+| 3 | prose for every question with a Keep, [n] resolve | 5 sections, all prose, no template | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | canaries 4/4 keep; judge (e): no unrelated paper in body, Review or 橋渡し on all three notes | ✅ |
+| 5 | adapter failures (429 informational today) | none | ✅ |
+| 6 | no stack trace | none | ✅ |
+| 7 | fresh-context Opus judge, rubric (a)–(f) + (g) claim fidelity | **Publishable 1/3** | ❌ |
+
+Prose thinking made each draft slow: 77–246 s a draft (contemplative self-report took two
+drafts, 246 + 229 s), which is what pushed the tick to 601 s.
+
+### Condition 7 — verdicts and evidence
+- edge — Fix: section 1's inference reads a paper about false positives (models inventing
+  violations of non-existent rules) as an explanation of the question's misses (rules that
+  let things through) — the direction is reversed; "legal input" translated as 法的入力;
+  section 2 drops the "exploratory red-teaming in a live lab" scope and lists eight failure
+  kinds in one sentence; a broken English claim in the fold.
+- akc — Fix: the two evidence sentences (RRSI, BizSage) are not related to each other;
+  the inference opens by reading a business-research framework's failure distillation as
+  operator intent alignment, beyond its evidence.
+- contemplative — Publishable: both sections hold subject and scope ("七つの記憶システムを
+  評価した研究では"); minor: section 2's evidence alternates two papers without connectives;
+  [4] "報告を回復しない" lost what report.
+
+Extension totals: 3 of 3 live runs (9, 10, 11), ≈ $0.75 (runs ≈ $0.54 + the prose A/B ≈ $0.18
++ probes), 12:38 → 15:40 JST less the 12:56–14:37 hibernation. Stopped per the judge's
+instruction: condition 7 below 2/3, no further run.
