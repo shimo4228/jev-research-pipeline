@@ -42,16 +42,11 @@ MIN_REPO_CHARS: Final = 40
 """A GitHub repository's text is its description and topics — short by nature, and all
 there is to screen (the jev line's canaries are repositories)."""
 
-ROUTING_FIELDS: Final = (
-    "on_topic",
-    "method_transferable",
-    "evidence_compatible",
-    "problem_overlap",
-    "evidence_strength",
-    "novelty_vs_evidence_set",
-)
-"""The answers the route is read from. `bridges_line` rides in the same request but
-decides something else, so its uncertainty must not push a source into Review."""
+ROUTING_FIELDS: Final = ("problem_overlap", "evidence_strength", "novelty_vs_evidence_set")
+"""The answers whose certainty decides Keep vs Review: the three placing Scores. The gate
+Nouls already decide by their own threshold (a 0.51 on a gate with no constraint made
+every source "uncertain" on the first scratch run, 2026-09-23), and `bridges_line`
+decides something else."""
 
 BRIDGES_SUFFIX: Final = "+bridges"
 """bridges_line rides along in the same request but decides on its own: a source that
@@ -151,11 +146,13 @@ THRESHOLDS: Final = (
     Threshold(name="weight_novelty", value=0.2),
     Threshold(name="keep", value=0.6),
     Threshold(name="review_band", value=0.1),
-    Threshold(name="min_certainty", value=0.9),
+    Threshold(name="min_certainty", value=0.5),
     Threshold(name="bridges_line", value=0.8),
 )
 """Weights sum to 1 and the cut is the vendor midpoint plus a tenth; both are starting
-values the author's ⭕❌ refit (decision 6①). min_certainty is the jev-papers number."""
+values the author's ⭕❌ refit (decision 6①). min_certainty was the jev-papers 0.9, which is
+a Choice-confidence number; on 4-level Scores it held no source at all on the first
+scratch run (2026-09-23: 0.48-0.73) — 0.5 = the landed level holds a majority."""
 
 
 def state(

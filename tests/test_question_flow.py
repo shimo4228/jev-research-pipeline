@@ -54,7 +54,8 @@ KEEP: dict[str, object] = {
         ({}, "keep"),
         ({"on_topic": 0.1}, "drop"),  # a hard gate can only drop
         ({"method_transferable": 0.2}, "drop"),
-        ({"on_topic": 0.8}, "review"),  # gates pass, but certainty is under 0.9
+        # gates pass and the score clears the cut, but problem_overlap has no majority level
+        ({"problem_overlap": (0.3, 0.3, 0.0, 0.4)}, "review"),
         (
             {
                 "problem_overlap": (0.0, 1.0, 0.0, 0.0),

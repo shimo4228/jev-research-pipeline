@@ -29,7 +29,7 @@ sequential one:
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, override
@@ -40,6 +40,7 @@ from pydantic import AwareDatetime, BaseModel
 from jev_research_pipeline.adapters import (
     Adapter,
     arxiv,
+    canary,
     firehose,
     github,
     hf_papers,
@@ -247,6 +248,8 @@ class _State:
     pairs_screened: int = 0
     failed_pairs: int = 0
     """Pairs whose Jev request failed (prefilter or full screen) — the 未判定 share."""
+    fetched: set[str] = field(default_factory=set[str])
+    """URLs the nets brought today (canaries among them are judged by the screen itself)."""
     incomplete: int = 0
     """Sources with too little text to screen: counted, not listed."""
 
@@ -323,6 +326,7 @@ class LineRun:
         self.http, self.env, self.now = http, env, now
         self.known = partition.load()
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
+        self.keys = keys
         self.flash = qwen_model(FLASH, http, api_key=keys.dashscope)
         self.max = qwen_model(MAX, http, api_key=keys.dashscope)
         self.meters = {FLASH: GenerationMeter(), MAX: GenerationMeter()}
@@ -613,6 +617,7 @@ class LineRun:
                     if hits := question_prefilter.passing(result, n):
                         passing[s.id] = hits
         self.st.incomplete = sum(1 for s in sources if not self._screenable(s))
+        self.st.fetched = {s.url for s in sources}
         return sources, passing
 
     async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
@@ -661,6 +666,42 @@ class LineRun:
             for s, result in zip(chosen, judged, strict=True):
                 screened[(s.id, q.id)] = result
         return screened
+
+    async def _probe_canaries(self) -> list[str]:
+        """Every canary the nets did not bring today is fetched by its URL and screened
+        against its own question alone (a probe: SAFE's canaries must screen Keep). The
+        answer is not stored and the source goes no further — it measures the screen, it
+        does not feed the note. Its questions still count toward the cost meter."""
+        probe = JevClient(self.http, api_key=self.keys.typesafe)
+        probe.pacer = self.jev.pacer
+        wanted = [
+            (q, url)
+            for q in self.questions
+            for url in q.canary_papers
+            if url not in self.st.fetched
+        ]
+
+        async def one(question: Question, url: str) -> str:
+            got = await canary.fetch(self.http, self.ctx.line, url, now=self.now, env=self.env)
+            if isinstance(got, str):
+                return f"canary 取得失敗: {question.slug} / {url} ({got})"
+            state = question_screening.state(
+                self.ctx, got, question, self._evidence_texts(question)
+            )
+            result = await self._jev(
+                lambda: probe.judge(
+                    question_screening.ASK, (got.id, question.id), state, now=self.now
+                )
+            )
+            if result is None:
+                return f"canary 未判定 (費用上限): {question.slug} / {url}"
+            return (
+                f"canary: {question.slug} / {url} → {question_screening.route(result, source=got)}"
+            )
+
+        lines = list(await asyncio.gather(*(one(q, url) for q, url in wanted)))
+        self.jev.questions_asked += probe.questions_asked
+        return lines
 
     async def _screen(
         self, sources: list[SourceItem], passing: Mapping[str, list[int]]
@@ -1068,7 +1109,9 @@ class LineRun:
             if not self.st.partial:
                 # A run cut short by the cost cap never screened everything, so a missing
                 # canary would say the screen drifted when the budget simply ran out.
-                self.st.notes += canary_lines(self.questions, screened)
+                self.st.notes += canary_lines(self.questions, screened, self.st.fetched)
+                with span("jrp.stage.canary", line=slug):
+                    self.st.notes += await self._probe_canaries()
             self.st.discovery = self._discovery_lines(accepted)
             with span("jrp.stage.sections", line=slug, claims=len(accepted)):
                 moving = [
@@ -1144,16 +1187,21 @@ class LineRun:
         )
 
 
-def canary_lines(questions: list[Question], screened: Mapping[str, list[SourceItem]]) -> list[str]:
+def canary_lines(
+    questions: list[Question],
+    screened: Mapping[str, list[SourceItem]],
+    fetched: Collection[str] | None = None,
+) -> list[str]:
     """A canary paper the author named must survive screening on a day it was fetched
-    (SAFE): a drop means the screen drifted, and the note says so."""
+    (SAFE): a drop means the screen drifted, and the note says so. A canary the nets did
+    not bring is not a drop — _probe_canaries() fetches and judges it instead."""
     lines: list[str] = []
     for question in questions:
         kept = {s.url for s in screened.get(question.id, [])}
         lines += [
             f"canary 落下: {question.slug} / {url}"
             for url in question.canary_papers
-            if url not in kept
+            if url not in kept and (fetched is None or url in fetched)
         ]
     return lines
 

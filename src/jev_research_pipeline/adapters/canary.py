@@ -1,0 +1,90 @@
+"""Fetch a canary by its URL (packet "Search-first synthesis": canary papers are known key
+sources that must screen Keep — SAFE). A probe, not a net: the nets may or may not reach a
+canary on a given day, and a screen that drifted is only visible if the canary is judged
+every day. Each kind goes through an ordinary Adapter, so pacing and failures behave like
+every other fetch.
+
+- github.com/<owner>/<repo>  → GitHub search `repo:<owner>/<repo>` (the adapter's own parse)
+- arxiv.org/abs/<id>         → arXiv API `id_list=<id>`
+- any other https page       → the page itself, tags stripped
+"""
+
+import html
+import re
+from collections.abc import Mapping
+from dataclasses import replace
+from typing import Final
+
+import httpx2
+from pydantic import AwareDatetime
+
+from jev_research_pipeline.model import Line, SourceItem
+
+from .arxiv import ENDPOINT as ARXIV_ENDPOINT
+from .arxiv import HEADERS as ARXIV_HEADERS
+from .arxiv import adapter as arxiv_adapter
+from .base import USER_AGENT, Adapter, RawDraft, one_line
+from .github import adapter as github_adapter
+from .github import build_request as github_request
+
+_GITHUB: Final = re.compile(r"^https://github\.com/([\w.-]+/[\w.-]+?)/?$")
+_ARXIV: Final = re.compile(r"^https://arxiv\.org/abs/([\w.]+?)(v\d+)?/?$")
+_TAG: Final = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
+_TITLE: Final = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
+PAGE_CHARS: Final = 4000
+
+
+def _repo(query: str, env: Mapping[str, str]) -> httpx2.Request:
+    return github_request(f"repo:{query}", env)
+
+
+def _arxiv_id(query: str, _env: Mapping[str, str]) -> httpx2.Request:
+    return httpx2.Request("GET", ARXIV_ENDPOINT, params={"id_list": query}, headers=ARXIV_HEADERS)
+
+
+def _page(query: str, _env: Mapping[str, str]) -> httpx2.Request:
+    return httpx2.Request("GET", query, headers={"User-Agent": USER_AGENT})
+
+
+def page_parse(url: str, body: str) -> list[RawDraft]:
+    found = _TITLE.search(body)
+    title = one_line(html.unescape(found.group(1))) if found else url
+    text = one_line(html.unescape(_TAG.sub(" ", body)))[:PAGE_CHARS]
+    return [RawDraft(url=url, title=title, text=text, published_at=None)]
+
+
+def plan(url: str) -> tuple[Adapter, str] | None:
+    """The adapter and query that fetch this canary, or None for a non-https URL."""
+    if m := _GITHUB.match(url):
+        return replace(github_adapter(), build_request=_repo, query_kind="token"), m.group(1)
+    if m := _ARXIV.match(url):
+        return replace(arxiv_adapter(), build_request=_arxiv_id, query_kind="token"), m.group(1)
+    if url.startswith("https://"):
+        adapter = Adapter(
+            kind="web_search",
+            build_request=_page,
+            parse=lambda body: page_parse(url, body),
+            min_interval_s=1.0,
+            query_kind="token",
+        )
+        return adapter, url
+    return None
+
+
+async def fetch(
+    client: httpx2.AsyncClient,
+    line: Line,
+    url: str,
+    *,
+    now: AwareDatetime,
+    env: Mapping[str, str],
+) -> SourceItem | str:
+    """The canary as a SourceItem, or a one-line reason it could not be fetched."""
+    planned = plan(url)
+    if planned is None:
+        return "https でない URL"
+    adapter, query = planned
+    out = await adapter.fetch(client, line, query, now=now, env=env)
+    if out.failure is not None:
+        return f"{out.failure.reason} {out.failure.detail}"[:120]
+    return out.sources[0] if out.sources else "取得結果なし"

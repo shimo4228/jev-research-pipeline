@@ -167,14 +167,16 @@ def plan(
     """Every request of one run, in net order and within each net's budget."""
     out: list[NetRequest] = []
     firehose_budget = config.budget("firehose")
+    # HF daily first: its 50 are already curated, and the arXiv listing alone fills the
+    # firehose cap (first pilot: 836), which left no room for HF on the first run.
+    if firehose_budget > 1:
+        out.append(NetRequest("firehose", firehose.hf_adapter(), hf_date))
     if firehose_budget:
         out.append(
             NetRequest(
                 "firehose", firehose.arxiv_adapter(), firehose.categories_token(config.categories)
             )
         )
-    if firehose_budget > 1:
-        out.append(NetRequest("firehose", firehose.hf_adapter(), hf_date))
     if positives and config.budget("recommendation"):
         out.append(
             NetRequest(
@@ -186,12 +188,27 @@ def plan(
     for work in list(cited)[: config.budget("citation")]:
         out.append(NetRequest("citation", openalex.citation_adapter(), openalex.cites_token(work)))
     keyword_budget = _keyword_budget(config)
-    for adapter, query in list(keyword_queries)[:keyword_budget]:
+    for adapter, query in _round_robin(keyword_queries)[:keyword_budget]:
         out.append(NetRequest("keyword", adapter, query))
     for topic in list(topics)[: _exploration_budget(config)]:
         out.append(
             NetRequest("exploration", openalex.exploration_adapter(), openalex.topic_token(topic))
         )
+    return out
+
+
+def _round_robin(queries: Sequence[tuple[Adapter, str]]) -> list[tuple[Adapter, str]]:
+    """One query per adapter kind in turn, each kind's own order kept: cut first-come, the
+    keyword budget went to arXiv and HF and no GitHub query was ever sent (first scratch
+    run, 2026-09-23 — the jev line's canaries are repositories)."""
+    by_kind: dict[str, list[tuple[Adapter, str]]] = {}
+    for pair in queries:
+        by_kind.setdefault(pair[0].kind, []).append(pair)
+    out: list[tuple[Adapter, str]] = []
+    while any(by_kind.values()):
+        for kind in list(by_kind):
+            if by_kind[kind]:
+                out.append(by_kind[kind].pop(0))
     return out
 
 

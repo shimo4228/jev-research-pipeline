@@ -20,6 +20,7 @@ from pathlib import Path
 
 import httpx2
 
+from .adapters.routing import run_client
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
@@ -53,7 +54,7 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 async def _run(env: Mapping[str, str]) -> int:
     unanswered: list[str] = []
     try:
-        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
+        async with run_client(timeout=HTTP_TIMEOUT_S) as http:
             outcomes = await run_pipeline(
                 env, now=datetime.now().astimezone(), http=http, unanswered=unanswered
             )
