@@ -418,6 +418,7 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - firehose ≤ 300 sources per line-run (`[nets] firehose_max`); HF daily before the arXiv listing.
 - keyword net budget 6 → 12 (run 4: two lines with nothing on topic).
 - claims per question section ≤ 8, ≤ 2 per source (run 3: 24.6 KB note); evidence gist 160 → 120 chars.
+- claims per note ≤ 9, spread over the questions with claims (≤ 5 / 4 / 3 / 2 each); a note over 12,000 B drops proposals, then Review from the far end, one 運用 line (run 10: 16.4 KB).
 - batch size 8 → 1 (slot bleed: 11/20 route agreement, bar 90%).
 - Qwen enable_thinking off everywhere (measured 2–3× faster; the 122 s prose was thinking).
 - question proposals timeout 30 s → 120 s.

@@ -276,6 +276,12 @@ class _SectionDay:
 
 CLAIMS_PER_QUESTION: Final = 5
 CLAIMS_PER_SOURCE: Final = 2
+CLAIMS_PER_NOTE: Final = 9
+"""Spread over the questions that have claims: 1 → 5, 2 → 4, 3 → 3, 4+ → 2 each."""
+NOTE_MAX_BYTES: Final = 12_000
+"""A note above this drops question proposals, then the Review lines farthest from the
+cut, until it fits (author mandate: note ≤ 12 KB = 12,288 bytes; margin for the line
+that says what was dropped)."""
 """Reported claims per question section, and from one source within it (note ≤ 12 KB,
 author mandate 2026-09-23)."""
 REVIEW_MAX: Final = 10
@@ -1171,6 +1177,10 @@ class LineRun:
         their Decisions and Claim nodes in the store but are not reported, so they do not
         join the evidence set and may be judged again on a later day."""
         kept: list[_Accepted] = []
+        with_claims = len({i.question.id for i in accepted})
+        # The note-wide budget shared by the questions that have claims (scratch run 10:
+        # three sections of five claims made a 16.4 KB note).
+        per_question = min(CLAIMS_PER_QUESTION, max(2, CLAIMS_PER_NOTE // max(with_claims, 1)))
         for question in self.questions:
             mine = sorted(
                 (i for i in accepted if i.question.id == question.id), key=lambda i: -i.bears_on
@@ -1178,7 +1188,7 @@ class LineRun:
             per_source: dict[str, int] = {}
             chosen: list[_Accepted] = []
             for item in mine:
-                if len(chosen) >= CLAIMS_PER_QUESTION:
+                if len(chosen) >= per_question:
                     break
                 if per_source.get(item.source.id, 0) < CLAIMS_PER_SOURCE:
                     per_source[item.source.id] = per_source.get(item.source.id, 0) + 1
@@ -1259,26 +1269,57 @@ class LineRun:
                 report,
             ]
         )
-        text = render_report(
-            report=report,
-            ctx=self.ctx,
-            sections=sections,
-            claims=_claim_entries(accepted, {s.question_id for s in sections}),
-            review=self.st.review,
-            candidates=[
-                CandidateEntry(slug=q.slug, title=q.title, brief=q.brief)
-                for q in self.st.candidates
-            ],
-            bridges=self.st.bridges,
-            unjudged=[self.st.unjudged[i] for i in report.unjudged],
-            operations=lines,
-            empty_day=self._empty_day(len(accepted)),
-        )
+        review = list(self.st.review)
+        candidates = [
+            CandidateEntry(slug=q.slug, title=q.title, brief=q.brief) for q in self.st.candidates
+        ]
+
+        def rendered(ops: list[str]) -> str:
+            return render_report(
+                report=report,
+                ctx=self.ctx,
+                sections=sections,
+                claims=_claim_entries(accepted, {s.question_id for s in sections}),
+                review=review,
+                candidates=candidates,
+                bridges=self.st.bridges,
+                unjudged=[self.st.unjudged[i] for i in report.unjudged],
+                operations=ops,
+                empty_day=self._empty_day(len(accepted)),
+            )
+
+        text, lines = _fitted(rendered, lines, candidates, review)
         return LineOutcome(
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
             operations=lines,
         )
+
+
+def _fitted(
+    rendered: Callable[[list[str]], str],
+    lines: list[str],
+    candidates: list[CandidateEntry],
+    review: list[SourceEntry],
+) -> tuple[str, list[str]]:
+    """The note within NOTE_MAX_BYTES, and the operations lines it was rendered with. The
+    body and the claims stay; what goes is what the author finds again tomorrow (proposals
+    repeat) and then Review, farthest from the cut first. `candidates` and `review` are
+    shortened in place (the renderer reads them)."""
+    text = rendered(lines)
+    dropped = {"候補": 0, "Review": 0}
+    ops = lines
+    while len(text.encode()) > NOTE_MAX_BYTES and (candidates or review):
+        if candidates:
+            candidates.pop()
+            dropped["候補"] += 1
+        else:
+            review.pop()
+            dropped["Review"] += 1
+        said = " / ".join(f"{k} {v} 件" for k, v in dropped.items() if v)
+        ops = [*lines, f"note 12 KB のため省略: {said}"]
+        text = rendered(ops)
+    return text, ops
 
 
 def canary_lines(

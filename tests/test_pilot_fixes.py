@@ -284,3 +284,24 @@ def test_a_day_with_some_prose_is_not_a_template_day():
     out = joined(last, sections)
     assert out.rendering == "prose" and out.prose == "### A\n\n本文 [1]。"
     assert joined(last, [sections[1]]).rendering == "template"
+
+
+def test_a_note_over_the_cap_drops_proposals_then_review_and_says_so():
+    from jev_research_pipeline.pipeline import run
+    from jev_research_pipeline.report import CandidateEntry, SourceEntry
+
+    fitted = run._fitted  # pyright: ignore[reportPrivateUsage]
+    candidates = [CandidateEntry(slug=f"c{i}", title="t", brief="b") for i in range(3)]
+    review = [
+        SourceEntry(source_id=f"s{i}", title="t", gist="g", url="https://example.org")
+        for i in range(3)
+    ]
+
+    def rendered(ops: list[str]) -> str:
+        # 4,000 bytes per remaining entry: fits once two entries are left
+        return "x" * (4_000 * (len(candidates) + len(review))) + "\n".join(ops)
+
+    text, ops = fitted(rendered, ["base"], candidates, review)
+    assert len(text.encode()) <= run.NOTE_MAX_BYTES
+    assert (len(candidates), len(review)) == (0, 2)
+    assert ops == ["base", "note 12 KB のため省略: 候補 3 件 / Review 1 件"]
