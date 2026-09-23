@@ -1127,6 +1127,8 @@ class LineRun:
             *self.st.discovery,
             *rule_candidates(log, RuleConfig(), today=self.now.date()),
         ]
+        if self.jev.retries:
+            lines.append(f"Jev 再試行: {self.jev.retries} 回 (一時的な失敗を 2 秒後に 1 回)")
         if self.st.pairs:
             share = self.st.failed_pairs / self.st.pairs
             lines.append(

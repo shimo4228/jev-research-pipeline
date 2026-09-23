@@ -141,8 +141,10 @@ async def test_a_service_outage_is_not_split():
         ASK, _items([_source(i) for i in range(4)]), subject="source", now=b.T0
     )
     assert all(isinstance(r, JevFailure) and r.reason == "api_error" for r in results)
-    # The SDK retries a 5xx twice; every attempt is the whole batch — halves would not help.
-    assert [len(r) for r in counting.requests] == [4 * len(ASK.output.model_fields)] * 3
+    # The SDK retries a 5xx twice, and JevClient sends the batch once more after 2 s (one
+    # transient retry): every attempt is the whole batch — halves would not help.
+    assert [len(r) for r in counting.requests] == [4 * len(ASK.output.model_fields)] * 6
+    assert jev.retries == 1
 
 
 @pytest.mark.parametrize("status", [400, 401, 403])

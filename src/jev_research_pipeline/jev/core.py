@@ -55,6 +55,8 @@ from jev_research_pipeline.telemetry import span
 JEV_MODEL: Final = "jev-1.13.0"
 """Pinned (decision 9): aliases like jev-latest drift with no published deprecation policy."""
 JEV_TIMEOUT_S: Final = 10.0
+JEV_RETRY_BACKOFF_S: Final = 2.0
+"""Wait before the one retry of a transient failure (author mandate 2026-09-23)."""
 """Per request. Retries stay at the SDK default (2, 0.5s → 5s, on 408/429/5xx)."""
 
 JEV_REQUESTS_PER_MINUTE: Final = 1200
@@ -389,6 +391,9 @@ class _Refused:
     the cause: a malformed answer, or a request too big (413, or a 400/422 that says
     max_tokens). Everything else fails every half the same way — a bad key (401/403), a
     timeout, 408/429, 5xx — so splitting would only multiply requests that fail."""
+    transient: bool = False
+    """The service's trouble, not the request's (timeout, connection, 408/429/5xx): sent
+    once more after JEV_RETRY_BACKOFF_S before it becomes "unjudged"."""
 
 
 def _size_refusal(e: ModelHTTPError) -> bool:
@@ -407,6 +412,8 @@ class JevClient:
         )
         self._settings = TypeSafeModelSettings(timeout=JEV_TIMEOUT_S)
         self.questions_asked = 0
+        self.retries = 0
+        """Requests sent a second time after a transient failure (operations section)."""
         self.pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
 
     async def aclose(self) -> None:
@@ -529,6 +536,20 @@ class JevClient:
     async def _send[OutputT: BaseModel](
         self, output: type[OutputT], instructions: str, state: JevState
     ) -> "_Sent[OutputT] | _Refused":
+        """One request; a transient failure is retried once (author mandate 2026-09-23: a
+        canary went "unjudged" on the final run over one failed request). The retry's
+        questions are counted like any other question sent."""
+        sent = await self._send_once(output, instructions, state)
+        if isinstance(sent, _Refused) and sent.transient:
+            self.retries += 1
+            self.questions_asked += len(output.model_fields)
+            await asyncio.sleep(JEV_RETRY_BACKOFF_S)
+            sent = await self._send_once(output, instructions, state)
+        return sent
+
+    async def _send_once[OutputT: BaseModel](
+        self, output: type[OutputT], instructions: str, state: JevState
+    ) -> "_Sent[OutputT] | _Refused":
         await self.pacer.admit()
         agent = Agent(
             self._model,
@@ -539,7 +560,13 @@ class JevClient:
         try:
             run = await agent.run(json.dumps(state, ensure_ascii=False, sort_keys=True))
         except ModelHTTPError as e:
-            return _Refused(reason="api_error", detail=str(e), splittable=_size_refusal(e))
+            transient = e.status_code in (408, 429) or e.status_code >= 500
+            return _Refused(
+                reason="api_error",
+                detail=str(e),
+                splittable=_size_refusal(e),
+                transient=transient,
+            )
         except UnexpectedModelBehavior as e:
             return _Refused(reason="bad_answer", detail=str(e), splittable=True)
         except ModelAPIError as e:
@@ -547,7 +574,7 @@ class JevClient:
             reason: FailureReason = (
                 "timeout" if isinstance(e.__cause__, TimeoutError) else "connection"
             )
-            return _Refused(reason=reason, detail=str(e), splittable=False)
+            return _Refused(reason=reason, detail=str(e), splittable=False, transient=True)
         response: ModelResponse = run.response
         if response.model_name != JEV_MODEL:
             return _Refused(

@@ -50,6 +50,11 @@ INSTRUCTIONS: Final = (
     "「だから」「一方で」のような論理でつなぎ、問いの文面に無い具体 (条件・数値・手法) を"
     "読者が一つ以上持ち帰れるように書く。"
     "事実を述べる文には根拠となる claim の n を [n] の形で必ず付け、claim に無い事実は書かない。"
+    "claim の主語と対象を保つ: claim が一般論や別の対象 (一般の LLM、別の分野) について"
+    "述べていれば、そのまま一般論・別の対象として書く。問いの対象への直接の証拠が無いときは"
+    "「この問いの対象への直接の証拠は無い」と 1 文で明示し、橋は推論段落でだけ架ける。"
+    "問いの中の名詞 (場・条件・機構など) を claim に当てはめて言い換えない。根拠段落の文は "
+    "claim の言い換えに [n] を付けたものに限り、claim に無い属性を足さない。"
     f"claim から先を推し量る内容は、最後に「{INFERENCE_MARK}」で始まる独立した段落として書き、"
     "このラインにとって何が変わるか・次に何を確かめるかを述べる。そこには [n] を付けない。"
     "見出しや前置きは付けない。"
@@ -210,6 +215,14 @@ REWRITE_FEEDBACK: Final = (
 )
 
 
+FIDELITY_FEEDBACK: Final = (
+    "根拠段落に、claim の対象や範囲を超えた言い換えがあった (問いの語で claim の対象を"
+    "置き換えている、claim に無い属性を足している)。claim の主語と対象をそのまま保ち、"
+    "問いの対象への直接の証拠が無ければそう明示して、橋は"
+    f"「{INFERENCE_MARK}」段落でだけ架けて書き直す。"
+)
+
+
 async def render(
     write: Callable[[str | None], Awaitable[ProseResult]],
     evaluate: Callable[[str], Awaitable[Decision]],
@@ -231,5 +244,5 @@ async def render(
             )
         if decision.outcome == "unjudged":
             break  # cannot verify → never publish unverified prose
-        feedback = REWRITE_FEEDBACK
+        feedback = FIDELITY_FEEDBACK if "fidelity" in decision.policy else REWRITE_FEEDBACK
     return Rendering(rendering="template", prose=None, rubric=tuple(rubric), drafts=tuple(drafts))

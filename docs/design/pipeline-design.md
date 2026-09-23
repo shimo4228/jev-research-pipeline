@@ -421,6 +421,9 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - batch size 8 → 1 (slot bleed: 11/20 route agreement, bar 90%).
 - Qwen enable_thinking off everywhere (measured 2–3× faster; the 122 s prose was thinking).
 - question proposals timeout 30 s → 120 s.
+- rubric_report claim_fidelity (new axis, one Noul per evidence paragraph): p ≥ 0.6 that a paragraph exceeds the claims it cites → one rewrite with a fidelity feedback → template (final-run judge, 2026-09-23).
+- Jev transient failure (timeout, connection, 408/429/5xx): one retry after 2 s, counted in 運用.
+- keyword/arxiv 429: an informational line, not a failure line (arXiv search waits for the next day).
 - daily tracks (`daily = true`, e.g. jev) run on every tick beside the 3 rotated lines; the lines of a tick run side by side under one shared Jev rate window.
 - arXiv export goes through urllib (httpx2 alone gets 406 on queries arXiv's cache does not hold); canaries are probed by URL every run (GitHub README / arXiv id / page), one operations line each.
 

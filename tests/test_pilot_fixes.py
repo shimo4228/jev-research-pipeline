@@ -200,7 +200,9 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
         config=nets.NetConfig(),
     )
     assert "keyword/arxiv: rate limit のため本日は打ち切り" in out.notes
-    assert sum("fetch 失敗" in n for n in out.notes) == 1  # the second arXiv query is skipped
+    # arXiv search at its limit is an informational line, not a failure (author decision
+    # 2026-09-23), and the second arXiv query is not sent at all
+    assert not any("fetch 失敗" in n for n in out.notes)
     assert not any("keyword/github" in n for n in out.notes)  # GitHub still ran
 
 
@@ -234,3 +236,33 @@ def test_a_proposal_in_a_foreign_script_is_dropped():
     )
     assert make(CTX, slip, b.T0) is None
     assert make(CTX, fine, b.T0) is not None
+
+
+async def test_a_transient_jev_failure_is_sent_once_more(monkeypatch: pytest.MonkeyPatch):
+    """Final run: a canary went "unjudged" over one failed request. One retry after the
+    backoff, counted; a second failure stays unjudged."""
+    from jev_research_pipeline.jev import JevClient, Judged, question_screening
+    from jev_research_pipeline.jev import core as jev_core
+
+    from . import builders as b
+    from .fakes import fake_jev
+    from .test_question_flow import CTX, _source  # pyright: ignore[reportPrivateUsage]
+
+    monkeypatch.setattr(jev_core, "JEV_RETRY_BACKOFF_S", 0.0)
+    ok = fake_jev()
+    calls = 0
+
+    async def flaky(request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        if calls <= 3:  # the SDK's own three attempts all fail
+            return httpx2.Response(503, json={"error": {"message": "busy"}})
+        return await ok(request)
+
+    jev = JevClient(httpx2.AsyncClient(transport=httpx2.MockTransport(flaky)), api_key="replay")
+    source, question = _source(), b.question()
+    state = question_screening.state(CTX, source, question, [])
+    result = await jev.judge(question_screening.ASK, (source.id, question.id), state, now=b.T0)
+    assert isinstance(result, Judged)
+    assert jev.retries == 1
+    assert jev.questions_asked == 2 * len(question_screening.ASK.output.model_fields)

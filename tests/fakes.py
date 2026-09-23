@@ -330,6 +330,7 @@ def fake_world() -> Handler:
         {
             "prompt_injection": 0.05,
             "unsupported_statement": 0.05,
+            "exceeds_claims": 0.05,
             "on_topic": 0.97,
             "method_transferable": 0.97,
             "evidence_compatible": 0.97,

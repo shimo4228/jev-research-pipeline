@@ -333,6 +333,9 @@ def _arxiv_room(
     return True
 
 
+ARXIV_KEYWORD: Final = "keyword/arxiv"
+
+
 def _source_key(request: NetRequest) -> str:
     return f"{request.net}/{request.adapter.kind}"
 
@@ -372,11 +375,15 @@ async def fetch_nets(
             request.adapter, client, partition, line, request.query, now=now, env=env
         )
         if out.failure is not None:
-            outcome.notes.append(
-                f"{request.net}/{request.adapter.kind}: fetch 失敗 "
-                f"({out.failure.reason} {out.failure.detail})"
-            )
-            if "rate_limit" in out.failure.detail:
+            limited = "rate_limit" in out.failure.detail
+            if not (limited and _source_key(request) == ARXIV_KEYWORD):
+                # arXiv search at its daily limit is expected on a heavy day and waits for
+                # tomorrow (author decision 2026-09-23): the quiet line below says it.
+                outcome.notes.append(
+                    f"{request.net}/{request.adapter.kind}: fetch 失敗 "
+                    f"({out.failure.reason} {out.failure.detail})"
+                )
+            if limited:
                 # A shared pool answering 429 is a policy signal, not a transient error:
                 # that source is done for the day in this net, for every line. The net's
                 # other sources are other pools (scratch run 5: one arXiv 429 had silenced

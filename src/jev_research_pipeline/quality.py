@@ -10,6 +10,8 @@ axis is trusted (may act as a silver label in fits) only with at least `min_labe
 labeled pairs and agreement ≥ AGREEMENT_FLOOR.
 """
 
+import asyncio
+import re
 from datetime import date
 from typing import Final
 
@@ -144,17 +146,46 @@ async def rubric_ladder(
     async def evaluate(prose: str) -> Decision:
         # `grounded` is judged on the evidence paragraphs only: the marked inference
         # paragraph is allowed to go beyond the claims, that is what marking it is for.
+        evidence = evidence_text(prose)
         result = await rubric_report.judge(
-            jev,
-            report_id,
-            rubric_report.state(ctx, evidence_text(prose), claims, evidence_set),
-            now=now,
+            jev, report_id, rubric_report.state(ctx, evidence, claims, evidence_set), now=now
         )
         if isinstance(result, Judged):
             judged.append(result.judgment)
-        return rubric_report.decision(result)
+        base = rubric_report.decision(result)
+        if base.outcome != "accept":
+            return base
+        # claim_fidelity, one request per evidence paragraph: a single paragraph that
+        # restates a claim in the question's terms sends the draft back.
+        checks = await asyncio.gather(
+            *(
+                rubric_report.judge_fidelity(
+                    jev,
+                    report_id,
+                    rubric_report.fidelity_state(question.title, p, cited_claims(p, claims)),
+                    now=now,
+                )
+                for p in evidence.split("\n\n")
+                if p.strip()
+            )
+        )
+        for check in checks:
+            if isinstance(check, Judged):
+                judged.append(check.judgment)
+        verdicts = [rubric_report.fidelity_decision(c) for c in checks]
+        return next((d for d in verdicts if d.outcome != "accept"), base)
 
     return await render(write, evaluate), judged
+
+
+def cited_claims(paragraph: str, claims: list[str]) -> list[str]:
+    """The claims a paragraph cites by [n]; all of them when it cites none."""
+    cited = [
+        claims[n - 1]
+        for n in dict.fromkeys(int(m) for m in re.findall(r"\[(\d+)\]", paragraph))
+        if 1 <= n <= len(claims)
+    ]
+    return cited or list(claims)
 
 
 def build_report(
