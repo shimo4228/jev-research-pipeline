@@ -14,8 +14,11 @@ Trade-off of the migration: a Noul's true/false criteria collapse into one field
 description, so both sides of the condition have to be written into the question itself.
 """
 
+import asyncio
 import json
-from collections.abc import Callable, Collection
+import time
+from collections import deque
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Annotated, Any, Final, Literal, TypeAliasType, cast, get_args, get_origin
@@ -49,6 +52,10 @@ JEV_MODEL: Final = "jev-1.13.0"
 """Pinned (decision 9): aliases like jev-latest drift with no published deprecation policy."""
 JEV_TIMEOUT_S: Final = 10.0
 """Per request. Retries stay at the SDK default (2, 0.5s → 5s, on 408/429/5xx)."""
+
+JEV_REQUESTS_PER_MINUTE: Final = 1200
+"""Published rate limit for jev-1.13.0 (docs.typesafe.ai models, as-of 2026-09-23; the page
+says limits adjust dynamically). The SDK's own retries on 429 are not counted here."""
 
 type JevState = dict[str, JsonValue]
 """Named JSON fields (vendor guidance: prefer named fields when state has several parts)."""
@@ -235,6 +242,37 @@ def output_of[OutputT: BaseModel](output: type[OutputT], judgment: Judgment) -> 
     )
 
 
+class RequestPacer:
+    """At most `per_minute` requests in any 60 s window, however many tasks ask at once.
+
+    The window and the wait are read under one lock: two tasks that both saw a free slot
+    would otherwise both send. The clock and the sleep are injectable for tests.
+    """
+
+    def __init__(
+        self,
+        per_minute: int,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self.per_minute = per_minute
+        self._clock, self._sleep = clock, sleep
+        self._sent: deque[float] = deque()
+        self._lock = asyncio.Lock()
+
+    async def admit(self) -> None:
+        async with self._lock:
+            now = self._clock()
+            while self._sent and now - self._sent[0] >= 60.0:
+                self._sent.popleft()
+            if len(self._sent) >= self.per_minute:
+                await self._sleep(60.0 - (now - self._sent[0]))
+                self._sent.popleft()
+                now = self._clock()
+            self._sent.append(now)
+
+
 class JevClient:
     """The only door to Jev. `questions_asked` meters every question sent (operations
     section: Jev question count), including those whose request failed."""
@@ -245,6 +283,7 @@ class JevClient:
         )
         self._settings = TypeSafeModelSettings(timeout=JEV_TIMEOUT_S)
         self.questions_asked = 0
+        self.pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
 
     async def aclose(self) -> None:
         """The HTTP client is owned by the caller; nothing of ours outlives a run."""
@@ -272,6 +311,8 @@ class JevClient:
         if got != want:
             raise ValueError(f"subjects for {ask.function} must be kinds {want}, got {got}")
         questions = len(ask.output.model_fields)
+        # Counted before the first await, so a concurrent task that checks the cost cap
+        # right after this one was admitted already sees what it is about to spend.
         self.questions_asked += questions
         with span(
             f"jev.{ask.function}",
@@ -295,6 +336,7 @@ class JevClient:
         fail: Callable[[FailureReason, object], JevFailure],
         now: AwareDatetime,
     ) -> Judged[OutputT] | JevFailure:
+        await self.pacer.admit()
         agent = Agent(
             self._model,
             output_type=ask.output,

@@ -13,9 +13,23 @@ up by its @id before asking, so a same-day re-run asks nothing already answered;
 never stop the run — Jev failures become "unjudged" items, fetch failures and query
 fallbacks become operations lines; over the cost cap the remaining stages are skipped and
 the report is written as partial.
+
+Concurrency: within a stage every independent Jev request is in flight at once, up to
+JRP_JEV_CONCURRENCY (pipeline.concurrency); Qwen calls up to JRP_PROSE_CONCURRENCY. Stages
+still run one after another — novelty reads the evidence set the earlier stages settled,
+question_movement reads what survived support. Three rules keep a parallel run equal to a
+sequential one:
+- the cost cap is read *after* a slot is taken (`_jev`), and JevClient counts a request's
+  questions before its first await, so the overshoot is at most the requests already in
+  flight when the cap trips — never a whole stage queued behind the semaphore;
+- tasks return what they decided and the stage applies it afterwards in input order, so
+  Decisions, notes, Review and the unjudged list do not depend on which request came
+  back first (the store is written sorted by @id anyway);
+- all of this is one event loop: a counter updated between two awaits needs no lock.
 """
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Final, override
@@ -91,6 +105,7 @@ from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input
 from jev_research_pipeline.telemetry import span
 
 from . import meters, nets
+from .concurrency import jev_concurrency, prose_concurrency
 from .costs import Budget
 from .units import split_units
 
@@ -213,6 +228,8 @@ class LineRun:
         self.day = day_budget or nets.DayBudget()
         self.st = _State(notes=list(harvest_notes))
         self.pacing = pacing
+        self.slots = asyncio.Semaphore(jev_concurrency(env))
+        self.prose_slots = asyncio.Semaphore(prose_concurrency(env))
 
     # --- helpers ------------------------------------------------------------------------
 
@@ -220,6 +237,16 @@ class LineRun:
         if self.budget.exceeded(jev_questions=self.jev.questions_asked, meters=self.meters):
             self.st.partial = True
         return self.st.partial
+
+    async def _jev[T](self, call: Callable[[], Awaitable[T]]) -> T | None:
+        """One Jev step under the concurrency cap; None when the cost cap has tripped.
+
+        The cap is read once the slot is held: read before, every task queued behind the
+        semaphore would already have passed it."""
+        async with self.slots:
+            if self._over_budget():
+                return None
+            return await call()
 
     def _decide(self, d: Decision, label: str) -> Decision:
         self.st.decisions.append(d)
@@ -236,55 +263,89 @@ class LineRun:
 
     async def _query_candidates(
         self, kind: AdapterKind, question: Question
-    ) -> tuple[QueryCandidate, ...]:
+    ) -> tuple[tuple[QueryCandidate, ...], str | None] | None:
         """Qwen query candidates, cached per (adapter, question, day): a same-day re-run
-        reuses them instead of generating (and paying for) different ones."""
+        reuses them instead of generating (and paying for) different ones. The second
+        value is the operations line for a fallback, applied by the caller in order. None
+        when the cost cap has tripped by the time a Qwen slot is free."""
         cache = StageCache(self.partition)
         key = input_sha256(
             {"adapter": kind, "question": question.id, "day": self.now.date().isoformat()}
         )
         done = cache.lookup("query_candidates", key)
         if done is not None:
-            return tuple(
-                n for i in done if isinstance(n := self.partition.load()[i], QueryCandidate)
+            loaded = self.partition.load()
+            return tuple(n for i in done if isinstance(n := loaded[i], QueryCandidate)), None
+        async with self.prose_slots:
+            if self._over_budget():
+                return None
+            qr = await query_candidates(
+                self.flash,
+                self.ctx,
+                kind,
+                question,
+                n=QUERIES_PER_ADAPTER,
+                meter=self.meters[FLASH],
             )
-        qr = await query_candidates(
-            self.flash, self.ctx, kind, question, n=QUERIES_PER_ADAPTER, meter=self.meters[FLASH]
+        note = (
+            f"{kind}: query 候補は fallback (問いと語彙から生成, {qr.failure})"
+            if qr.fallback
+            else None
         )
-        if qr.fallback:
-            self.st.notes.append(
-                f"{kind}: query 候補は fallback (問いと語彙から生成, {qr.failure})"
-            )
         self.partition.put(qr.candidates)
         cache.record("query_candidates", key, tuple(c.id for c in qr.candidates), self.now)
-        return qr.candidates
+        return qr.candidates, note
+
+    async def _selected(
+        self, kind: AdapterKind, question: Question
+    ) -> tuple[tuple[QueryCandidate, ...], list[Decision], list[str]] | None:
+        """One (question, adapter): candidates, their ranked Decisions and the notes to
+        apply. None when the cost cap stopped it before every candidate was judged."""
+        generated = await self._query_candidates(kind, question)
+        if generated is None:
+            return None
+        candidates, fallback = generated
+        judged = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda c=c: query_selection.judge(self.jev, self.ctx, c, question, now=self.now)
+                )
+                for c in candidates
+            )
+        )
+        results = [r for r in judged if r is not None]
+        if len(results) != len(candidates):
+            return None
+        decisions = query_selection.rank(list(zip(candidates, results, strict=True)))
+        notes = [fallback] if fallback else []
+        if any(d.policy == query_selection.FLOOR_FALLBACK_POLICY for d in decisions):
+            notes.append(
+                f"{kind}: query 選択は floor fallback (どの候補も floor 未満のため上位を採用)"
+            )
+        return candidates, decisions, notes
 
     async def _queries(self) -> list[QueryCandidate]:
-        kept: list[QueryCandidate] = []
+        runnable: list[tuple[Question, AdapterKind]] = []
         skipped: set[AdapterKind] = set()
         for question in self.questions:
             for kind in self.ctx.line.adapters:
-                if self._over_budget():
-                    return kept
                 needed = make_adapter(kind).required_env
                 if needed is not None and not self.env.get(needed):
                     if kind not in skipped:
                         skipped.add(kind)
                         self.st.notes.append(f"{kind}: key 未設定のため skip")
                     continue
-                candidates = await self._query_candidates(kind, question)
-                pairs = [
-                    (c, await query_selection.judge(self.jev, self.ctx, c, question, now=self.now))
-                    for c in candidates
-                ]
-                decisions = query_selection.rank(pairs)
-                if any(d.policy == query_selection.FLOOR_FALLBACK_POLICY for d in decisions):
-                    self.st.notes.append(
-                        f"{kind}: query 選択は floor fallback (どの候補も floor 未満のため上位を採用)"
-                    )
-                for c, d in zip(candidates, decisions, strict=True):
-                    if self._decide(d, f"query: {c.text}").outcome == "accept":
-                        kept.append(c)
+                runnable.append((question, kind))
+        selected = await asyncio.gather(*(self._selected(k, q) for q, k in runnable))
+        kept: list[QueryCandidate] = []
+        for result in selected:
+            if result is None:
+                continue
+            candidates, decisions, notes = result
+            self.st.notes += notes
+            for c, d in zip(candidates, decisions, strict=True):
+                if self._decide(d, f"query: {c.text}").outcome == "accept":
+                    kept.append(c)
         return kept
 
     def _positives_and_negatives(self) -> tuple[list[str], list[str]]:
@@ -379,27 +440,32 @@ class LineRun:
         ]
         return list(dict.fromkeys(seen))
 
-    async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
-        """The question-free pass: evidence and injection, then trust. Whether a source is
-        relevant is a per-question judgment, and happens in _screen()."""
+    async def _triaged(self, s: SourceItem) -> list[Decision]:
+        """Evidence and injection, then trust — the Decisions made, in that order. The
+        source is safe when there are two and the last accepts."""
+        tri = await self._jev(lambda: relevance_triage.judge(self.jev, self.ctx, s, now=self.now))
+        if tri is None:
+            return []
+        first = relevance_triage.decision(tri)
+        if first.outcome != "accept":
+            return [first]
+        trust = await self._jev(lambda: source_trust.judge(self.jev, s, now=self.now))
+        return [first] if trust is None else [first, source_trust.decision(trust)]
+
+    def _apply_triage(self, sources: Sequence[SourceItem], results: Sequence[list[Decision]]):
         kept: list[SourceItem] = []
-        for s in sources:
-            if self._over_budget():
-                break
-            tri = self._decide(
-                relevance_triage.decision(
-                    await relevance_triage.judge(self.jev, self.ctx, s, now=self.now)
-                ),
-                s.title,
-            )
-            if tri.outcome != "accept":
-                continue
-            trust = self._decide(
-                source_trust.decision(await source_trust.judge(self.jev, s, now=self.now)), s.title
-            )
-            if trust.outcome == "accept":
+        for s, decisions in zip(sources, results, strict=True):
+            for d in decisions:
+                self._decide(d, s.title)
+            if len(decisions) == 2 and decisions[1].outcome == "accept":
                 kept.append(s)
         return kept
+
+    async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
+        """The question-free pass. Whether a source is relevant is a per-question
+        judgment, and happens in _screen()."""
+        results = await asyncio.gather(*(self._triaged(s) for s in sources))
+        return self._apply_triage(sources, results)
 
     async def _screen(self, sources: list[SourceItem]) -> dict[str, list[SourceItem]]:
         """Screening per (source, question). Code routes: Keep goes on to claims, Review
@@ -408,6 +474,21 @@ class LineRun:
         kept: dict[str, list[SourceItem]] = {q.id: [] for q in self.questions}
         reviewed: set[str] = set()
         bridged: set[str] = set()
+        evidence = {q.id: self._evidence_texts(q) for q in self.questions}
+        pairs = [
+            (s, q) for s in sources if not question_screening.no_abstract(s) for q in self.questions
+        ]
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda s=s, q=q: question_screening.judge(
+                        self.jev, self.ctx, s, q, evidence[q.id], now=self.now
+                    )
+                )
+                for s, q in pairs
+            )
+        )
+        screened = dict(zip(((s.id, q.id) for s, q in pairs), results, strict=True))
         for s in sources:
             if question_screening.no_abstract(s):
                 # Decided by len(source.text): asking Jev seven questions per open question
@@ -418,11 +499,9 @@ class LineRun:
                     self.st.review.append(_entry(s, "本文が取得できず未判定"))
                 continue
             for question in self.questions:
-                if self._over_budget():
-                    return kept
-                result = await question_screening.judge(
-                    self.jev, self.ctx, s, question, self._evidence_texts(question), now=self.now
-                )
+                result = screened[(s.id, question.id)]
+                if result is None:
+                    continue  # the cost cap stopped it
                 self._decide(question_screening.decision(result), s.title)
                 bridges = self._decide(question_screening.bridges_decision(result), s.title)
                 if bridges.outcome == "accept" and s.id not in bridged:
@@ -437,26 +516,37 @@ class LineRun:
         return kept
 
     async def _claims(self, screened: Mapping[str, list[SourceItem]]) -> list[_Accepted]:
+        work = [
+            (question, s, u)
+            for question in self.questions
+            for s in screened.get(question.id, [])
+            for u in split_units(s)
+        ]
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda q=q, s=s, u=u: claim_detection.judge(self.jev, q, u, s, now=self.now)
+                )
+                for q, s, u in work
+            )
+        )
         out: list[_Accepted] = []
-        for question in self.questions:
-            for s in screened.get(question.id, []):
-                for u in split_units(s):
-                    if self._over_budget():
-                        return out
-                    self.st.nodes.append(u)
-                    self.st.units[u.id] = u
-                    result = await claim_detection.judge(self.jev, question, u, s, now=self.now)
-                    d = self._decide(claim_detection.decision(result), u.text)
-                    if d.outcome == "accept":
-                        out.append(
-                            _Accepted(
-                                Claim.from_unit(u, line=self.ctx.line.id),
-                                s,
-                                question,
-                                contradicts=isinstance(result, Judged)
-                                and claim_detection.contradicts(result),
-                            )
-                        )
+        for (question, s, u), result in zip(work, results, strict=True):
+            if result is None:
+                continue  # the cost cap stopped it: the unit was never judged, so not stored
+            self.st.nodes.append(u)
+            self.st.units[u.id] = u
+            d = self._decide(claim_detection.decision(result), u.text)
+            if d.outcome == "accept":
+                out.append(
+                    _Accepted(
+                        Claim.from_unit(u, line=self.ctx.line.id),
+                        s,
+                        question,
+                        contradicts=isinstance(result, Judged)
+                        and claim_detection.contradicts(result),
+                    )
+                )
         return out
 
     async def _novel(self, accepted: list[_Accepted]) -> list[_Accepted]:
@@ -471,18 +561,29 @@ class LineRun:
         }
         stored = {i: n for i, n in self.known.items() if isinstance(n, Claim) and i in earlier}
         index = ClaimIndex.rebuild(self.index_path, self.partition)
-        kept: list[_Accepted] = []
-        for item in accepted:
-            if item.claim.id in stored or self._over_budget():
-                continue  # reported on an earlier day, or no budget left to check it
-            similar = [
+        fresh = [i for i in accepted if i.claim.id not in stored]  # else reported earlier
+        for item in fresh:
+            self.st.similar[item.claim.id] = [
                 stored[i].text for i in novelty.similar_claims(index, item.claim) if i in stored
             ]
-            self.st.similar[item.claim.id] = similar
-            evidence = self._evidence_texts(item.question) + similar
-            result = await novelty.judge(
-                self.jev, item.question, item.claim, evidence, now=self.now
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda item=item: novelty.judge(
+                        self.jev,
+                        item.question,
+                        item.claim,
+                        self._evidence_texts(item.question) + self.st.similar[item.claim.id],
+                        now=self.now,
+                    )
+                )
+                for item in fresh
             )
+        )
+        kept: list[_Accepted] = []
+        for item, result in zip(fresh, results, strict=True):
+            if result is None:
+                continue  # no budget left to check it
             d = self._decide(novelty.decision(result), item.claim.text)
             if d.outcome == "accept":
                 kept.append(item)
@@ -492,11 +593,20 @@ class LineRun:
 
     async def _supported(self, accepted: list[_Accepted]) -> list[_Accepted]:
         """A claim stays only if its own source says it (code string match, else Jev)."""
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda item=item: source_support.check(
+                        self.jev, item.claim, item.source, now=self.now
+                    )
+                )
+                for item in accepted
+            )
+        )
         kept: list[_Accepted] = []
-        for item in accepted:
-            if self._over_budget():
-                break
-            support = await source_support.check(self.jev, item.claim, item.source, now=self.now)
+        for item, support in zip(accepted, results, strict=True):
+            if support is None:
+                continue
             if support.decision is not None:
                 self._decide(support.decision, item.claim.text)
             if support.verdict == "supports":
@@ -579,21 +689,31 @@ class LineRun:
         self, report_id: str, prose: Mapping[str, str | None], accepted: list[_Accepted]
     ) -> None:
         """Dense labels (decision 5): every accepted claim scored in its section's context."""
-        for item in accepted:
-            if self._over_budget():
-                return
+
+        def state(item: _Accepted) -> JevState:
             unit = self.st.units.get(item.claim.unit)
-            unit_span = (unit.start, unit.end) if unit is not None else None
-            st = rubric_claim.state(
+            return rubric_claim.state(
                 self.ctx,
                 item.claim,
                 item.source,
                 prose.get(item.question.id),
                 self.st.similar.get(item.claim.id, []),
-                span=unit_span,
+                span=(unit.start, unit.end) if unit is not None else None,
             )
-            result = await rubric_claim.judge(self.jev, report_id, item.claim, st, now=self.now)
-            self._decide(rubric_claim.decision(result), item.claim.text)
+
+        results = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda item=item: rubric_claim.judge(
+                        self.jev, report_id, item.claim, state(item), now=self.now
+                    )
+                )
+                for item in accepted
+            )
+        )
+        for item, result in zip(accepted, results, strict=True):
+            if result is not None:
+                self._decide(rubric_claim.decision(result), item.claim.text)
 
     async def _propose(self) -> None:
         """Question candidates for the author to adopt (or not). One round per run, and
@@ -614,13 +734,21 @@ class LineRun:
             self.st.notes.append(f"問いの候補: 生成なし ({result.failure})")
             return
         known = {q.slug for q in self.questions}
-        for candidate in result.questions:
-            if candidate.slug in known or self._over_budget():
-                continue
-            judged = await question_seeding.judge(
-                self.jev, self.ctx, candidate, self.seeds, now=self.now
+        fresh = [c for c in result.questions if c.slug not in known]
+        judged = await asyncio.gather(
+            *(
+                self._jev(
+                    lambda c=c: question_seeding.judge(
+                        self.jev, self.ctx, c, self.seeds, now=self.now
+                    )
+                )
+                for c in fresh
             )
-            if self._decide(question_seeding.decision(judged), candidate.title).outcome == "accept":
+        )
+        for candidate, j in zip(fresh, judged, strict=True):
+            if j is None:
+                continue
+            if self._decide(question_seeding.decision(j), candidate.title).outcome == "accept":
                 self.st.candidates.append(candidate)
         self.partition.put(self.st.candidates)
         cache.record("question_proposals", key, tuple(q.id for q in self.st.candidates), self.now)
