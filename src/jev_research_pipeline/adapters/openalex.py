@@ -86,12 +86,28 @@ class _Works(BaseModel):
     results: list[_Work] = Field(default_factory=list[_Work])
 
 
+TOPIC_MARK: Final = "OpenAlex topic: "
+"""What a stored OpenAlex source carries instead of an abstract: `<id> <display name>`.
+The id is first because the exploration net and the cluster meter read the id, not the
+name — a name is not a filter value."""
+
+
 def _abstract(work: _Work) -> str:
     """OpenAlex ships no abstract under `select`; the title plus its topic is what there
     is, and screening routes a source this short to "incomplete" rather than judging it
     blind — the citation net's job is to surface the paper, not to summarize it."""
-    name = work.primary_topic.display_name if work.primary_topic else None
-    return one_line(f"{work.title or ''} — OpenAlex topic: {name or 'unknown'}")
+    topic = work.primary_topic
+    id_ = topic.id.rsplit("/", 1)[-1] if topic is not None and topic.id else "unknown"
+    name = (topic.display_name if topic is not None else None) or ""
+    return one_line(f"{work.title or ''} — {TOPIC_MARK}{id_} {name}")
+
+
+def topic_of(text: str) -> str | None:
+    """The topic id in a stored OpenAlex source's text, or None."""
+    if TOPIC_MARK not in text:
+        return None
+    tail = text.rsplit(TOPIC_MARK, 1)[1].split(" ", 1)[0].strip()
+    return tail if tail.startswith("T") else None
 
 
 def parse(body: str) -> list[RawDraft]:
@@ -107,9 +123,9 @@ def parse(body: str) -> list[RawDraft]:
 
 
 def topics_of(body: str) -> list[str]:
-    """Topic ids of the works in a response — the cluster meter's input."""
+    """Topic ids of the works in a response, unprefixed (`/works` filters want `T####`)."""
     return [
-        w.primary_topic.id
+        w.primary_topic.id.rsplit("/", 1)[-1]
         for w in _Works.model_validate_json(body).results
         if w.primary_topic is not None and w.primary_topic.id
     ]

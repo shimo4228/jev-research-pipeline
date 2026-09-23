@@ -15,7 +15,7 @@ description, so both sides of the condition have to be written into the question
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Annotated, Any, Final, Literal, TypeAliasType, cast, get_args, get_origin
@@ -366,20 +366,21 @@ def choice(j: Judgment, key: str) -> ChoiceAnswer:
     return a
 
 
-def certainty(judged: Judged[Any]) -> float:
-    """How sure the least sure answer of this judgment is, in [0, 1].
+def certainty(judged: Judged[Any], keys: Collection[str] | None = None) -> float:
+    """How sure the least sure of the named answers is, in [0, 1] (all of them by default).
 
-    Computed from the stored distributions rather than read from the provider: what we
-    keep is the distribution, and a measure derived from it survives a replay from the
-    store. A Noul is its distance from 0.5 doubled (0.5 = undecided); a Score or Choice is
-    the probability of the level or option it landed on.
+    `keys` matters because one request can carry answers that decide different things: a
+    field that rides along under its own policy must not drag the caller's confidence
+    down. Computed from the stored distributions rather than read from the provider, so a
+    judgment replayed from the store gives the same number. A Noul is its distance from
+    0.5 doubled (0.5 = undecided); a Score or Choice is the probability of the level or
+    option it landed on.
     """
-    values: list[float] = []
-    for answer in judged.judgment.answers:
-        if isinstance(answer, NoulAnswer):
-            values.append(abs(answer.p_yes - 0.5) * 2.0)
-        else:
-            values.append(max(answer.probabilities))
+    values = [
+        abs(a.p_yes - 0.5) * 2.0 if isinstance(a, NoulAnswer) else max(a.probabilities)
+        for a in judged.judgment.answers
+        if keys is None or a.key in keys
+    ]
     return min(values) if values else 0.0
 
 

@@ -15,19 +15,20 @@ Environment (nothing is guessed):
 
 import tomllib
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 from typing import Final
 
 import httpx2
 from pydantic import AwareDatetime
 
-from jev_research_pipeline.model import Question, QuestionLog, Report
+from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Report
 from jev_research_pipeline.questions import NO_QUESTIONS, NoQuestions, open_questions
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
 
 from .config import config_path, line_context, line_seeds, load_tracks, rotation_config
-from .nets import load_nets
+from .nets import DayBudget, load_nets
 from .run import Keys, LineOutcome, LineRun, adopt_candidates
 
 STORE_ENV: Final = "JRP_STORE_DIR"
@@ -86,6 +87,17 @@ def harvest_line(
     return lines + [f"harvest skip: {s}" for s in skipped]
 
 
+def claims_before(nodes: Mapping[str, GraphNodeType], today: date) -> set[str]:
+    """Claims reported on an earlier day. The evidence set is pinned to these so today's
+    own accepts cannot change the state a re-run judges against."""
+    return {
+        claim
+        for n in nodes.values()
+        if isinstance(n, Report) and n.run_date < today
+        for claim in n.claims
+    }
+
+
 def lines_per_day(config: Path) -> int:
     general = tomllib.loads(config.read_text(encoding="utf-8")).get("general", {})
     return int(general.get("lines_per_day", 3))
@@ -108,13 +120,22 @@ async def run_pipeline(
     tracks = {t.slug: t for t in load_tracks(cfg)}
     rotation = rotation_config(list(tracks.values()), per_tick=lines_per_day(cfg))
     net_config = load_nets(cfg)
+    day_budget = DayBudget()  # the daily quotas are shared by every line of the rotation
     store = GraphStore(store_dir(env))
     harvested = {slug: harvest_line(store, vault, slug, now, env) for slug in rotation.order}
     outcomes: list[LineOutcome] = []
     for slug in advance_rotation(store, rotation, now):
         ctx = line_context(tracks[slug])
         try:
-            questions = open_questions(env, slug, line=ctx.line.id, now=now)
+            nodes = store.line(slug).load()
+            questions = open_questions(
+                env,
+                slug,
+                line=ctx.line.id,
+                now=now,
+                stored=nodes,
+                evidence_scope=claims_before(nodes, now.date()),
+            )
         except NoQuestions as e:
             # By design: a line with no open question has nothing to anchor a judgment on.
             # The rotation has already advanced, so the next run moves on to the next line.
@@ -133,6 +154,7 @@ async def run_pipeline(
             now=now,
             harvest_notes=harvested[slug],
             net_config=net_config,
+            day_budget=day_budget,
             pacing=pacing,
         )
         outcomes.append(await run.execute())

@@ -5,6 +5,8 @@ Three numbers per run (packet "Discovery" 6), all read from the store:
   A net whose share stays at zero is a net to cut.
 - distinct OpenAlex topic count over accepted sources: a *falling* count is the
   convergence alarm, because a search that only exploits ends up in one cluster.
+- Time-to-Discovery: the median days from fetching a source to the author marking it
+  worth reading (ASReview), so a net that finds the right paper late is visible.
 - per-net new-accept rate with a convergence fit f = 1 - exp(-n/tau) (Undermind's shape):
   tau is fitted from the cumulative accepts of the last runs, and f says how much of what
   this net can find has been found. It is reported as an estimate, never as a stop
@@ -16,9 +18,9 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from jev_research_pipeline.model import Claim, DiscoveryNet, SourceItem, Unit
+from jev_research_pipeline.adapters import openalex
+from jev_research_pipeline.model import Claim, DiscoveryNet, Label, SourceItem, Unit
 
-TOPIC_PREFIX: Final = "OpenAlex topic: "
 MIN_POINTS: Final = 3
 """Below this many runs a fit is a line through noise; the meter says so instead."""
 
@@ -46,9 +48,8 @@ def share_per_net(
 
 
 def topic_clusters(sources: Sequence[SourceItem]) -> int:
-    """Distinct OpenAlex topics among the sources that carry one."""
-    topics = {s.text.rsplit(TOPIC_PREFIX, 1)[-1] for s in sources if TOPIC_PREFIX in s.text}
-    return len({t for t in topics if t and t != "unknown"})
+    """Distinct OpenAlex topic ids among the sources that carry one."""
+    return len({t for s in sources if (t := openalex.topic_of(s.text)) is not None})
 
 
 def convergence(cumulative: Sequence[int]) -> float | None:
@@ -70,6 +71,31 @@ def convergence(cumulative: Sequence[int]) -> float | None:
     return 1.0 - math.exp(-len(cumulative) / tau) if tau > 0 else None
 
 
+def time_to_discovery(
+    labels: Sequence[Label],
+    sources: Mapping[str, SourceItem],
+    claims: Mapping[str, Claim],
+    units: Mapping[str, Unit],
+) -> float | None:
+    """Median days between fetching a source and the author marking it worth reading
+    (ASReview's Time-to-Discovery). Only ⭕ counts: a ❌ is not a discovery, and an
+    unticked source has not been discovered yet, so it is not a zero either."""
+    days: list[float] = []
+    for label in labels:
+        if label.verdict != "correct":
+            continue
+        source = sources.get(label.subject)
+        if source is None and (claim := claims.get(label.subject)) is not None:
+            source = source_of(claim, units, sources)
+        if source is not None:
+            days.append((label.harvested_at - source.fetched_at).total_seconds() / 86400.0)
+    if not days:
+        return None
+    days.sort()
+    middle = len(days) // 2
+    return days[middle] if len(days) % 2 else (days[middle - 1] + days[middle]) / 2
+
+
 def lines(
     per_net_sources: Mapping[DiscoveryNet, int],
     shares: Mapping[DiscoveryNet, float],
@@ -78,6 +104,7 @@ def lines(
     previous_clusters: int | None,
     fit: float | None,
     openalex_credits: int,
+    ttd: float | None = None,
 ) -> list[str]:
     """The operations section's discovery block."""
     out = [
@@ -94,6 +121,11 @@ def lines(
     ]
     out.append(
         f"収束推定 f: {fit:.2f}" if fit is not None else "収束推定 f: データ不足 (3 run 未満)"
+    )
+    out.append(
+        f"Time-to-Discovery 中央値: {ttd:.1f} 日"
+        if ttd is not None
+        else "Time-to-Discovery: 未計測"
     )
     if openalex_credits:
         out.append(f"openalex credit: {openalex_credits}")

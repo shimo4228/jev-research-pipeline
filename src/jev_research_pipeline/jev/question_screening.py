@@ -28,6 +28,17 @@ type Route = Literal["keep", "review", "drop", "incomplete"]
 MIN_ABSTRACT_CHARS: Final = 200
 """Below this a source has no abstract to screen; it is "incomplete", not a drop."""
 
+ROUTING_FIELDS: Final = (
+    "on_topic",
+    "method_transferable",
+    "evidence_compatible",
+    "problem_overlap",
+    "evidence_strength",
+    "novelty_vs_evidence_set",
+)
+"""The answers the route is read from. `bridges_line` rides in the same request but
+decides something else, so its uncertainty must not push a source into Review."""
+
 BRIDGES_POLICY: Final = "question_screening@v1+bridges"
 """bridges_line rides along in the same request but decides on its own: a source that
 bridges the line to a concept outside its vocabulary is kept for the 橋渡し section even
@@ -175,9 +186,14 @@ def weighted(judged: Judged[Answers]) -> float:
     )
 
 
+def no_abstract(source: SourceItem) -> bool:
+    """Too short to screen. Checked before the request, not after it."""
+    return len(source.text) < MIN_ABSTRACT_CHARS
+
+
 def route(result: Judged[Answers] | JevFailure, *, source: SourceItem) -> Route:
     """Keep / Review / Drop / Incomplete — decided by code over the stored answers."""
-    if len(source.text) < MIN_ABSTRACT_CHARS:
+    if no_abstract(source):
         return "incomplete"
     if isinstance(result, JevFailure):
         return "review"  # an unjudged source is the author's call, not a silent drop
@@ -188,7 +204,7 @@ def route(result: Judged[Answers] | JevFailure, *, source: SourceItem) -> Route:
     band = threshold(THRESHOLDS, "review_band")
     if score < keep - band:
         return "drop"
-    if score < keep or certainty(result) < threshold(THRESHOLDS, "min_certainty"):
+    if score < keep or certainty(result, ROUTING_FIELDS) < threshold(THRESHOLDS, "min_certainty"):
         return "review"
     return "keep"
 

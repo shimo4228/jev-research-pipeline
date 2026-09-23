@@ -30,14 +30,14 @@ pipeline that would have nothing to anchor its judgments on.
 import re
 import tempfile
 import unicodedata
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Final
 
 from pydantic import AwareDatetime
 
-from jev_research_pipeline.model import Question, QuestionStatus
+from jev_research_pipeline.model import GraphNodeType, Question, QuestionStatus
 
 QUESTIONS_ENV: Final = "JRP_QUESTIONS_DIR"
 DEFAULT_QUESTIONS_DIR: Final = Path("questions")
@@ -160,16 +160,38 @@ def _opened(raw: str | None, fallback: AwareDatetime) -> AwareDatetime:
 
 
 def open_questions(
-    env: Mapping[str, str], slug: str, *, line: str, now: AwareDatetime
+    env: Mapping[str, str],
+    slug: str,
+    *,
+    line: str,
+    now: AwareDatetime,
+    stored: Mapping[str, GraphNodeType] | None = None,
+    evidence_scope: Collection[str] | None = None,
 ) -> list[Question]:
     """The line's open questions. Raises NoQuestions when there are none: a run without a
-    question has nothing to anchor a judgment on, and would spend the budget saying so."""
+    question has nothing to anchor a judgment on, and would spend the budget saying so.
+
+    The file carries the author's wording; the store carries the evidence set that grew
+    under it. `stored` merges the latter back in — without it every run would screen, judge
+    novelty and measure movement against an empty evidence set. `evidence_scope` limits it
+    to the claims accepted on earlier days, so today's own accepts do not change the state
+    mid-run: a same-day re-run then asks Jev exactly the questions the first run asked.
+    """
     path = questions_path(env, slug)
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     questions = [q for q in parse_questions(text, line=line, opened_at=now) if q.status == "open"]
     if not questions:
         raise NoQuestions(slug, path)
-    return questions
+    known = stored or {}
+
+    def merged(question: Question) -> Question:
+        node = known.get(question.id)
+        if not isinstance(node, Question):
+            return question
+        evidence = tuple(i for i in node.evidence if evidence_scope is None or i in evidence_scope)
+        return question.model_copy(update={"evidence": evidence}) if evidence else question
+
+    return [merged(q) for q in questions]
 
 
 def render_question(question: Question) -> str:

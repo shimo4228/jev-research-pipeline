@@ -172,7 +172,7 @@ def plan(
     keyword_budget = _keyword_budget(config)
     for adapter, query in list(keyword_queries)[:keyword_budget]:
         out.append(NetRequest("keyword", adapter, query))
-    for topic in list(topics)[: config.budget("exploration")]:
+    for topic in list(topics)[: _exploration_budget(config)]:
         out.append(
             NetRequest("exploration", openalex.exploration_adapter(), openalex.topic_token(topic))
         )
@@ -186,6 +186,13 @@ def _keyword_budget(config: NetConfig) -> int:
     return max(1, round(budget * (1.0 - config.exploration_share))) if budget else 0
 
 
+def _exploration_budget(config: NetConfig) -> int:
+    """What exploitation gave up, capped by the exploration net's own budget — so raising
+    the share moves requests from one net to the other instead of only shrinking keyword."""
+    given_up = config.budget("keyword") - _keyword_budget(config)
+    return min(config.budget("exploration"), given_up) if config.budget("exploration") else 0
+
+
 def seeded_negatives(
     candidates: Sequence[str], *, seed: str, n: int = RANDOM_NEGATIVES
 ) -> list[str]:
@@ -194,6 +201,29 @@ def seeded_negatives(
     rng = random.Random(seed)
     rng.shuffle(pool)
     return pool[:n]
+
+
+@dataclass
+class DayBudget:
+    """What is spent against the shared, daily quotas — across every line of the rotation.
+
+    One rotation runs several lines in one process against the same keyless pools, so a
+    per-line counter would let three lines spend three times the daily cap and would ask
+    the pool that just answered 429 twice more. `spent` is the OpenAlex credits used
+    today; `quiet` are the nets that hit a rate limit and are done for the day.
+    """
+
+    date: str = ""
+    spent: int = 0
+    quiet: set[DiscoveryNet] = field(default_factory=set[DiscoveryNet])
+    reported: set[str] = field(default_factory=set[str])
+    """Notes already written once, so a cap is not reported per net per line."""
+
+    def for_day(self, run_date: str) -> "DayBudget":
+        """Reset at the day boundary; the quotas are daily."""
+        if self.date != run_date:
+            self.date, self.spent, self.quiet, self.reported = run_date, 0, set(), set()
+        return self
 
 
 @dataclass
@@ -214,20 +244,22 @@ async def fetch_nets(
     now: AwareDatetime,
     env: Mapping[str, str],
     config: NetConfig,
+    day: DayBudget | None = None,
 ) -> NetOutcome:
     """Run the plan in order. A net that fails is a line in the operations section, never
-    the end of the run: the next net still gets its turn."""
+    the end of the run: the next net still gets its turn. `day` carries the quotas that
+    are shared across the rotation's lines; without one they are this call's alone."""
     outcome = NetOutcome()
+    budget = (day or DayBudget()).for_day(now.date().isoformat())
     seen: set[str] = set()
-    quiet: set[DiscoveryNet] = set()
     for request in requests:
-        if request.net in quiet:
+        if request.net in budget.quiet:
             continue
-        if request.adapter.kind == "openalex" and (
-            outcome.openalex_credits >= config.openalex_daily_credits
-        ):
-            outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
-            quiet.add(request.net)
+        if request.adapter.kind == "openalex" and budget.spent >= config.openalex_daily_credits:
+            if "openalex_cap" not in budget.reported:
+                budget.reported.add("openalex_cap")
+                outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
+            budget.quiet.add(request.net)
             continue
         out = await collect(
             request.adapter, client, partition, line, request.query, now=now, env=env
@@ -238,8 +270,9 @@ async def fetch_nets(
                 f"({out.failure.reason} {out.failure.detail})"
             )
             if "rate_limit" in out.failure.detail:
-                # A shared pool answering 429 is a policy signal, not a transient error.
-                quiet.add(request.net)
+                # A shared pool answering 429 is a policy signal, not a transient error:
+                # the net is done for the day, for every line, not just this one.
+                budget.quiet.add(request.net)
                 outcome.notes.append(f"{request.net}: rate limit のため本日は打ち切り")
             continue
         if out.skipped:
@@ -247,9 +280,13 @@ async def fetch_nets(
                 f"{request.net}/{request.adapter.kind}: 検証落ちで {out.skipped} 件 skip"
             )
         if request.adapter.kind == "openalex" and not out.cached:
-            outcome.openalex_credits += 1  # a filtered list is one credit (measured)
+            # A filtered list costs one credit (measured 2026-09-23 from
+            # x-ratelimit-credits-used); the header itself is not visible here because
+            # collect() returns parsed sources, not the response.
+            budget.spent += 1
         fresh = [s for s in out.sources if s.id not in seen]
         seen.update(s.id for s in fresh)
         outcome.sources += fresh
         outcome.per_net[request.net] = outcome.per_net.get(request.net, 0) + len(fresh)
+    outcome.openalex_credits = budget.spent
     return outcome

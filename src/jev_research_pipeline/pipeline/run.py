@@ -23,7 +23,14 @@ from typing import Final, override
 import httpx2
 from pydantic import AwareDatetime, BaseModel
 
-from jev_research_pipeline.adapters import Adapter, arxiv, github, hf_papers, web_search
+from jev_research_pipeline.adapters import (
+    Adapter,
+    arxiv,
+    github,
+    hf_papers,
+    openalex,
+    web_search,
+)
 from jev_research_pipeline.jev import (
     Ask,
     JevClient,
@@ -190,6 +197,7 @@ class LineRun:
         now: AwareDatetime,
         harvest_notes: list[str],
         net_config: nets.NetConfig | None = None,
+        day_budget: nets.DayBudget | None = None,
         pacing: bool = True,
     ) -> None:
         self.ctx, self.partition, self.index_path, self.vault = ctx, partition, index_path, vault
@@ -202,6 +210,7 @@ class LineRun:
         self.meters = {FLASH: GenerationMeter(), MAX: GenerationMeter()}
         self.budget = Budget(env)
         self.nets = net_config or nets.NetConfig()
+        self.day = day_budget or nets.DayBudget()
         self.st = _State(notes=list(harvest_notes))
         self.pacing = pacing
 
@@ -294,10 +303,14 @@ class LineRun:
             i for url in sorted(by_verdict["incorrect"]) if (i := nets.paper_id(url)) is not None
         ]
         if not negatives:
+            # Drawn from what was stored *before today*: today's own fetches grow the pool
+            # as the run goes, and a re-run would then send a different request to a pool
+            # that is shared and rate-limited.
             pool = [
                 i
                 for n in self.known.values()
                 if isinstance(n, SourceItem)
+                and n.fetched_at.date() < self.now.date()
                 and (i := nets.paper_id(n.url)) is not None
                 and i not in positives
             ]
@@ -347,6 +360,7 @@ class LineRun:
             now=self.now,
             env=self.env,
             config=self.nets,
+            day=self.day,
         )
         self.st.notes += outcome.notes
         self.st.per_net = outcome.per_net
@@ -354,14 +368,16 @@ class LineRun:
         return outcome.sources
 
     def _topics(self) -> list[str]:
-        """Topics next to this line's own: the ones its accepted sources sit in, which the
-        exploration net then walks away from. Empty until the citation net has run once."""
+        """Topics next to this line's own: the ones its OpenAlex sources sit in, which the
+        exploration net then walks out from. Empty until the citation net has run once."""
         seen = [
-            n.text.rsplit("OpenAlex topic: ", 1)[-1]
+            topic
             for n in self.known.values()
-            if isinstance(n, SourceItem) and n.adapter == "openalex"
+            if isinstance(n, SourceItem)
+            and n.adapter == "openalex"
+            and (topic := openalex.topic_of(n.text)) is not None
         ]
-        return [t for t in dict.fromkeys(seen) if t.startswith("T")]
+        return list(dict.fromkeys(seen))
 
     async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
         """The question-free pass: evidence and injection, then trust. Whether a source is
@@ -393,6 +409,14 @@ class LineRun:
         reviewed: set[str] = set()
         bridged: set[str] = set()
         for s in sources:
+            if question_screening.no_abstract(s):
+                # Decided by len(source.text): asking Jev seven questions per open question
+                # about a title would pay for a route that is already known. It still
+                # reaches the author, in Review, rather than being dropped in silence.
+                if s.id not in reviewed:
+                    reviewed.add(s.id)
+                    self.st.review.append(_entry(s, "本文が取得できず未判定"))
+                continue
             for question in self.questions:
                 if self._over_budget():
                     return kept
@@ -612,11 +636,19 @@ class LineRun:
         today = [s for s in sources.values() if s.fetched_at.date() == self.now.date()]
         before = [s for s in sources.values() if s.fetched_at.date() < self.now.date()]
         reports = sorted(
-            (n for n in loaded.values() if isinstance(n, Report) and n.line == self.ctx.line.id),
+            (
+                n
+                for n in loaded.values()
+                if isinstance(n, Report)
+                and n.line == self.ctx.line.id
+                and n.run_date < self.now.date()  # today's own report is `accepted` below
+            ),
             key=lambda r: r.run_date,
         )
         cumulative = [len(r.claims) for r in reports] + [len(accepted)]
         running = [sum(cumulative[: i + 1]) for i in range(len(cumulative))]
+        claims = {i: n for i, n in loaded.items() if isinstance(n, Claim)}
+        labels = [n for n in loaded.values() if isinstance(n, Label)]
         return meters.lines(
             self.st.per_net,
             shares,
@@ -624,6 +656,7 @@ class LineRun:
             previous_clusters=meters.topic_clusters(before) if before else None,
             fit=meters.convergence(running),
             openalex_credits=self.st.openalex_credits,
+            ttd=meters.time_to_discovery(labels, sources, claims, units),
         )
 
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
@@ -691,7 +724,10 @@ class LineRun:
         slug = self.ctx.line.slug
         with span("jrp.line", line=slug, date=self.now.date().isoformat()) as line:
             accepted, screened = await self._gather()
-            self.st.notes += canary_lines(self.questions, screened)
+            if not self.st.partial:
+                # A run cut short by the cost cap never screened everything, so a missing
+                # canary would say the screen drifted when the budget simply ran out.
+                self.st.notes += canary_lines(self.questions, screened)
             self.st.discovery = self._discovery_lines(accepted)
             with span("jrp.stage.sections", line=slug, claims=len(accepted)):
                 for question in self.questions:
@@ -781,7 +817,9 @@ def _joined(rendering: Rendering, sections: list[QuestionSection]) -> Rendering:
 
 def _with_evidence(questions: list[Question], accepted: list[_Accepted]) -> list[Question]:
     """The questions whose evidence set grew today, with today's claims appended. The @id
-    does not move (evidence is not identity), so this updates the stored node in place."""
+    does not move (evidence is not identity), so this updates the stored node in place —
+    and because `questions` was loaded with the stored evidence merged in, the set grows
+    rather than being replaced by the day's claims."""
     out: list[Question] = []
     for question in questions:
         fresh = [

@@ -45,6 +45,21 @@ async def collect(
         )
     outcome = await adapter.fetch(client, line, query, now=now, env=env)
     if outcome.failure is None:
-        partition.put(outcome.sources)
+        partition.put(_keep_first_net(outcome.sources, partition))
         cache.record(stage, key, tuple(s.id for s in outcome.sources), now)
     return outcome
+
+
+def _keep_first_net(sources: tuple[SourceItem, ...], partition: Partition) -> list[SourceItem]:
+    """A source is identified by (line, url), so two nets that return the same paper write
+    the same node. The net that found it *first* is the one the meters should credit — a
+    firehose find re-fetched tomorrow by a keyword query is still a firehose find."""
+    if not sources:
+        return []
+    stored = partition.load()
+    return [
+        s.model_copy(update={"net": known.net})
+        if isinstance(known := stored.get(s.id), SourceItem) and known.net != s.net
+        else s
+        for s in sources
+    ]

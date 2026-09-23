@@ -155,7 +155,8 @@ def test_openalex_reads_credits_and_topics():
     assert openalex.topics_of(body) == ["T10017"]
     (draft,) = openalex.parse(body)
     assert draft["url"].startswith("https://doi.org/")
-    assert "OpenAlex topic: Agent memory" in draft["text"]
+    assert "OpenAlex topic: T10017 Agent memory" in draft["text"]
+    assert openalex.topic_of(draft["text"]) == "T10017"
 
 
 # --- fetching: failures are lines, not the end of the run --------------------------------
@@ -260,3 +261,39 @@ def test_consecutive_irrelevant_is_not_reported_as_convergence():
     assert any("収束推定 f: データ不足" in line for line in lines)
     assert not any("連続" in line for line in lines)
     assert any("減少" in line for line in lines)  # a falling cluster count is the alarm
+
+
+def test_time_to_discovery_is_the_median_over_ticked_sources():
+    from datetime import timedelta
+
+    from jev_research_pipeline.model import Label
+
+    made = [_claim("firehose", "a"), _claim("keyword", "b")]
+    sources = {s.id: s for _, _, s in made}
+    units = {u.id: u for _, u, _ in made}
+    claims = {c.id: c for c, _, _ in made}
+    labels = [
+        Label.new(
+            subject=made[0][2].id,
+            report=b.report().id,
+            verdict="correct",
+            provenance="source",
+            harvested_at=b.T0 + timedelta(days=2),
+        ),
+        Label.new(
+            subject=made[1][0].id,  # a claim tick resolves to its source
+            report=b.report().id,
+            verdict="correct",
+            provenance="claim",
+            harvested_at=b.T0 + timedelta(days=4),
+        ),
+        Label.new(
+            subject=made[1][2].id,
+            report=b.report().id,
+            verdict="incorrect",  # a ❌ is not a discovery
+            provenance="source",
+            harvested_at=b.T0 + timedelta(days=30),
+        ),
+    ]
+    assert meters.time_to_discovery(labels, sources, claims, units) == pytest.approx(3.0)
+    assert meters.time_to_discovery([], sources, claims, units) is None

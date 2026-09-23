@@ -117,3 +117,49 @@ def test_a_japanese_title_still_gets_a_slug():
     assert (
         Question.new(line=b.LINE_IRI, slug=slug, version=1, title="t", opened_at=b.T0).slug == slug
     )
+
+
+def test_the_stored_evidence_set_comes_back_into_the_run(tmp_path: Path):
+    # Without this the whole "running answer" axis is inert: screening, novelty and
+    # movement would all be judged against an empty evidence set, every day.
+    env = _env(tmp_path)
+    path = questions_path(env, "akc")
+    path.parent.mkdir(parents=True)
+    path.write_text(FILE, encoding="utf-8")
+    stored = b.question().model_copy(
+        update={
+            "slug": "agent-memory",
+            "version": 2,
+            "id": Question.id_for(b.LINE_IRI, "agent-memory", 2),
+            "evidence": (b.claim().id,),
+        }
+    )
+    (question,) = open_questions(
+        env,
+        "akc",
+        line=b.LINE_IRI,
+        now=b.T0,
+        stored={stored.id: stored},
+        evidence_scope={b.claim().id},
+    )
+    assert question.evidence == (b.claim().id,)
+
+
+def test_todays_own_claims_do_not_join_the_evidence_set_mid_run(tmp_path: Path):
+    # The set is pinned to earlier days, so a same-day re-run asks Jev the same questions.
+    env = _env(tmp_path)
+    path = questions_path(env, "akc")
+    path.parent.mkdir(parents=True)
+    path.write_text(FILE, encoding="utf-8")
+    stored = b.question().model_copy(
+        update={
+            "slug": "agent-memory",
+            "version": 2,
+            "id": Question.id_for(b.LINE_IRI, "agent-memory", 2),
+            "evidence": (b.claim().id,),
+        }
+    )
+    (question,) = open_questions(
+        env, "akc", line=b.LINE_IRI, now=b.T0, stored={stored.id: stored}, evidence_scope=set()
+    )
+    assert question.evidence == ()
