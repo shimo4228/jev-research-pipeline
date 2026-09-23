@@ -1,7 +1,6 @@
 """Report rendering (decision 12), vault writing and label harvesting (decision 5)."""
 
 from .markdown import (
-    CandidateEntry,
     ClaimEntry,
     QuestionSection,
     SourceEntry,
@@ -27,7 +26,6 @@ from .vault import (
 
 __all__ = [
     "VAULT_ENV",
-    "CandidateEntry",
     "ClaimEntry",
     "HarvestResult",
     "QuestionSection",

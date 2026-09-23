@@ -162,11 +162,11 @@ operations block as a sign that screening drifted.
 one per line, in English. They are written together with the question and tried before a run relies
 on them: `uv run jrp queries check --line <slug>` sends each query once and prints the hit count and
 the newest titles, storing nothing. arXiv matches every word (`all:w1 AND all:w2`), so keep its
-queries to two to four words. A question without query lines falls back to queries Qwen drafts and
-Jev ranks. The authoring procedure is in [AGENTS.md](AGENTS.md).
+queries to two to four words. A question without query lines sends no keyword query (the note's
+operations block says so); the other nets still run for it. The authoring procedure is in
+[AGENTS.md](AGENTS.md).
 
-The daily note proposes new questions. Tick one and the next run appends it to this file. That is the
-only path by which the pipeline writes here.
+No run writes to this file. Questions and their queries change when you change them.
 
 ## What a note looks like
 
@@ -178,7 +178,6 @@ Headings and prose are Japanese; the layout is:
 証拠                            today's sources for this question
 - [ ] worth reading             one checkbox per question-day; a tick propagates to its claims
 ## Review                       borderline pairs (confidence below 0.9); your tick feeds the next threshold proposal
-## 問いの候補                     proposed questions; tick = adopt
 ## 橋渡し                         bridged sources: found by the exploration net outside the vocabulary
 > [!note]- Claims               folded list of every claim with its source and a checkbox
 ## 運用                          the operations block
@@ -190,17 +189,16 @@ Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `
 ## Source nets
 
 Keyword search alone converges (the 37% figure above). So code fixes which nets run, in what order,
-and how many requests each may make. Model output enters discovery in two bounded ways: the keyword
-queries (written into the question file with the question, or, where a question has none, drafted by
-Qwen and ranked by Jev), and the recommendation and citation nets are seeded by papers
-that Jev's screening kept. Neither model can add a net, skip one, or change the order.
+and how many requests each may make. No model writes a query: the keyword net sends the queries written into
+the question file, and the recommendation and citation nets are seeded by papers that Jev's
+screening kept. No model can add a net, skip one, or change the order.
 
 | net | what it fetches | default budget (API requests per run) |
 |---|---|---|
 | firehose | new arXiv listings for fixed categories, plus Hugging Face daily papers; no query | 2 |
 | recommendation | Semantic Scholar recommendations seeded by ticked and kept papers, with random negatives | 1 |
 | citation | OpenAlex forward citations of papers already kept | 3 |
-| keyword | each question's authored queries (or, without them, Qwen drafts ranked by Jev), sent to arXiv, Hugging Face papers, GitHub and, with a key, Tavily web search | 12 |
+| keyword | each question's authored queries, sent to arXiv, Hugging Face papers, GitHub and, with a key, Tavily web search | 12 |
 | exploration | neighbouring OpenAlex topics: one request of its own, and 20% of the keyword queries are aimed at those topics instead of the line's own | 1 |
 
 Every net works without source-API keys (the TypeSafe and DashScope keys are always needed), with one

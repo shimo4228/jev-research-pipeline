@@ -57,11 +57,9 @@ from jev_research_pipeline.jev import (
     Judged,
     claim_detection,
     novelty,
-    query_selection,
     question_movement,
     question_prefilter,
     question_screening,
-    question_seeding,
     relevance_triage,
     rubric_claim,
     source_support,
@@ -87,27 +85,23 @@ from jev_research_pipeline.model import (
 )
 from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
 from jev_research_pipeline.query_text import clean_query
-from jev_research_pipeline.questions import AuthoredQueries, append_question
+from jev_research_pipeline.questions import AuthoredQueries
 from jev_research_pipeline.qwen import (
-    FLASH,
     MAX,
     GenerationMeter,
     Rendering,
-    propose_questions,
-    query_candidates,
     qwen_model,
 )
 from jev_research_pipeline.qwen.prose import prose_thinking, prose_timeout_s
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import (
-    CandidateEntry,
     ClaimEntry,
     QuestionSection,
     SourceEntry,
     render_report,
     write_note,
 )
-from jev_research_pipeline.store import ClaimIndex, Partition, StageCache, input_sha256
+from jev_research_pipeline.store import ClaimIndex, Partition, input_sha256
 from jev_research_pipeline.telemetry import span
 
 from . import meters, nets
@@ -115,7 +109,6 @@ from .concurrency import jev_concurrency, prose_concurrency
 from .costs import Budget
 from .units import split_units
 
-QUERIES_PER_ADAPTER: Final = 3
 GIST_CHARS: Final = 120
 """One evidence line shows this much of a source's text — enough to recognize it."""
 
@@ -282,7 +275,6 @@ class _State:
     similar: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     review: list[SourceEntry] = field(default_factory=list[SourceEntry])
     bridges: list[SourceEntry] = field(default_factory=list[SourceEntry])
-    candidates: list[Question] = field(default_factory=list[Question])
     per_net: dict[DiscoveryNet, int] = field(default_factory=dict[DiscoveryNet, int])
     discovery: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
@@ -318,9 +310,8 @@ CLAIMS_PER_SOURCE: Final = 2
 CLAIMS_PER_NOTE: Final = 9
 """Spread over the questions that have claims: 1 → 5, 2 → 4, 3 → 3, 4+ → 2 each."""
 NOTE_MAX_BYTES: Final = 12_000
-"""A note above this drops question proposals, then the Review lines farthest from the
-cut, until it fits (author mandate: note ≤ 12 KB = 12,288 bytes; margin for the line
-that says what was dropped)."""
+"""A note above this drops the Review lines farthest from the cut, until it fits (author
+mandate: note ≤ 12 KB = 12,288 bytes; margin for the line that says what was dropped)."""
 """Reported claims per question section, and from one source within it (note ≤ 12 KB,
 author mandate 2026-09-23)."""
 REVIEW_MAX: Final = 10
@@ -377,7 +368,6 @@ class LineRun:
         *,
         ctx: LineContext,
         questions: list[Question],
-        seeds: list[str],
         partition: Partition,
         index_path: Path,
         vault: Path,
@@ -392,14 +382,13 @@ class LineRun:
         queries: Mapping[str, AuthoredQueries] | None = None,
     ) -> None:
         self.ctx, self.partition, self.index_path, self.vault = ctx, partition, index_path, vault
-        self.questions, self.seeds = questions, seeds
+        self.questions = questions
         self.queries: Mapping[str, AuthoredQueries] = queries or {}
         """Authored query lines per Question @id (questions.question_queries)."""
         self.http, self.env, self.now = http, env, now
         self.known = partition.load()
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
         self.keys = keys
-        self.flash = qwen_model(FLASH, http, api_key=keys.dashscope)
         thinking = prose_thinking(env)
         self.max = qwen_model(MAX, http, api_key=keys.dashscope, thinking=thinking == "always")
         self.max_rewrite = (
@@ -407,7 +396,7 @@ class LineRun:
             if thinking == "rewrite"
             else None
         )
-        self.meters = {FLASH: GenerationMeter(), MAX: GenerationMeter()}
+        self.meters = {MAX: GenerationMeter()}
         self.budget = Budget(env)
         self.nets = net_config or nets.NetConfig()
         self.day = day_budget or nets.DayBudget()
@@ -454,72 +443,9 @@ class LineRun:
 
     # --- stages -------------------------------------------------------------------------
 
-    async def _query_candidates(
-        self, kind: AdapterKind, question: Question
-    ) -> tuple[tuple[QueryCandidate, ...], str | None] | None:
-        """Qwen query candidates, cached per (adapter, question, day): a same-day re-run
-        reuses them instead of generating (and paying for) different ones. The second
-        value is the operations line for a fallback, applied by the caller in order. None
-        when the cost cap has tripped by the time a Qwen slot is free."""
-        cache = StageCache(self.partition)
-        key = input_sha256(
-            {"adapter": kind, "question": question.id, "day": self.now.date().isoformat()}
-        )
-        done = cache.lookup("query_candidates", key)
-        if done is not None:
-            loaded = self.partition.load()
-            return tuple(n for i in done if isinstance(n := loaded[i], QueryCandidate)), None
-        async with self.prose_slots:
-            if self._over_budget():
-                return None
-            qr = await query_candidates(
-                self.flash,
-                self.ctx,
-                kind,
-                question,
-                n=QUERIES_PER_ADAPTER,
-                meter=self.meters[FLASH],
-            )
-        note = (
-            f"{kind}: query 候補は fallback (問いと語彙から生成, {qr.failure})"
-            if qr.fallback
-            else None
-        )
-        self.partition.put(qr.candidates)
-        cache.record("query_candidates", key, tuple(c.id for c in qr.candidates), self.now)
-        return qr.candidates, note
-
-    async def _selected(
-        self, kind: AdapterKind, question: Question
-    ) -> tuple[tuple[QueryCandidate, ...], list[Decision], list[str]] | None:
-        """One (question, adapter): candidates, their ranked Decisions and the notes to
-        apply. None when the cost cap stopped it before every candidate was judged."""
-        generated = await self._query_candidates(kind, question)
-        if generated is None:
-            return None
-        candidates, fallback = generated
-        judged = await asyncio.gather(
-            *(
-                self._jev(
-                    lambda c=c: query_selection.judge(self.jev, self.ctx, c, question, now=self.now)
-                )
-                for c in candidates
-            )
-        )
-        results = [r for r in judged if r is not None]
-        if len(results) != len(candidates):
-            return None
-        decisions = query_selection.rank(list(zip(candidates, results, strict=True)))
-        notes = [fallback] if fallback else []
-        if any(d.policy == query_selection.FLOOR_FALLBACK_POLICY for d in decisions):
-            notes.append(
-                f"{kind}: query 選択は floor fallback (どの候補も floor 未満のため上位を採用)"
-            )
-        return candidates, decisions, notes
-
     async def _queries(self) -> list[QueryCandidate]:
-        """The authored queries of the questions that have them (no Qwen, no Jev), then
-        the generated-and-selected ones for the questions that do not."""
+        """Every open question's authored query lines (design "Authored queries"). A question
+        without them sends no keyword query and says so; the other nets still run for it."""
         available: list[AdapterKind] = []
         for kind in self.ctx.line.adapters:
             needed = make_adapter(kind).required_env
@@ -527,7 +453,7 @@ class LineRun:
                 self.st.notes.append(f"{kind}: key 未設定のため skip")
                 continue
             available.append(kind)
-        authored, authored_notes = authored_candidates(
+        authored, notes = authored_candidates(
             self.ctx.line.id,
             self.questions,
             self.queries,
@@ -540,25 +466,14 @@ class LineRun:
                 and n.run_date < self.now.date()
             ),
         )
-        self.st.notes += authored_notes
-        self.partition.put(authored)
-        runnable: list[tuple[Question, AdapterKind]] = [
-            (question, kind)
-            for question in self.questions
-            if question.id not in self.queries
-            for kind in available
+        self.st.notes += notes
+        self.st.notes += [
+            f"query 未設定: {q.slug} (questions/{self.ctx.line.slug}.md に query 行が無い)"
+            for q in self.questions
+            if q.id not in self.queries
         ]
-        selected = await asyncio.gather(*(self._selected(k, q) for q, k in runnable))
-        kept: list[QueryCandidate] = list(authored)
-        for result in selected:
-            if result is None:
-                continue
-            candidates, decisions, notes = result
-            self.st.notes += notes
-            for c, d in zip(candidates, decisions, strict=True):
-                if self._decide(d, f"query: {c.text}").outcome == "accept":
-                    kept.append(c)
-        return kept
+        self.partition.put(authored)
+        return authored
 
     def _positives_and_negatives(self) -> tuple[list[str], list[str]]:
         """What the recommender learns from: the author's ⭕ (and the papers behind the
@@ -1070,49 +985,6 @@ class LineRun:
             if result is not None:
                 self._decide(rubric_claim.decision(result), item.claim.text)
 
-    async def _propose(self) -> None:
-        """Question candidates for the author to adopt (or not). One round per run, and
-        only what Jev accepts: a wall of proposals is as unreadable as the claim wall was."""
-        if self._over_budget():
-            return
-        cache = StageCache(self.partition)
-        key = input_sha256({"line": self.ctx.line.id, "day": self.now.date().isoformat()})
-        done = cache.lookup("question_proposals", key)
-        if done is not None:
-            loaded = self.partition.load()
-            self.st.candidates += [n for i in done if isinstance(n := loaded.get(i), Question)]
-            return
-        result = await propose_questions(
-            self.flash,
-            self.ctx,
-            self.seeds,
-            meter=self.meters[FLASH],
-            now=self.now,
-            existing=self.questions,
-        )
-        if result.failure is not None:
-            self.st.notes.append(f"問いの候補: 生成なし ({result.failure})")
-            return
-        known = {q.slug for q in self.questions}
-        fresh = [c for c in result.questions if c.slug not in known]
-        judged = await asyncio.gather(
-            *(
-                self._jev(
-                    lambda c=c: question_seeding.judge(
-                        self.jev, self.ctx, c, self.seeds, now=self.now
-                    )
-                )
-                for c in fresh
-            )
-        )
-        for candidate, j in zip(fresh, judged, strict=True):
-            if j is None:
-                continue
-            if self._decide(question_seeding.decision(j), candidate.title).outcome == "accept":
-                self.st.candidates.append(candidate)
-        self.partition.put(self.st.candidates)
-        cache.record("question_proposals", key, tuple(q.id for q in self.st.candidates), self.now)
-
     # --- run ----------------------------------------------------------------------------
 
     def _empty_day(self, claims: int) -> str:
@@ -1306,8 +1178,6 @@ class LineRun:
             with self._stage("rubric", claims=len(accepted)):
                 prose = {s.question_id: s.prose for s in sections}
                 await self._rubric_claims(report_id, prose, accepted)
-            with self._stage("propose"):
-                await self._propose()
             line.set_attribute(
                 "jrp.cost_usd",
                 self.budget.cost(jev_questions=self.jev.questions_asked, meters=self.meters),
@@ -1333,14 +1203,10 @@ class LineRun:
                 *(i.claim for i in accepted),
                 *logs,
                 *_with_evidence(self.questions, accepted),
-                *self.st.candidates,
                 report,
             ]
         )
         review = list(self.st.review)
-        candidates = [
-            CandidateEntry(slug=q.slug, title=q.title, brief=q.brief) for q in self.st.candidates
-        ]
 
         def rendered(ops: list[str]) -> str:
             return render_report(
@@ -1349,14 +1215,13 @@ class LineRun:
                 sections=sections,
                 claims=_claim_entries(accepted, {s.question_id for s in sections}),
                 review=review,
-                candidates=candidates,
                 bridges=self.st.bridges,
                 unjudged=[self.st.unjudged[i] for i in report.unjudged],
                 operations=ops,
                 empty_day=self._empty_day(len(accepted)),
             )
 
-        text, lines = _fitted(rendered, lines, candidates, review)
+        text, lines = _fitted(rendered, lines, review)
         return LineOutcome(
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
@@ -1367,25 +1232,18 @@ class LineRun:
 def _fitted(
     rendered: Callable[[list[str]], str],
     lines: list[str],
-    candidates: list[CandidateEntry],
     review: list[SourceEntry],
 ) -> tuple[str, list[str]]:
     """The note within NOTE_MAX_BYTES, and the operations lines it was rendered with. The
-    body and the claims stay; what goes is what the author finds again tomorrow (proposals
-    repeat) and then Review, farthest from the cut first. `candidates` and `review` are
-    shortened in place (the renderer reads them)."""
+    body and the claims stay; what goes is Review, farthest from the cut first. `review` is
+    shortened in place (the renderer reads it)."""
     text = rendered(lines)
-    dropped = {"候補": 0, "Review": 0}
+    dropped = 0
     ops = lines
-    while len(text.encode()) > NOTE_MAX_BYTES and (candidates or review):
-        if candidates:
-            candidates.pop()
-            dropped["候補"] += 1
-        else:
-            review.pop()
-            dropped["Review"] += 1
-        said = " / ".join(f"{k} {v} 件" for k, v in dropped.items() if v)
-        ops = [*lines, f"note 12 KB のため省略: {said}"]
+    while len(text.encode()) > NOTE_MAX_BYTES and review:
+        review.pop()
+        dropped += 1
+        ops = [*lines, f"note 12 KB のため省略: Review {dropped} 件"]
         text = rendered(ops)
     return text, ops
 
@@ -1450,20 +1308,6 @@ def _with_evidence(questions: list[Question], accepted: list[_Accepted]) -> list
         if fresh:
             out.append(question.model_copy(update={"evidence": (*question.evidence, *fresh)}))
     return out
-
-
-def adopt_candidates(
-    env: Mapping[str, str], slug: str, adopted: tuple[str, ...], known: Mapping[str, Question]
-) -> list[str]:
-    """Append every proposal the author ticked to the line's question file. The proposals
-    were stored when they were written into the note, so a tick needs no re-generation."""
-    lines: list[str] = []
-    for candidate in adopted:
-        question = known.get(candidate)
-        if question is not None:
-            append_question(env, slug, question)
-            lines.append(f"問いを採用: {question.title}")
-    return lines
 
 
 def fill_rate_previous(

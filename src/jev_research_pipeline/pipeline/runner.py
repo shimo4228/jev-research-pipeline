@@ -28,7 +28,7 @@ import httpx2
 from pydantic import AwareDatetime
 
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
-from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Report
+from jev_research_pipeline.model import GraphNodeType, QuestionLog, Report
 from jev_research_pipeline.questions import (
     NO_QUESTIONS,
     NoQuestions,
@@ -39,9 +39,9 @@ from jev_research_pipeline.report import harvest_note, note_report_id, report_no
 from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
-from .config import config_path, line_context, line_seeds, load_tracks, rotation_config
+from .config import config_path, line_context, load_tracks, rotation_config
 from .nets import DayBudget, load_nets
-from .run import Keys, LineOutcome, LineRun, adopt_candidates
+from .run import Keys, LineOutcome, LineRun
 
 STORE_ENV: Final = "JRP_STORE_DIR"
 DEFAULT_STORE: Final = Path("var/store")
@@ -64,11 +64,9 @@ def keys(env: Mapping[str, str]) -> Keys:
     return Keys(typesafe=env["TYPESAFE_API_KEY"], dashscope=env["DASHSCOPE_API_KEY"])
 
 
-def harvest_line(
-    store: GraphStore, vault: Path, slug: str, now: AwareDatetime, env: Mapping[str, str]
-) -> list[str]:
-    """Labels from every jrp note of the line into its partition, and every adopted
-    question proposal into the line's question file (the only write there)."""
+def harvest_line(store: GraphStore, vault: Path, slug: str, now: AwareDatetime) -> list[str]:
+    """Labels from every jrp note of the line into its partition. Nothing is written to the
+    question file: questions are the author's (design "Authored queries")."""
     part = store.line(slug)
     nodes = part.load()
     reports = {n.id: n for n in nodes.values() if isinstance(n, Report)}
@@ -77,10 +75,8 @@ def harvest_line(
         for n in nodes.values()
         if isinstance(n, QuestionLog)
     }
-    proposals = {n.slug: n for n in nodes.values() if isinstance(n, Question)}
     labels = withdrawn = 0
     skipped: list[str] = []
-    adopted: list[str] = []
     for note in report_notes(vault, slug):
         report = reports.get(note_report_id(note) or "")
         if report is None:
@@ -94,8 +90,7 @@ def harvest_line(
         part.remove(result.cleared)
         labels += len(result.labels)
         withdrawn += len(result.cleared)
-        adopted += adopt_candidates(env, slug, result.adopted, proposals)
-    lines = [f"harvest: label {labels} 件 / 取り消し {withdrawn} 件", *adopted]
+    lines = [f"harvest: label {labels} 件 / 取り消し {withdrawn} 件"]
     return lines + [f"harvest skip: {s}" for s in skipped]
 
 
@@ -142,7 +137,7 @@ async def run_pipeline(
     harvested = {
         slug: [
             *(n for n in migrated if f"lines/{slug}.jsonld" in n),
-            *harvest_line(store, vault, slug, now, env),
+            *harvest_line(store, vault, slug, now),
         ]
         for slug in (*rotation.order, *daily)
     }
@@ -170,7 +165,6 @@ async def run_pipeline(
         run = LineRun(
             ctx=ctx,
             questions=questions,
-            seeds=line_seeds(tracks[slug]),
             partition=store.line(slug),
             index_path=store.root / "index" / f"{slug}.sqlite",
             vault=vault,

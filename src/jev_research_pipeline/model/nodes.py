@@ -35,7 +35,12 @@ type JevFunction = Literal[
     "rubric_claim",
     "rubric_report",
 ]
-"""One value per Jev row of the packet's judgment map."""
+"""One value per Jev row of the packet's judgment map, retired rows included (RETIRED_FUNCTIONS)."""
+
+RETIRED_FUNCTIONS: Final = frozenset({"query_selection", "question_seeding"})
+"""Jev functions with no module any more (design "Authored queries"; questions are the
+author's). Kept in JevFunction and SUBJECT_KINDS so the Judgments and Decisions already in
+a store still validate."""
 
 type RubricAxis = Literal["grounded", "relevant", "novel", "actionable"]
 """Per-claim rubric axes (the ones validated against gold)."""

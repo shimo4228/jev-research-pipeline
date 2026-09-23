@@ -8,7 +8,7 @@ import pytest
 
 from jev_research_pipeline.jev import JevFailure, question_screening
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import Label, Question, QuestionLog, SourceItem
+from jev_research_pipeline.model import Label, QuestionLog, SourceItem
 from jev_research_pipeline.pipeline.run import canary_lines
 from jev_research_pipeline.report import harvest_note, qday_mark, write_note
 
@@ -183,36 +183,3 @@ def test_an_untouched_question_day_withdraws_its_labels(tmp_path: Path):
         Label.id_for(log.id, b.report().id),
         Label.id_for(claim.id, b.report().id),
     }
-
-
-def test_a_ticked_proposal_comes_back_as_adopted(tmp_path: Path):
-    note = write_note(
-        tmp_path,
-        "akc",
-        date(2026, 9, 22),
-        f'---\njrp_report: "{b.report().id}"\n---\n'
-        "- [x] 新しい問い <!-- jrp:question:vantage-point -->\n",
-    )
-    result = harvest_note(note, now=b.T0)
-    assert result.adopted == ("vantage-point",)
-    assert result.labels == ()  # a proposal is adopted, not labeled
-
-
-def test_adopting_writes_the_question_into_the_authors_file(tmp_path: Path):
-    from jev_research_pipeline.pipeline.run import adopt_candidates
-    from jev_research_pipeline.questions import parse_questions, questions_path
-
-    env = {"JRP_QUESTIONS_DIR": str(tmp_path / "questions")}
-    proposal = Question.new(
-        line=b.LINE_IRI,
-        slug="vantage-point",
-        version=1,
-        title="視点を変えたときに何が見えるか",
-        opened_at=b.T0,
-    )
-    lines = adopt_candidates(env, "akc", ("vantage-point", "unknown"), {"vantage-point": proposal})
-    assert lines == [f"問いを採用: {proposal.title}"]
-    text = questions_path(env, "akc").read_text(encoding="utf-8")
-    assert [q.slug for q in parse_questions(text, line=b.LINE_IRI, opened_at=b.T0)] == [
-        "vantage-point"
-    ]

@@ -1,9 +1,9 @@
-"""The author's question file: `questions/<slug>.md`, read every run, written only on a tick.
+"""The author's question file: `questions/<slug>.md`, read every run, never written by a run.
 
 The Question is the unit of the pipeline, and which questions are open is the author's
-call — the pipeline proposes, the author disposes (packet "Question-centric redesign").
-So this file is plain Markdown the author edits by hand, and the pipeline only ever
-appends a question the author ticked in a note.
+call (packet "Question-centric redesign"; since "Authored queries", nothing is proposed).
+So this file is plain Markdown the author edits by hand (or Claude in the author's
+session, AGENTS.md); no run writes to it.
 
 Format — one `## ` block per question, fields as `- key: value` lines and list sections:
 
@@ -35,13 +35,12 @@ Search queries are written into the same block, one line per query, keyed by ada
 
 They are authored when the question is (by the author, or by Claude in the author's
 session — never at run time), trial-fetched with `jrp queries check`, and rewritten when
-the question changes. A question with query lines runs on exactly those; one without
-falls back to the Qwen candidates scored by Jev (query_selection). arXiv ANDs every word
+the question changes. A question runs on exactly its query lines; one without them sends
+no keyword query (the note says so) while the other nets still run. arXiv ANDs every word
 (`all:w1 AND all:w2`), so its queries stay two to four words.
 """
 
 import re
-import tempfile
 import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from datetime import date
@@ -76,7 +75,6 @@ _MULTI: Final = {
     "evidence": "evidence_constraints",
     "not": "negative_topics",
 }
-_LIST_FIELDS: Final = ("method_constraints", "evidence_constraints", "negative_topics", "canary")
 
 
 class NoQuestions(RuntimeError):
@@ -242,43 +240,3 @@ def question_queries(
     path = questions_path(env, slug)
     by_slug = parse_queries(path.read_text(encoding="utf-8")) if path.is_file() else {}
     return {q.id: by_slug[q.slug] for q in questions if q.slug in by_slug}
-
-
-def render_question(question: Question) -> str:
-    """One `## ` block, in the shape parse_questions() reads back."""
-    lines = [
-        f"## {question.title}",
-        f"- slug: {question.slug}",
-        f"- version: {question.version}",
-        f"- status: {question.status}",
-        f"- opened: {question.opened_at.date().isoformat()}",
-    ]
-    if question.retire_rule:
-        lines.append(f"- retire: {question.retire_rule}")
-    if question.brief:
-        lines.append(f"- brief: {question.brief}")
-    for field, key in zip(_LIST_FIELDS, ("method", "evidence", "not", "canary"), strict=True):
-        values = getattr(question, "canary_papers" if field == "canary" else field)
-        lines += [f"- {key}: {value}" for value in values]
-    return "\n".join(lines) + "\n"
-
-
-def append_question(env: Mapping[str, str], slug: str, question: Question) -> Path:
-    """Append one adopted question to the line's file (created if missing). A question
-    whose slug is already in the file is left alone: the author's wording wins."""
-    path = questions_path(env, slug)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = (
-        path.read_text(encoding="utf-8") if path.is_file() else f"<!-- jrp:questions:{slug} -->\n"
-    )
-    if any(f"- slug: {question.slug}" == line.strip() for line in text.splitlines()):
-        return path
-    body = text.rstrip("\n") + "\n\n" + render_question(question)
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, delete=False
-    ) as handle:
-        handle.write(body)
-        handle.flush()
-        temp = Path(handle.name)
-    temp.replace(path)
-    return path

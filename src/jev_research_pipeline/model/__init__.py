@@ -3,6 +3,7 @@
 from .document import from_document, to_document
 from .jsonld import CONTEXT, IRI, STORE_NS, VOCAB_NS, content_id, kind_of, sha256_hex
 from .nodes import (
+    RETIRED_FUNCTIONS,
     SUBJECT_KINDS,
     AdapterKind,
     Answer,
@@ -38,6 +39,7 @@ from .nodes import (
 __all__ = [
     "CONTEXT",
     "IRI",
+    "RETIRED_FUNCTIONS",
     "STORE_NS",
     "SUBJECT_KINDS",
     "VOCAB_NS",

@@ -1,5 +1,5 @@
-"""Qwen sites (decision 10): query candidates (flash, NativeOutput) and report prose (max),
-with the validation fallback (decision 8) and the rewrite → template ladder."""
+"""The one Qwen site (decision 10): report prose (max), with the rewrite → template ladder.
+Queries and questions are authored (design "Authored queries"), so there is no other."""
 
 import json
 from collections.abc import Mapping
@@ -8,15 +8,12 @@ import httpx2
 import pytest
 
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import Decision, QueryCandidate
-from jev_research_pipeline.query_text import clean_query
+from jev_research_pipeline.model import Decision
 from jev_research_pipeline.qwen import (
     DASHSCOPE_BASE_URL,
-    FLASH,
     MAX,
     GenerationMeter,
     ProseResult,
-    query_candidates,
     qwen_model,
     render,
     write_prose,
@@ -35,69 +32,13 @@ CTX = LineContext(
 
 def test_endpoint_and_model_ids_are_pinned():
     assert DASHSCOPE_BASE_URL == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    assert (FLASH, MAX) == ("deepseek-v4.1-flash", "qwen3.8-max")
+    assert MAX == "qwen3.8-max"
 
 
 def test_qwen38_profile_enables_native_json_schema(cassette: ClientFactory):
     # pydantic-ai 2.47 enables json_schema output only for qwen3.5 names; 3.8 is overridden.
-    model = qwen_model(FLASH, cassette(fake_qwen()), api_key="replay")
+    model = qwen_model(MAX, cassette(fake_qwen()), api_key="replay")
     assert model.profile.get("supports_json_schema_output") is True
-
-
-# --- query candidates ----------------------------------------------------------------------
-
-
-async def test_query_candidates_valid_output(cassette: ClientFactory):
-    meter = GenerationMeter()
-    content = json.dumps({"queries": ["agent memory benchmark", "narrow question judgment"]})
-    model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=2, meter=meter)
-    assert not result.fallback
-    assert [c.text for c in result.candidates] == [
-        "agent memory benchmark",
-        "narrow question judgment",
-    ]
-    assert all(isinstance(c, QueryCandidate) and c.adapter == "arxiv" for c in result.candidates)
-    assert (meter.requests, meter.input_tokens, meter.output_tokens) == (1, 120, 40)
-
-
-async def test_query_candidates_retry_then_valid(cassette: ClientFactory):
-    meter = GenerationMeter()
-    good = json.dumps({"queries": ["agent memory"]})
-    model = qwen_model(FLASH, cassette(fake_qwen('{"wrong": 1}', good)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=1, meter=meter)
-    assert not result.fallback
-    assert meter.requests == 2
-
-
-async def test_query_candidates_fall_back_to_the_question_then_the_vocabulary(
-    cassette: ClientFactory,
-):
-    # Validation keeps failing → code-built queries: the question's own words first, so a
-    # fallback day still searches for what the line is asking.
-    meter = GenerationMeter()
-    bad = '{"wrong": 1}'
-    model = qwen_model(FLASH, cassette(fake_qwen(bad, bad, bad)), api_key="replay")
-    result = await query_candidates(model, CTX, "hf_papers", QUESTION, n=2, meter=meter)
-    assert result.fallback
-    assert [c.text for c in result.candidates] == [QUESTION.title, "agent memory"]
-    assert result.failure is not None
-    # The three failed attempts still cost tokens and must reach the operations meter.
-    assert (meter.requests, meter.input_tokens, meter.output_tokens) == (3, 360, 120)
-
-
-async def test_query_candidates_http_error_falls_back(cassette: ClientFactory):
-    model = qwen_model(FLASH, cassette(fake_qwen(None, status=400)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=1, meter=GenerationMeter())
-    assert result.fallback
-    assert [c.text for c in result.candidates] == [QUESTION.title]
-
-
-async def test_query_candidates_drop_duplicates(cassette: ClientFactory):
-    content = json.dumps({"queries": ["agent memory", "agent  memory", "narrow questions"]})
-    model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=4, meter=GenerationMeter())
-    assert [c.text for c in result.candidates] == ["agent memory", "narrow questions"]
 
 
 # --- report prose --------------------------------------------------------------------------
@@ -244,40 +185,6 @@ def test_bad_prose_timeout_env_falls_back_to_the_default(raw: str):
     from jev_research_pipeline.qwen.prose import PROSE_TIMEOUT_ENV, PROSE_TIMEOUT_S, prose_timeout_s
 
     assert prose_timeout_s({PROSE_TIMEOUT_ENV: raw}) == PROSE_TIMEOUT_S
-
-
-# --- second live run: chat-template tokens leaked into query strings ---------------------
-
-
-@pytest.mark.parametrize(
-    "dirty",
-    [",", "]", "<|start|>assistant: agent memory", "<|end|>", "  ", "-- ,,", "ab"],
-)
-async def test_contaminated_query_strings_are_refused(cassette: ClientFactory, dirty: str):
-    # qwen3.8-flash's NativeOutput intermittently leaks chat-template tokens; arXiv then
-    # answered 406 to search_query=all:,
-    content = json.dumps({"queries": [dirty, "agent memory benchmark"]})
-    model = qwen_model(FLASH, cassette(fake_qwen(content, content, content)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=2, meter=GenerationMeter())
-    assert dirty not in [c.text for c in result.candidates]
-    assert all(clean_query(c.text) == c.text for c in result.candidates)
-
-
-async def test_query_validation_failure_is_retried_then_falls_back(cassette: ClientFactory):
-    meter = GenerationMeter()
-    bad = json.dumps({"queries": ["<|start|>", ","]})
-    model = qwen_model(FLASH, cassette(fake_qwen(bad, bad, bad)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=2, meter=meter)
-    assert result.fallback
-    assert meter.requests == 3  # the initial attempt plus OUTPUT_RETRIES
-    assert meter.output_violations == 1  # metered before deciding Native vs Prompted
-
-
-async def test_clean_queries_are_kept_verbatim(cassette: ClientFactory):
-    content = json.dumps({"queries": ["agent memory benchmark", "狭い質問 判定"]})
-    model = qwen_model(FLASH, cassette(fake_qwen(content)), api_key="replay")
-    result = await query_candidates(model, CTX, "arxiv", QUESTION, n=2, meter=GenerationMeter())
-    assert [c.text for c in result.candidates] == ["agent memory benchmark", "狭い質問 判定"]
 
 
 # --- citation binding is deterministic (search-first synthesis) --------------------------

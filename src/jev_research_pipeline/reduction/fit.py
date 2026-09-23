@@ -61,7 +61,7 @@ def _p_choice(key: str, *options: str) -> Callable[[Judgment], float]:
     return feature
 
 
-# (spec, feature, the module's current thresholds). query_selection and rubric_report have
+# (spec, feature, the module's current thresholds). rubric_report has
 # no claim-level link and report_ordering has no cut-off, so they are not fitted here.
 SPECS: Final[
     tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...], str], ...]

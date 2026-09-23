@@ -36,7 +36,7 @@ async def check_queries(
         out.append(f"## {question.title} ({question.slug})")
         authored = queries.get(question.id, ())
         if not authored:
-            out.append("  クエリ未設定 — 実行時は生成経路 (Qwen + Jev query_selection)")
+            out.append("  クエリ未設定 — 実行時はこの問いの keyword 検索を送らない")
         for kind, text in authored:
             adapter = make_adapter(kind)
             needed = adapter.required_env

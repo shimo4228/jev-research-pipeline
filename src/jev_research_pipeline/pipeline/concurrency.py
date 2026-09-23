@@ -2,8 +2,8 @@
 15-20 min because every (source, question) pair waited for the one before it).
 
 JRP_JEV_CONCURRENCY    Jev requests in flight (default 12 — the vendor cookbook's fan-out)
-JRP_PROSE_CONCURRENCY  Qwen calls in flight: query candidates and the per-question prose
-                       ladder (default 3; one prose call runs 40-300 s)
+JRP_PROSE_CONCURRENCY  Qwen calls in flight: the per-question prose ladder
+                       (default 3; one prose call runs 40-300 s)
 
 The Jev request rate is capped separately, in JevClient (1,200 rpm, docs.typesafe.ai
 models, as-of 2026-09-23). A mis-set variable must not cost the run: anything that is not

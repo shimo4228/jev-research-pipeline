@@ -14,15 +14,13 @@
     - [ ] 読む価値があった <!-- jrp:qday:<question @id>:<date> -->
     ## Review                            borderline sources, one checkbox each
     - [ ] <title> — <why> <!-- jrp:source:<source @id> -->
-    ## 問いの候補                          tick = adopt into questions/<slug>.md
-    - [ ] <title> — <brief> <!-- jrp:question:<slug> -->
     ## 橋渡し                              what the exploration nets connected
     > [!note]- Claims                    folded: the wall of claims is not the reading surface
     > - [ ] <verbatim> — [source](url) <!-- jrp:claim:<claim @id> -->
     ## 未判定
     ## 運用
 
-The machine-read lines are exactly the four `<!-- jrp:… -->` marks above; one checkbox
+The machine-read lines are exactly the three `<!-- jrp:… -->` marks above; one checkbox
 per question-day is the primary metric's unit, and its tick propagates to the claims and
 sources cited under it (report.vault).
 
@@ -51,7 +49,6 @@ KIND: Final = "report"
 CLAIM_MARK: Final = "jrp:claim:"
 QDAY_MARK: Final = "jrp:qday:"
 SOURCE_MARK: Final = "jrp:source:"
-CANDIDATE_MARK: Final = "jrp:question:"
 
 # Only syntax Obsidian (or a plugin) would *execute or fetch* is neutralized — the live
 # notes showed that escaping every bracket, paren, $ and < made them unreadable in source
@@ -116,12 +113,6 @@ class QuestionSection(Value):
     """Claims that count against the answer the evidence set supports. They get their own
     block rather than being folded into the day's prose: a contradiction the reader has to
     dig for is a contradiction that does not do its work."""
-
-
-class CandidateEntry(Value):
-    slug: str
-    title: str
-    brief: str
 
 
 def sanitize(text: str, *, one_line: bool = False) -> str:
@@ -215,7 +206,6 @@ def render_report(
     sections: list[QuestionSection],
     claims: list[ClaimEntry],
     review: list[SourceEntry],
-    candidates: list[CandidateEntry],
     bridges: list[SourceEntry],
     unjudged: list[str],
     operations: list[str],
@@ -234,15 +224,6 @@ def render_report(
         else f"今日動いた問いはない。{sanitize(empty_day, one_line=True)}\n",
         "## Review\n",
         _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review]),
-        "## 問いの候補\n",
-        _bullets(
-            [
-                f"- [ ] {sanitize(c.title, one_line=True)}"
-                + (f" — {sanitize(c.brief, one_line=True)}" if c.brief else "")
-                + f" <!-- {CANDIDATE_MARK}{c.slug} -->"
-                for c in candidates
-            ]
-        ),
         "## 橋渡し\n",
         _bullets([_source_line(e) for e in bridges]),
         "> [!note]- Claims\n",

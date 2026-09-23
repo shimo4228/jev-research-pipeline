@@ -20,7 +20,7 @@ from jev_research_pipeline.report import (
     vault_dir,
     write_note,
 )
-from jev_research_pipeline.report.markdown import CandidateEntry, QuestionSection, SourceEntry
+from jev_research_pipeline.report.markdown import QuestionSection, SourceEntry
 
 from . import builders as b
 
@@ -63,7 +63,6 @@ def _render(
     prose: str | None = "本文です [1]。",
     *,
     review: list[SourceEntry] | None = None,
-    candidates: list[CandidateEntry] | None = None,
 ) -> str:
     report = b.report()
     return render_report(
@@ -74,7 +73,6 @@ def _render(
         sections=[_section(prose, entries)],
         claims=entries,
         review=review or [],
-        candidates=candidates or [],
         bridges=[],
         unjudged=["見出しだけの断片"],
         operations=["Jev 質問数: 13", "claude_calls: 0"],
@@ -162,7 +160,6 @@ def test_body_sections_in_order():
             "証拠",
             "jrp:qday:",
             "## Review",
-            "## 問いの候補",
             "## 橋渡し",
             "> [!note]- Claims",
             "## 未判定",
@@ -362,7 +359,6 @@ def test_contradictions_get_their_own_block():
         sections=[section],
         claims=entries,
         review=[],
-        candidates=[],
         bridges=[],
         unjudged=[],
         operations=["Jev 質問数: 1"],

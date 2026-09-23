@@ -223,21 +223,6 @@ def test_a_gist_ends_at_a_word_with_an_ellipsis():
     assert gist("short text") == "short text"
 
 
-def test_a_proposal_in_a_foreign_script_is_dropped():
-    from jev_research_pipeline.qwen import proposals
-
-    from . import builders as b
-    from .test_question_flow import CTX
-
-    make = proposals._question  # pyright: ignore[reportPrivateUsage]
-    slip = proposals.Candidate(title="アビダルマのオン톨ロジー比較", brief="分類の比較。")
-    fine = proposals.Candidate(
-        title="アビダルマの分類は特徴量設計に何を教えるか", brief="分類の比較。"
-    )
-    assert make(CTX, slip, b.T0) is None
-    assert make(CTX, fine, b.T0) is not None
-
-
 async def test_a_transient_jev_failure_is_sent_once_more(monkeypatch: pytest.MonkeyPatch):
     """Final run: a canary went "unjudged" over one failed request. One retry after the
     backoff, counted; a second failure stays unjudged."""
@@ -286,22 +271,21 @@ def test_a_day_with_some_prose_is_not_a_template_day():
     assert joined(last, [sections[1]]).rendering == "template"
 
 
-def test_a_note_over_the_cap_drops_proposals_then_review_and_says_so():
+def test_a_note_over_the_cap_drops_review_from_the_far_end_and_says_so():
     from jev_research_pipeline.pipeline import run
-    from jev_research_pipeline.report import CandidateEntry, SourceEntry
+    from jev_research_pipeline.report import SourceEntry
 
     fitted = run._fitted  # pyright: ignore[reportPrivateUsage]
-    candidates = [CandidateEntry(slug=f"c{i}", title="t", brief="b") for i in range(3)]
     review = [
         SourceEntry(source_id=f"s{i}", title="t", gist="g", url="https://example.org")
-        for i in range(3)
+        for i in range(5)
     ]
 
     def rendered(ops: list[str]) -> str:
         # 4,000 bytes per remaining entry: fits once two entries are left
-        return "x" * (4_000 * (len(candidates) + len(review))) + "\n".join(ops)
+        return "x" * (4_000 * len(review)) + "\n".join(ops)
 
-    text, ops = fitted(rendered, ["base"], candidates, review)
+    text, ops = fitted(rendered, ["base"], review)
     assert len(text.encode()) <= run.NOTE_MAX_BYTES
-    assert (len(candidates), len(review)) == (0, 2)
-    assert ops == ["base", "note 12 KB のため省略: 候補 3 件 / Review 1 件"]
+    assert [e.source_id for e in review] == ["s0", "s1"]
+    assert ops == ["base", "note 12 KB のため省略: Review 3 件"]

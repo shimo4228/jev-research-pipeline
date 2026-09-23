@@ -6,15 +6,14 @@
   source- or model-derived text.
 - A same-day re-run keeps the author's ticks: marks already in the note are carried
   over to the matching claim ids before the file is replaced (atomic write).
-- Harvest: only lines `- [x|-| ] … <!-- jrp:<kind>:<payload> -->` are read, for the four
-  kinds the note writes: `qday` (a question-day — the primary unit), `source`, `claim`
-  and `question` (a proposal the author adopts). [x] = correct, [-] = incorrect,
+- Harvest: only lines `- [x|-| ] … <!-- jrp:<kind>:<payload> -->` are read, for the three
+  kinds the note writes: `qday` (a question-day — the primary unit), `source` and
+  `claim`. [x] = correct, [-] = incorrect,
   [ ] = no gold: no Label, and an earlier Label for that subject is withdrawn
   (HarvestResult.cleared). A question-day tick propagates to the claims and sources its
-  QuestionLog cites, so the fit layer gets claim-level gold from one checkbox. A ticked
-  proposal is returned as `adopted` for the runner to append to questions/<slug>.md —
-  this module never writes there itself. Everything else in the note is the author's to
-  edit. A missing or unreadable note is skipped with a reason.
+  QuestionLog cites, so the fit layer gets claim-level gold from one checkbox. Older notes
+  still carry `jrp:question:` proposal lines; they are ignored (questions are the author's,
+  design "Authored queries"). Everything else in the note is the author's to edit. A missing or unreadable note is skipped with a reason.
 """
 
 import json
@@ -50,9 +49,6 @@ class HarvestResult(Value):
     cleared: tuple[str, ...] = ()
     """Label @ids of subjects shown as `[ ]`: the author withdrew (or never gave) a tick,
     so any earlier Label for that (subject, report) must be removed from the store."""
-    adopted: tuple[str, ...] = ()
-    """Slugs of question proposals the author ticked; the runner appends them to the
-    question file (this module never writes there)."""
     skipped: SkipReason | None
 
 
@@ -247,7 +243,6 @@ def harvest_note(
     return HarvestResult(
         labels=tuple(labels.values()),
         cleared=tuple(i for i in dict.fromkeys(cleared) if i not in labels),
-        adopted=tuple(ticks(text, "question")),
         skipped=None,
     )
 

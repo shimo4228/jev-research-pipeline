@@ -1,4 +1,4 @@
-"""The author's question file: parsed every run, appended only on an adopted proposal."""
+"""The author's question file: parsed every run, never written by a run."""
 
 from pathlib import Path
 
@@ -7,11 +7,9 @@ import pytest
 from jev_research_pipeline.model import Question
 from jev_research_pipeline.questions import (
     NoQuestions,
-    append_question,
     open_questions,
     parse_questions,
     questions_path,
-    render_question,
     slugify,
 )
 
@@ -76,38 +74,6 @@ def test_a_line_without_an_open_question_stops_the_run(tmp_path: Path, text: str
 def test_a_missing_file_stops_the_run_too(tmp_path: Path):
     with pytest.raises(NoQuestions, match="問い未設定"):
         open_questions(_env(tmp_path), "akc", line=b.LINE_IRI, now=b.T0)
-
-
-def test_render_round_trips_through_the_parser():
-    written = b.question()
-    (question,) = parse_questions(render_question(written), line=b.LINE_IRI, opened_at=b.T0)
-    # The file carries a date, not a timestamp; everything else survives verbatim.
-    skip = {"id", "evidence", "opened_at"}
-    assert question.model_dump(exclude=skip) == written.model_dump(exclude=skip)
-    assert question.opened_at.date() == written.opened_at.date()
-
-
-def test_append_creates_the_file_and_is_idempotent(tmp_path: Path):
-    env = _env(tmp_path)
-    proposal = b.question()
-    path = append_question(env, "akc", proposal)
-    append_question(env, "akc", proposal)  # a second tick on the same proposal
-    text = path.read_text(encoding="utf-8")
-    assert text.count(f"- slug: {proposal.slug}") == 1
-    assert parse_questions(text, line=b.LINE_IRI, opened_at=b.T0)[0].title == proposal.title
-
-
-def test_append_keeps_what_the_author_wrote(tmp_path: Path):
-    env = _env(tmp_path)
-    path = questions_path(env, "akc")
-    path.parent.mkdir(parents=True)
-    path.write_text(FILE, encoding="utf-8")
-    adopted = b.question().model_copy(
-        update={"slug": "vantage-point", "id": Question.id_for(b.LINE_IRI, "vantage-point", 1)}
-    )
-    append_question(env, "akc", adopted)
-    questions = parse_questions(path.read_text(encoding="utf-8"), line=b.LINE_IRI, opened_at=b.T0)
-    assert [q.slug for q in questions] == ["agent-memory", "closed-one", "vantage-point"]
 
 
 def test_a_japanese_title_still_gets_a_slug():

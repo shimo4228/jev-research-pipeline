@@ -455,8 +455,19 @@ deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carr
 - Topic convergence is not solved by date windows (they only stop repeats of the same item,
   which store dedup and newest-first sorting already do); it surfaces as empty days, the signal
   to rewrite the question and its queries.
-Review-when: every line has query lines for two weeks → remove `qwen/queries.py` and
-`jev/query_selection.py`; or a line's authored queries return 0 hits on three runs in a row.
+**Generation reduced to the prose (author decision 2026-09-23, same day).** Every line got
+authored queries (trial-fetched), and the two other generation sites were removed rather
+than kept as fallbacks: `qwen/queries.py` + `jev/query_selection.py` (a question without
+query lines now sends no keyword query and the note says so) and the question proposals —
+`qwen/proposals.py`, `jev/question_seeding.py`, the note's 「問いの候補」 section, the
+harvester's `jrp:question:` adoption and `append_question` (questions are the author's; the
+note no longer writes the file). The FLASH model (deepseek-v4.1-flash) has no site left and
+is gone from the client and the price table. `query_selection` / `question_seeding` stay in
+`JevFunction` as RETIRED_FUNCTIONS so stored Judgments still validate. This supersedes the
+judgment map's "query candidates" / "query selection" rows, the "Qwen 2 sites" framing
+(one site now: report prose), and the Question-centric section's proposal checkbox.
+Review-when: a line's authored queries return 0 hits on three runs in a row, or the author
+wants proposals back (the removed code is in git: commit before this one).
 
 ### Non-goals (explicit)
 

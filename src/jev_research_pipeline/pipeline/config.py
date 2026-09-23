@@ -95,37 +95,6 @@ def _read_graph(repo: Path) -> list[Mapping[str, JsonValue]]:
     return [n for n in graph if isinstance(n, dict)]
 
 
-ADR_GLOB: Final = "docs/adr/*.md"
-REVIEW_WHEN: Final = "Review-when"
-MAX_SEEDS: Final = 12
-
-
-def line_seeds(track: TrackSpec) -> list[str]:
-    """What the author already wrote about where this line is unsettled: the ResearchLine
-    description from graph.jsonld, plus every ADR "Review-when" line. These seed the
-    question proposals; nothing is written back (decision 2)."""
-    repo = track.repo
-    if repo is None:
-        return []
-    seeds: list[str] = []
-    for n in _read_graph(repo):
-        if _has_type(n, "ResearchLine"):
-            description = n.get("description")
-            if isinstance(description, str) and description.strip():
-                seeds.append(description.strip())
-    for path in sorted(repo.glob(ADR_GLOB)):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        seeds += [
-            " ".join(line.split())
-            for line in text.splitlines()
-            if line.lstrip("*_> ").startswith(REVIEW_WHEN)
-        ]
-    return list(dict.fromkeys(s for s in seeds if s))[:MAX_SEEDS]
-
-
 def line_context(track: TrackSpec) -> LineContext:
     repo = track.repo
     nodes = _read_graph(repo) if repo else []

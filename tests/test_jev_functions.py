@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from enum import IntEnum
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
 import pytest
 from pydantic_ai._utils import enum_member_docstrings
@@ -15,11 +14,9 @@ from jev_research_pipeline.jev import (
     Judged,
     claim_detection,
     novelty,
-    query_selection,
     question_movement,
     question_prefilter,
     question_screening,
-    question_seeding,
     relevance_triage,
     report_ordering,
     rubric_claim,
@@ -29,9 +26,9 @@ from jev_research_pipeline.jev import (
 )
 from jev_research_pipeline.jev.context import EXCERPT_CHARS, LineContext, source_state
 from jev_research_pipeline.model import (
+    RETIRED_FUNCTIONS,
     SUBJECT_KINDS,
     Claim,
-    QueryCandidate,
     SourceItem,
     Unit,
 )
@@ -42,9 +39,7 @@ from .conftest import ClientFactory
 from .fakes import fake_jev
 
 MODULES: list[ModuleType] = [
-    query_selection,
     relevance_triage,
-    question_seeding,
     question_screening,
     question_movement,
     question_prefilter,
@@ -102,7 +97,7 @@ def test_threshold_names_are_unique(module: ModuleType):
 
 
 def test_every_function_has_a_module():
-    assert {m.ASK.function for m in MODULES} == set(SUBJECT_KINDS)
+    assert {m.ASK.function for m in MODULES} == set(SUBJECT_KINDS) - RETIRED_FUNCTIONS
 
 
 def test_state_excerpts_long_source_text():
@@ -116,46 +111,6 @@ def test_state_excerpts_long_source_text():
     )
     ex = source_state(long)["excerpt"]
     assert isinstance(ex, str) and len(ex) <= EXCERPT_CHARS + 2
-
-
-# --- query_selection: top-k over candidates ----------------------------------------------
-
-
-def _query(text: str) -> QueryCandidate:
-    return QueryCandidate.new(line=b.LINE_IRI, adapter="arxiv", text=text)
-
-
-async def test_query_selection_keeps_top_k_above_floor(cassette: ClientFactory):
-    queries = [_query(f"q{i}") for i in range(5)]
-    dists = {
-        "q0": (0.0, 0.0, 0.0, 1.0),
-        "q1": (0.0, 0.0, 1.0, 0.0),
-        "q2": (0.0, 0.0, 0.5, 0.5),
-        "q3": (0.0, 0.0, 1.0, 0.0),
-        "q4": (1.0, 0.0, 0.0, 0.0),
-    }
-    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
-    for q in queries:
-        jev = _jev(cassette, {"expected_yield": dists[q.text]})
-        pairs.append((q, await query_selection.judge(jev, CTX, q, QUESTION, now=b.T0)))
-    decisions = query_selection.rank(pairs)
-    kept = [q.text for q, d in zip(queries, decisions, strict=True) if d.outcome == "accept"]
-    # q0 (1.0), q2 (0.83), then q1/q3 tie at 0.67 broken by @id; q4 (0.0) is below the floor.
-    tie_winner = min((queries[1], queries[3]), key=lambda q: q.id).text
-    assert set(kept) == {"q0", "q2", tie_winner}
-    assert all(d.thresholds == query_selection.THRESHOLDS for d in decisions)
-
-
-def test_query_selection_unjudged_is_never_kept():
-    failure = JevFailure(
-        function="query_selection",
-        subjects=(_query("x").id,),
-        bundle_sha256=query_selection.ASK.sha256,
-        reason="timeout",
-        detail="",
-    )
-    (d,) = query_selection.rank([(_query("x"), failure)])
-    assert d.outcome == "unjudged"
 
 
 # --- relevance_triage ----------------------------------------------------------------------
@@ -397,101 +352,3 @@ def test_triage_sees_the_whole_source_for_injection():
 async def test_wrong_subject_kind_is_a_programming_error_not_unjudged(cassette: ClientFactory):
     with pytest.raises(ValueError, match="subjects"):
         await rubric_report.judge(_jev(cassette), b.claim().id, {"prose": "x"}, now=b.T0)
-
-
-async def test_query_selection_top_k_is_per_adapter(cassette: ClientFactory):
-    arx = [QueryCandidate.new(line=b.LINE_IRI, adapter="arxiv", text=f"a{i}") for i in range(4)]
-    hf = [QueryCandidate.new(line=b.LINE_IRI, adapter="hf_papers", text="h0")]
-    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
-    for q in arx:
-        pairs.append(
-            (
-                q,
-                await query_selection.judge(
-                    _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}),
-                    CTX,
-                    q,
-                    QUESTION,
-                    now=b.T0,
-                ),
-            )
-        )
-    for q in hf:
-        pairs.append(
-            (
-                q,
-                await query_selection.judge(
-                    _jev(cassette, {"expected_yield": (0.0, 0.0, 1.0, 0.0)}),
-                    CTX,
-                    q,
-                    QUESTION,
-                    now=b.T0,
-                ),
-            )
-        )
-    kept = [
-        q
-        for q, d in zip([p[0] for p in pairs], query_selection.rank(pairs), strict=True)
-        if d.outcome == "accept"
-    ]
-    assert sum(q.adapter == "arxiv" for q in kept) == 3
-    assert [q.text for q in kept if q.adapter == "hf_papers"] == ["h0"]
-
-
-async def test_query_selection_falls_back_to_top_k_when_nothing_clears_the_floor(
-    cassette: ClientFactory,
-):
-    # First live run: all 9 candidates scored 0.16-0.38 → nothing fetched. Without labels
-    # there is nothing to fit the floor on, so bootstrap with a relative choice.
-    queries = [_query(f"q{i}") for i in range(4)]
-    dists = {
-        "q0": (1.0, 0.0, 0.0, 0.0),
-        "q1": (0.5, 0.5, 0.0, 0.0),
-        "q2": (0.0, 1.0, 0.0, 0.0),
-        "q3": (1.0, 0.0, 0.0, 0.0),
-    }
-    pairs: list[tuple[QueryCandidate, Judged[Any] | JevFailure]] = []
-    for q in queries:
-        jev = _jev(cassette, {"expected_yield": dists[q.text]})
-        pairs.append((q, await query_selection.judge(jev, CTX, q, QUESTION, now=b.T0)))
-    decisions = query_selection.rank(pairs)
-    kept = [q.text for q, d in zip(queries, decisions, strict=True) if d.outcome == "accept"]
-    assert len(kept) == 3
-    assert "q2" in kept  # the best of a bad field (0.33) is taken
-    assert all(
-        d.policy == query_selection.FLOOR_FALLBACK_POLICY
-        for d in decisions
-        if d.outcome == "accept"
-    )
-    assert query_selection.FLOOR_FALLBACK_POLICY != query_selection.ASK.policy
-
-
-async def test_floor_fallback_is_per_adapter(cassette: ClientFactory):
-    good = QueryCandidate.new(line=b.LINE_IRI, adapter="arxiv", text="good")
-    weak = QueryCandidate.new(line=b.LINE_IRI, adapter="hf_papers", text="weak")
-    pairs = [
-        (
-            good,
-            await query_selection.judge(
-                _jev(cassette, {"expected_yield": (0.0, 0.0, 0.0, 1.0)}),
-                CTX,
-                good,
-                QUESTION,
-                now=b.T0,
-            ),
-        ),
-        (
-            weak,
-            await query_selection.judge(
-                _jev(cassette, {"expected_yield": (1.0, 0.0, 0.0, 0.0)}),
-                CTX,
-                weak,
-                QUESTION,
-                now=b.T0,
-            ),
-        ),
-    ]
-    by_query = dict(zip([good, weak], query_selection.rank(pairs), strict=True))
-    assert by_query[good].policy == query_selection.ASK.policy  # cleared the floor
-    assert by_query[weak].policy == query_selection.FLOOR_FALLBACK_POLICY
-    assert {d.outcome for d in by_query.values()} == {"accept"}

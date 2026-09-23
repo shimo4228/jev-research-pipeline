@@ -45,7 +45,11 @@ def env(tmp_path: Path) -> dict[str, str]:
         "- slug: agent-memory\n"
         "- version: 1\n"
         "- status: open\n"
-        "- brief: 記憶機構の違いが下流の精度をどれだけ動かすか。\n",
+        "- brief: 記憶機構の違いが下流の精度をどれだけ動かすか。\n"
+        "- arxiv: narrow typed questions\n"
+        "- hf: author label thresholds\n"
+        "- github: agent memory\n"
+        "- github: narrow typed questions\n",
         encoding="utf-8",
     )
     return {
@@ -89,7 +93,7 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     from jev_research_pipeline.pipeline.runner import harvest_line
 
     lines = harvest_line(
-        GraphStore(Path(env["JRP_STORE_DIR"])), Path(env["JRP_VAULT_DIR"]), "akc", b.T0, env
+        GraphStore(Path(env["JRP_STORE_DIR"])), Path(env["JRP_VAULT_DIR"]), "akc", b.T0
     )
     # One claim ticked; every other checkbox of the note (claims, sources, the
     # question-day and what it cites) is blank, so its label is withdrawn.
