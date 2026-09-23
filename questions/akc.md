@@ -13,6 +13,9 @@
 - evidence: 数えたものと数えなかったものが明示されている報告。感想だけの投稿は採らない
 - not: prompt engineering 一般のコツ集
 - not: 新しい skill の作り方
+- arxiv: agent skills ablation
+- github: agent skill audit
+- hf: agent skill library evaluation
 
 ## エージェントと運用者の意図整合は、テストで検査できない部分をどう保っているか
 - slug: intent-alignment-beyond-tests
@@ -25,6 +28,9 @@
 - method: 記憶・ルール層の ablation
 - evidence: 時間軸のある測定。単発ベンチマークは弱い
 - not: モデル単体の alignment 訓練（RLHF 等）
+- arxiv: agent harness self-improvement
+- github: agent harness memory rules
+- hf: longitudinal evaluation coding agents
 
 ## 「原則 / パターン / 実装」の三層で変化率を分ける設計は、他の agent framework でどう現れているか
 - slug: three-layer-rate-of-change
@@ -37,3 +43,5 @@
 - method: 分離の有無による保守コストの比較
 - evidence: 層の境界と更新頻度が具体的に書かれているもの
 - not: 一般的なソフトウェアアーキテクチャ論（clean architecture 等）で agent と無関係なもの
+- github: agent skills design patterns
+- hf: agent framework design principles

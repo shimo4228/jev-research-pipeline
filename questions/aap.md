@@ -11,6 +11,8 @@
 - method: 実事案の報告
 - evidence: 一次文書か、事案の当事者・当局の記述
 - not: AI 倫理の一般論・宣言文
+- arxiv: AI agent liability
+- hf: autonomous agents legal responsibility
 
 ## 帰責記録（audit trail・control plane）の整備は、仕事の割り当てや運用の形を実際に変えているか
 - slug: attribution-records-shape-work
@@ -23,6 +25,9 @@
 - method: 記録・トレースの実装報告
 - evidence: 測定か実装の記述。予測だけは弱い
 - not: 一般的な監査ログ製品の宣伝
+- arxiv: agent audit trail
+- github: agent audit log
+- hf: agent accountability traceability
 
 ## 「禁止はどこに住むべきか」— 設計時と運用時の相分離を破った失敗事例は何を示すか
 - slug: prohibition-placement
@@ -35,3 +40,6 @@
 - method: 設計原則の比較
 - evidence: 何がすり抜けさせたかが具体的に書かれているもの
 - not: 抽象的な「AI safety」の主張
+- arxiv: agent guardrail bypass
+- github: agent approval gate
+- hf: agents violating their own rules
