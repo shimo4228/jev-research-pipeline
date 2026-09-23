@@ -145,7 +145,10 @@ async def rubric_ladder(
         # `grounded` is judged on the evidence paragraphs only: the marked inference
         # paragraph is allowed to go beyond the claims, that is what marking it is for.
         result = await rubric_report.judge(
-            jev, report_id, rubric_report.state(ctx, evidence_text(prose), claims), now=now
+            jev,
+            report_id,
+            rubric_report.state(ctx, evidence_text(prose), claims, evidence_set),
+            now=now,
         )
         if isinstance(result, Judged):
             judged.append(result.judgment)

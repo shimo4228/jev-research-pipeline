@@ -11,6 +11,8 @@ NativeOutput over a Pydantic model, same as the query site; a failed or empty ge
 yields no proposals rather than a made-up one.
 """
 
+import re
+from collections.abc import Sequence
 from typing import Final
 
 from pydantic import AwareDatetime, BaseModel, Field
@@ -58,19 +60,33 @@ def instructions(n: int) -> str:
     )
 
 
-def user_prompt(ctx: LineContext, seeds: list[str]) -> str:
+def user_prompt(ctx: LineContext, seeds: list[str], existing: Sequence[Question] = ()) -> str:
     vocab = "\n".join(f"- {term}" for term in ctx.vocabulary)
     lines = [f"研究ライン: {ctx.line.name}", f"語彙:\n{vocab}"]
+    if existing:
+        # Without them a proposal redefined a term the author's file already defines
+        # (scratch run 6: 三軸反転 given other axes than the question file's).
+        held = "\n".join(f"- {q.title}: {q.brief}" for q in existing)
+        lines.append(f"すでにある問い (重複させず、用語の定義はこれに従う):\n{held}")
     if seeds:
         joined = "\n".join(f"- {s}" for s in seeds)
         lines.append(f"著者が書き残した見直し条件:\n{joined}")
     return "\n\n".join(lines)
 
 
+_FOREIGN_SCRIPT: Final = re.compile(
+    r"[\u0400-\u04ff\u0590-\u06ff\u0e00-\u0e7f\u1100-\u11ff\uac00-\ud7af]"
+)
+"""Cyrillic, Hebrew/Arabic, Thai, Hangul: a Japanese proposal with any of these is a
+generation slip (scratch run 6: "オン톨ロジー"), never meant."""
+
+
 def _question(ctx: LineContext, candidate: Candidate, now: AwareDatetime) -> Question | None:
     title = " ".join(candidate.title.split())
     if clean_query(title) is None:
         return None  # the same contamination guard as the query site
+    if _FOREIGN_SCRIPT.search(title + candidate.brief):
+        return None
     return Question.new(
         line=ctx.line.id,
         slug=slugify(title),
@@ -94,6 +110,7 @@ async def propose_questions(
     n: int = PROPOSALS,
     meter: GenerationMeter,
     now: AwareDatetime,
+    existing: Sequence[Question] = (),
 ) -> ProposalResult:
     agent = Agent(
         model,
@@ -104,7 +121,7 @@ async def propose_questions(
     )
     usage = RunUsage()
     try:
-        result = await agent.run(user_prompt(ctx, seeds), usage=usage)
+        result = await agent.run(user_prompt(ctx, seeds, existing), usage=usage)
     except AgentRunError as e:
         if isinstance(e, UnexpectedModelBehavior):
             meter.output_violations += 1

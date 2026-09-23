@@ -63,12 +63,19 @@ ASK: Final = Ask(
 THRESHOLDS: Final = (
     Threshold(name="readability", value=0.5),
     Threshold(name="coherence", value=0.5),
-    Threshold(name="unsupported_statement", value=0.5),
+    Threshold(name="unsupported_statement", value=0.7),
 )
 
 
-def state(ctx: LineContext, prose: str, claims: list[str]) -> dict[str, JsonValue]:
-    return {"line": line_state(ctx), "prose": prose, "claims": list(claims)}
+def state(
+    ctx: LineContext, prose: str, claims: list[str], known: list[str] | None = None
+) -> dict[str, JsonValue]:
+    """`known` = the question's evidence set, which the prose call also gets: a sentence
+    grounded there is not unsupported (scratch run 6 rejected two drafts that way)."""
+    out: dict[str, JsonValue] = {"line": line_state(ctx), "prose": prose, "claims": list(claims)}
+    if known:
+        out["known"] = list(known)
+    return out
 
 
 async def judge(

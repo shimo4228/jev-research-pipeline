@@ -208,3 +208,29 @@ def replace_interval(adapter: Adapter) -> Adapter:
     from dataclasses import replace
 
     return replace(adapter, min_interval_s=0.0)
+
+
+def test_a_gist_ends_at_a_word_with_an_ellipsis():
+    from jev_research_pipeline.pipeline import run
+
+    gist = run._gist  # pyright: ignore[reportPrivateUsage]
+    long = "DiscoverLLM learns what users want by letting a model interact with user " * 3
+    cut = gist(long)
+    assert cut.endswith("…") and len(cut) <= run.GIST_CHARS + 1
+    assert not cut[:-1].endswith(" ")
+    assert gist("short text") == "short text"
+
+
+def test_a_proposal_in_a_foreign_script_is_dropped():
+    from jev_research_pipeline.qwen import proposals
+
+    from . import builders as b
+    from .test_question_flow import CTX
+
+    make = proposals._question  # pyright: ignore[reportPrivateUsage]
+    slip = proposals.Candidate(title="アビダルマのオン톨ロジー比較", brief="分類の比較。")
+    fine = proposals.Candidate(
+        title="アビダルマの分類は特徴量設計に何を教えるか", brief="分類の比較。"
+    )
+    assert make(CTX, slip, b.T0) is None
+    assert make(CTX, fine, b.T0) is not None

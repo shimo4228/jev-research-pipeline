@@ -219,16 +219,19 @@ def render_report(
     bridges: list[SourceEntry],
     unjudged: list[str],
     operations: list[str],
+    empty_day: str = "",
 ) -> str:
     """`sections` = the questions that moved today, in reading order; `claims` is the
-    folded list (report.claims). Everything else is display lines, sanitized here."""
+    folded list (report.claims). Everything else is display lines, sanitized here.
+    `empty_day` says why no question moved (what was fetched, how far it got) — a note
+    that only says "nothing moved" cannot be told apart from a broken run."""
     date_ = report.run_date
     parts = [
         _frontmatter(report, ctx, len(sections)),
         f"# {sanitize(ctx.line.name, one_line=True)} — {date_.isoformat()}\n",
         "\n".join(_question_section(s, date_) for s in sections)
         if sections
-        else "今日動いた問いはない。\n",
+        else f"今日動いた問いはない。{sanitize(empty_day, one_line=True)}\n",
         "## Review\n",
         _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review]),
         "## 問いの候補\n",

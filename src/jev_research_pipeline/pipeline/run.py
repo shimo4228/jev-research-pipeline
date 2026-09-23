@@ -308,8 +308,19 @@ type _Screened = dict[tuple[str, str], Judged[question_screening.Answers] | JevF
 """(source id, question id) → its screening answer; None where the cost cap stopped it."""
 
 
+def _gist(text: str) -> str:
+    """The first GIST_CHARS of a source, cut at a word (or, for Japanese, a character)
+    boundary with an ellipsis — a line that stops mid-word reads as broken."""
+    flat = " ".join(text.split())
+    if len(flat) <= GIST_CHARS:
+        return flat
+    cut = flat[:GIST_CHARS]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > GIST_CHARS // 2 else cut).rstrip(" ,;:—-") + "…"
+
+
 def _entry(source: SourceItem, gist: str = "") -> SourceEntry:
-    text = gist or " ".join(source.text.split())[:GIST_CHARS]
+    text = gist or _gist(source.text)
     return SourceEntry(source_id=source.id, title=source.title, gist=text, url=source.url)
 
 
@@ -990,7 +1001,12 @@ class LineRun:
             self.st.candidates += [n for i in done if isinstance(n := loaded.get(i), Question)]
             return
         result = await propose_questions(
-            self.flash, self.ctx, self.seeds, meter=self.meters[FLASH], now=self.now
+            self.flash,
+            self.ctx,
+            self.seeds,
+            meter=self.meters[FLASH],
+            now=self.now,
+            existing=self.questions,
         )
         if result.failure is not None:
             self.st.notes.append(f"問いの候補: 生成なし ({result.failure})")
@@ -1016,6 +1032,15 @@ class LineRun:
         cache.record("question_proposals", key, tuple(q.id for q in self.st.candidates), self.now)
 
     # --- run ----------------------------------------------------------------------------
+
+    def _empty_day(self, claims: int) -> str:
+        """One sentence on how far the day's sources got, for a note with no section."""
+        silenced = [n.split(":")[0] for n in self.st.notes if "rate limit のため" in n]
+        tail = f" {', '.join(silenced)} は rate limit で打ち切り。" if silenced else ""
+        return (
+            f"取得 {len(self.st.fetched)} 件のうち、問いに関係しそうな (source, 問い) 対が "
+            f"{self.st.pairs_screened}、採用された claim が {claims} 件。{tail}"
+        )
 
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
         """Which net earned its budget, and whether the search is narrowing."""
@@ -1090,7 +1115,7 @@ class LineRun:
         if self.st.pairs:
             share = self.st.failed_pairs / self.st.pairs
             lines.append(
-                f"未判定 (Jev 失敗): {self.st.failed_pairs} / (source, 問い) {self.st.pairs} 対"
+                f"(source, 問い) 対の Jev 失敗: {self.st.failed_pairs} / {self.st.pairs}"
                 f" ({share:.1%}); full screen {self.st.pairs_screened} 対"
             )
         if self.st.incomplete:
@@ -1227,6 +1252,7 @@ class LineRun:
             bridges=self.st.bridges,
             unjudged=[self.st.unjudged[i] for i in report.unjudged],
             operations=lines,
+            empty_day=self._empty_day(len(accepted)),
         )
         return LineOutcome(
             report=report,

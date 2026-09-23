@@ -69,6 +69,11 @@ before the author has ticked a ❌ (Scholar Inbox: random negatives prevent coll
 
 
 DEFAULT_FIREHOSE_MAX: Final = 300
+DEFAULT_ARXIV_KEYWORD_MAX: Final = 4
+"""export.arxiv.org answered 429 and refused connections to paced, one-at-a-time requests
+after a day of pilot runs (scratch runs 5-6, 2026-09-23): the API's own budget is lower
+than its per-request ToU suggests. A rate limit is a policy signal, not something to retry
+through; HF paper search also returns arXiv papers."""
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,8 @@ class NetConfig:
     openalex_daily_credits: int = DEFAULT_CREDIT_CAP
     firehose_max: int = DEFAULT_FIREHOSE_MAX
     """Firehose sources kept per line-run, in feed order (the first pilot took 836)."""
+    arxiv_keyword_max: int = DEFAULT_ARXIV_KEYWORD_MAX
+    """arXiv API keyword searches per day, across every line of the day."""
 
     def budget(self, net: DiscoveryNet) -> int:
         return int(self.budgets.get(net, DEFAULT_BUDGETS.get(net, 0)))
@@ -104,7 +111,11 @@ def load_nets(config: Path) -> NetConfig:
     )
     credits = data.get("openalex_daily_credits", DEFAULT_CREDIT_CAP)
     firehose_max = data.get("firehose_max", DEFAULT_FIREHOSE_MAX)
+    arxiv_max = data.get("arxiv_keyword_max", DEFAULT_ARXIV_KEYWORD_MAX)
     return NetConfig(
+        arxiv_keyword_max=max(0, arxiv_max)
+        if isinstance(arxiv_max, int)
+        else DEFAULT_ARXIV_KEYWORD_MAX,
         firehose_max=max(0, firehose_max)
         if isinstance(firehose_max, int)
         else DEFAULT_FIREHOSE_MAX,
@@ -251,6 +262,8 @@ class DayBudget:
 
     date: str = ""
     spent: int = 0
+    arxiv_keyword: int = 0
+    """arXiv keyword searches sent today (NetConfig.arxiv_keyword_max)."""
     quiet: set[str] = field(default_factory=set[str])
     """A net ("citation") or one source within a net ("keyword/arxiv") that is done today."""
     reported: set[str] = field(default_factory=set[str])
@@ -260,6 +273,7 @@ class DayBudget:
         """Reset at the day boundary; the quotas are daily."""
         if self.date != run_date:
             self.date, self.spent, self.quiet, self.reported = run_date, 0, set(), set()
+            self.arxiv_keyword = 0
         return self
 
 
@@ -281,6 +295,41 @@ def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
     if out.skipped:
         notes.append(f"{where}: 検証落ちで {out.skipped} 件 skip")
     return notes
+
+
+def _held_back(
+    request: NetRequest, budget: DayBudget, config: NetConfig, outcome: NetOutcome
+) -> bool:
+    """Whether today's quotas keep this request from going out (quiet source or net, the
+    arXiv keyword cap, the OpenAlex credit cap). Each cap is reported once a day."""
+    if request.net in budget.quiet or _source_key(request) in budget.quiet:
+        return True
+    if not _arxiv_room(request, budget, config, outcome):
+        return True
+    if request.adapter.kind == "openalex" and budget.spent >= config.openalex_daily_credits:
+        if "openalex_cap" not in budget.reported:
+            budget.reported.add("openalex_cap")
+            outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
+        budget.quiet.add(request.net)
+        return True
+    return False
+
+
+def _arxiv_room(
+    request: NetRequest, budget: DayBudget, config: NetConfig, outcome: NetOutcome
+) -> bool:
+    """Whether an arXiv keyword search may go out today; counts it if so."""
+    if request.net != "keyword" or request.adapter.kind != "arxiv":
+        return True
+    if budget.arxiv_keyword >= config.arxiv_keyword_max:
+        if "arxiv_keyword_cap" not in budget.reported:
+            budget.reported.add("arxiv_keyword_cap")
+            outcome.notes.append(
+                f"keyword/arxiv: 1 日の上限 {config.arxiv_keyword_max} 件に達したため以降を省略"
+            )
+        return False
+    budget.arxiv_keyword += 1
+    return True
 
 
 def _source_key(request: NetRequest) -> str:
@@ -316,13 +365,7 @@ async def fetch_nets(
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     seen: set[str] = set()
     for request in requests:
-        if request.net in budget.quiet or _source_key(request) in budget.quiet:
-            continue
-        if request.adapter.kind == "openalex" and budget.spent >= config.openalex_daily_credits:
-            if "openalex_cap" not in budget.reported:
-                budget.reported.add("openalex_cap")
-                outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
-            budget.quiet.add(request.net)
+        if _held_back(request, budget, config, outcome):
             continue
         out = await collect(
             request.adapter, client, partition, line, request.query, now=now, env=env

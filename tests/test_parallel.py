@@ -60,9 +60,15 @@ async def test_jev_requests_in_flight_never_exceed_the_limit(env: dict[str, str]
     assert counter.peak == limit
 
 
+def _timed(line: str) -> bool:
+    """Operations lines that carry a wall time (stages, prose drafts): no two runs share
+    them, and under load a 0.0 s draft reads 0.1 s."""
+    return line.lstrip("- ").startswith("段の所要:") or " prose 第" in line
+
+
 def _stable(text: str) -> str:
-    """The note without its wall-time line, which no two runs share."""
-    return "\n".join(ln for ln in text.splitlines() if not ln.startswith("- 段の所要:"))
+    """The note without its wall-time lines."""
+    return "\n".join(ln for ln in text.splitlines() if not _timed(ln))
 
 
 def _store_bytes(root: Path) -> dict[str, bytes]:
@@ -87,7 +93,7 @@ async def test_parallel_run_writes_what_a_sequential_run_writes(
             (
                 _stable(outcome.note.read_text(encoding="utf-8")),
                 _store_bytes(Path(run_env["JRP_STORE_DIR"])),
-                [ln for ln in outcome.operations if not ln.startswith("段の所要:")],
+                [ln for ln in outcome.operations if not _timed(ln)],
             )
         )
     (seq_note, seq_store, seq_ops), (par_note, par_store, par_ops) = outputs

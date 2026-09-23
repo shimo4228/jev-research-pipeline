@@ -107,3 +107,32 @@ Lines: authorship, ans, desire + jev.
 | 4 | off-topic Drop; jev canaries Keep | 3 keep (jev-papers now keep on its README); pydantic docs → review at 0.58 vs cut 0.60 (evidence_strength "anecdote": the level text only knew measurements) | ❌ |
 | 5 | no adapter failure line but web_search | keyword/arxiv 429 on desire, and the net-level quiet then silenced GitHub/HF keyword for every line | ❌ |
 | 6 | no stack trace | none | ✅ |
+
+## Run 6 — 2026-09-23 11:30 JST (scratch, fresh store seeded with the real cursor)
+
+Change: c693000 (arXiv one connection; per-source rate-limit quiet; primary sources as
+evidence; 5 claims per question). Lines: authorship, ans, desire + jev.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 210 s; $0.0233 + 0.0347 + 0.0305 + 0.0436 = $0.132 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | jev 12,199 B; others 2.9–3.9 KB; Review ≤ 7; 橋渡し 0; ≤ 0.3% | ✅ |
+| 3 | prose for every question with a Keep, [n] resolve | desire: both drafts rejected by rubric_report (unsupported_statement 0.77 / 0.66 ≥ 0.5) → template | ❌ (found by the judge; I had read "生成 11.5s" as a pass) |
+| 4 | off-topic Drop; jev canaries Keep | all 4 canaries keep | ✅ |
+| 5 | no adapter failure line but web_search | keyword/arxiv 429 and ConnectError on every line (paced, one connection) | ❌ |
+| 6 | no stack trace | none | ✅ |
+
+### Condition 7 — fresh-context Opus judge on authorship / ans / desire (run 6)
+
+Given only the three notes and questions/<slug>.md. **Publishable 0/3.**
+- authorship — Fix: honest empty day, but proposal 1 defines 三軸反転 with other axes than
+  the question file; the reason for the empty day (arXiv cut off) is only in 運用.
+- ans — Fix: empty day; proposal 4 carries a Hangul slip ("オン톨ロジー") and drifts to ML;
+  未判定 lists queries while 運用 says "未判定 0".
+- desire — Rewrite: the only section is the template ("本文生成なし"), no inference; the one
+  evidence line is cut mid-sentence.
+
+Fixes: rubric_report also sees the evidence set the prose was given, and rejects only at
+unsupported ≥ 0.7; an empty-day note says how far the sources got; proposals see the
+existing questions (definitions follow them) and drop foreign-script slips; the pair
+failure line is named as such; gists end at a word with "…"; arXiv keyword ≤ 4 a day.
