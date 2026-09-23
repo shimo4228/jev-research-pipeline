@@ -266,3 +266,21 @@ async def test_a_transient_jev_failure_is_sent_once_more(monkeypatch: pytest.Mon
     assert isinstance(result, Judged)
     assert jev.retries == 1
     assert jev.questions_asked == 2 * len(question_screening.ASK.output.model_fields)
+
+
+def test_a_day_with_some_prose_is_not_a_template_day():
+    """Scratch run 9: the last section fell to the template while an earlier one had prose,
+    and Report refused rendering=template with prose set — the line failed."""
+    from jev_research_pipeline.pipeline import run
+    from jev_research_pipeline.qwen import Rendering
+    from jev_research_pipeline.report import QuestionSection
+
+    joined = run._joined  # pyright: ignore[reportPrivateUsage]
+    sections = [
+        QuestionSection(question_id="q1", title="A", prose="本文 [1]。", evidence=()),
+        QuestionSection(question_id="q2", title="B", prose=None, evidence=()),
+    ]
+    last = Rendering(rendering="template", prose=None, rubric=())
+    out = joined(last, sections)
+    assert out.rendering == "prose" and out.prose == "### A\n\n本文 [1]。"
+    assert joined(last, [sections[1]]).rendering == "template"

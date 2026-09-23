@@ -34,7 +34,7 @@ from .model import (
 )
 from .model.jsonld import Value
 from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
-from .qwen.prose import PROSE_TIMEOUT_S, evidence_text
+from .qwen.prose import NO_DIRECT_EVIDENCE, PROSE_TIMEOUT_S, evidence_text
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -162,11 +162,15 @@ async def rubric_ladder(
                 rubric_report.judge_fidelity(
                     jev,
                     report_id,
-                    rubric_report.fidelity_state(question.title, p, cited_claims(p, claims)),
+                    rubric_report.fidelity_state(
+                        question.title,
+                        p.replace(NO_DIRECT_EVIDENCE, "").strip(),
+                        cited_claims(p, claims),
+                    ),
                     now=now,
                 )
                 for p in evidence.split("\n\n")
-                if p.strip()
+                if p.replace(NO_DIRECT_EVIDENCE, "").strip()
             )
         )
         for check in checks:

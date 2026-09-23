@@ -108,8 +108,10 @@ class Fidelity(BaseModel):
     exceeds_claims: Probability = Field(
         description="Does any sentence of `paragraph` go beyond what `claims` state: a "
         "different subject or object than the claim's, a wider scope, an attribute the claim "
-        "does not give, or a term of `question` put in place of what the claim is about? "
-        "No if every sentence says what a cited claim says about what that claim is about."
+        "does not give, a conclusion drawn from the claims, or a term of `question` put in "
+        "place of what the claim is about? No if every sentence says what a cited claim says "
+        "about what that claim is about. Translating a claim into Japanese, shortening it, and "
+        "a connective that relates two cited claims (また, 一方で) do not go beyond it."
     )
 
 

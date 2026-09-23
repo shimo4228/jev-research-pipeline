@@ -187,3 +187,23 @@ Real notes and store were backed up to /tmp/jrp-scratch/old/real-*-backup-1150 f
 
 Cumulative: 8 live runs, ≈ $1.12 (run costs $1.104 + probes), 10:28 → 12:08 JST.
 Stopped at the live-run cap with conditions 4, 5 and 7 open.
+
+## Run 9 — 2026-09-23 12:45 JST (scratch; a copy of the real store, so the final run's state)
+
+Change: 24e3891 (prose keeps the claim's subject; rubric claim_fidelity per evidence
+paragraph at 0.6; one Jev retry; arXiv 429 informational). Lines: edge, akc,
+contemplative + jev.
+
+- wall 158 s; cost edge $0.0355, contemplative $0.0523, jev $0.0003 (same-day, cached).
+- **akc failed** (one CLI line, no trace): Report refused rendering=template with prose
+  set — the day's rendering was the last section's, a template, while an earlier section
+  had prose. Fixed: the day is "template" only when no section has prose.
+- claim_fidelity sent back almost every draft (p 0.55–0.84): edge 1/1 and contemplative
+  2/2 sections fell to the template.
+- Probe (one prose draft + fidelity, outside the run): Jev was right — the evidence
+  paragraphs carried conclusions ("だから…条件が存在する", "…枠組みが必要になる"), which the
+  prose instruction itself asked for ("だから" to join sentences). With conclusions moved
+  to the inference paragraph, fidelity still read 0.68/0.76 because of the mandated
+  sentence "この問いの対象への直接の証拠は無い" — the pipeline's own statement, not a
+  claim's. Excluded from the fidelity check (fixed wording, stripped by code): 0.26/0.28.
+- canaries: all 4 keep (jev line, same-day).

@@ -1316,9 +1316,14 @@ def _claim_entries(accepted: list[_Accepted], with_prose: set[str]) -> list[Clai
 
 def _joined(rendering: Rendering, sections: list[QuestionSection]) -> Rendering:
     """The Report keeps the day's prose as one text (the note and the QuestionLogs keep it
-    per question); `rendering.rendering` is the last section's ladder outcome."""
+    per question). Its rendering is "template" only when no section has prose."""
     joined = "\n\n".join(f"### {s.title}\n\n{s.prose}" for s in sections if s.prose)
-    return rendering.model_copy(update={"prose": joined or None})
+    if not joined:
+        return rendering.model_copy(update={"rendering": "template", "prose": None})
+    # A later section on the template must not make the day "template" while an earlier
+    # one has prose (scratch run 9: akc failed on Report's rendering/prose invariant).
+    kind = rendering.rendering if rendering.rendering != "template" else "prose"
+    return rendering.model_copy(update={"rendering": kind, "prose": joined})
 
 
 def _with_evidence(questions: list[Question], accepted: list[_Accepted]) -> list[Question]:
