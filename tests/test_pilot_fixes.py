@@ -129,3 +129,16 @@ async def test_only_the_listed_host_goes_around_httpx2(monkeypatch: pytest.Monke
     client = httpx2.AsyncClient(transport=transport)
     assert (await client.get("https://export.arxiv.org/api/query")).status_code == 200
     assert (await client.get("https://rss.arxiv.org/rss/cs.AI")).status_code == 204
+
+
+def test_a_folded_claim_names_the_citation_that_points_at_it_and_still_harvests():
+    from jev_research_pipeline.report import ClaimEntry, harvest_text
+    from jev_research_pipeline.report.markdown import claim_line
+
+    from . import builders as b
+
+    line = claim_line(
+        ClaimEntry(claim=b.claim(), source_url="https://arxiv.org/abs/1", cite="agent-memory [2]")
+    )
+    assert line.startswith("- [ ] **agent-memory [2]** ")
+    assert harvest_text(line.replace("- [ ]", "- [x]", 1)) == {b.claim().id: "correct"}

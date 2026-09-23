@@ -12,7 +12,6 @@ import pytest
 from jev_research_pipeline.jev import JevClient, JevFailure, Judged, question_screening
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.jev.core import (
-    BATCH_MAX_ITEMS,
     BATCH_STATE_TOKENS,
     JevState,
     batches,
@@ -183,8 +182,10 @@ async def test_a_rerun_finds_batched_answers_and_asks_only_the_new_source():
 
 
 def test_batches_respect_the_item_cap_and_the_token_budget():
-    small = _items([_source(i) for i in range(BATCH_MAX_ITEMS + 3)])
-    assert [len(c) for c in batches([s for _, s in small], "source")] == [BATCH_MAX_ITEMS, 3]
+    small = _items([_source(i) for i in range(8 + 3)])
+    assert [len(c) for c in batches([s for _, s in small], "source", max_items=8)] == [8, 3]
+    # As configured today: one subject per request (slot bleed, docs/pilot-log.md run 3).
+    assert [len(c) for c in batches([s for _, s in small], "source")] == [1] * 11
 
     # ~3 bytes a token: each of these is about a third of the budget.
     big_text = "x" * (BATCH_STATE_TOKENS * 3 // 3)
@@ -194,6 +195,6 @@ def test_batches_respect_the_item_cap_and_the_token_budget():
         {"question": "q", "source": {"excerpt": big_text}},
         {"question": "q", "source": {"excerpt": "short"}},
     ]
-    cut = batches(big, "source")  # pyright: ignore[reportArgumentType]
+    cut = batches(big, "source", max_items=8)  # pyright: ignore[reportArgumentType]
     assert cut == [[0, 1], [2, 3]]
     assert batches([], "source") == []

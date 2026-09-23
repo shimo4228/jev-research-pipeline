@@ -91,6 +91,9 @@ _ESCAPES: Final[tuple[tuple[re.Pattern[str], _Repl], ...]] = (
 class ClaimEntry(Value):
     claim: Claim
     source_url: str
+    cite: str = ""
+    """Which [n] of which question section cites it ("<question> [n]"): the prose numbers
+    claims per section, so a folded list of the whole day needs the key to be followed."""
 
 
 class SourceEntry(Value):
@@ -155,7 +158,9 @@ def _frontmatter(report: Report, ctx: LineContext, n_sections: int) -> str:
 def claim_line(entry: ClaimEntry) -> str:
     url = safe_url(entry.source_url)
     link = f" — [source]({url})" if url else ""
-    return f"- [ ] {sanitize(entry.claim.text, one_line=True)}{link} <!-- {CLAIM_MARK}{entry.claim.id} -->"
+    cite = f"**{sanitize(entry.cite, one_line=True)}** " if entry.cite else ""
+    text = sanitize(entry.claim.text, one_line=True)
+    return f"- [ ] {cite}{text}{link} <!-- {CLAIM_MARK}{entry.claim.id} -->"
 
 
 def _source_line(entry: SourceEntry, mark: str | None = None) -> str:

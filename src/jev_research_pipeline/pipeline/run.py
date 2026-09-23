@@ -228,6 +228,9 @@ class _Accepted:
     question: Question
     contradicts: bool = False
     """The claim counts against the answer the evidence set supports (claim_detection)."""
+    bears_on: float = 0.0
+    """claim_detection's combined advances-or-contradicts probability — the order in which
+    claims are kept when a question has more than CLAIMS_PER_QUESTION."""
 
 
 @dataclass
@@ -269,6 +272,10 @@ class _SectionDay:
     made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
 
 
+CLAIMS_PER_QUESTION: Final = 8
+CLAIMS_PER_SOURCE: Final = 2
+"""Reported claims per question section, and from one source within it (note ≤ 12 KB,
+author mandate 2026-09-23)."""
 REVIEW_MAX: Final = 10
 """Review lines per note (author mandate 2026-09-23); nearest the cut first."""
 BRIDGES_PER_QUESTION: Final = 3
@@ -785,6 +792,7 @@ class LineRun:
                         question,
                         contradicts=isinstance(result, Judged)
                         and claim_detection.contradicts(result),
+                        bears_on=d.score or 0.0,
                     )
                 )
         return out
@@ -1110,7 +1118,33 @@ class LineRun:
         with self._stage("novelty", claims=len(detected)):
             novel = await self._novel(detected)
         with self._stage("support", claims=len(novel)):
-            return await self._supported(novel), screened
+            supported = await self._supported(novel)
+        return self._capped_claims(supported), screened
+
+    def _capped_claims(self, accepted: list[_Accepted]) -> list[_Accepted]:
+        """At most CLAIMS_PER_QUESTION per question, and at most CLAIMS_PER_SOURCE from one
+        source, the likeliest to bear on the question first (scratch run 3: 31 claims under
+        one question made a 24.6 KB note; the prose cannot use 31 anyway). The rest are
+        judged and stored, just not reported today."""
+        kept: list[_Accepted] = []
+        for question in self.questions:
+            mine = sorted(
+                (i for i in accepted if i.question.id == question.id), key=lambda i: -i.bears_on
+            )
+            per_source: dict[str, int] = {}
+            chosen: list[_Accepted] = []
+            for item in mine:
+                if len(chosen) >= CLAIMS_PER_QUESTION:
+                    break
+                if per_source.get(item.source.id, 0) < CLAIMS_PER_SOURCE:
+                    per_source[item.source.id] = per_source.get(item.source.id, 0) + 1
+                    chosen.append(item)
+            if len(mine) > len(chosen):
+                self.st.notes.append(
+                    f"{question.slug}: claim {len(mine)} 件のうち {len(chosen)} 件を掲載"
+                )
+            kept += chosen
+        return kept
 
     async def execute(self) -> LineOutcome:
         report_id = Report.id_for(self.ctx.line.id, self.now.date())
@@ -1184,7 +1218,7 @@ class LineRun:
             report=report,
             ctx=self.ctx,
             sections=sections,
-            claims=[ClaimEntry(claim=i.claim, source_url=i.source.url) for i in accepted],
+            claims=_claim_entries(accepted, {s.question_id for s in sections}),
             review=self.st.review,
             candidates=[
                 CandidateEntry(slug=q.slug, title=q.title, brief=q.brief)
@@ -1218,6 +1252,20 @@ def canary_lines(
             if url not in kept and (fetched is None or url in fetched)
         ]
     return lines
+
+
+def _claim_entries(accepted: list[_Accepted], with_prose: set[str]) -> list[ClaimEntry]:
+    """The folded claim list, each claim keyed to the [n] its section's prose uses — the
+    same order _section() hands the claims to the prose call: accepted order within a
+    question."""
+    n: dict[str, int] = {}
+    out: list[ClaimEntry] = []
+    for item in accepted:
+        qid = item.question.id
+        n[qid] = n.get(qid, 0) + 1
+        cite = f"{item.question.slug} [{n[qid]}]" if qid in with_prose else ""
+        out.append(ClaimEntry(claim=item.claim, source_url=item.source.url, cite=cite))
+    return out
 
 
 def _joined(rendering: Rendering, sections: list[QuestionSection]) -> Rendering:

@@ -112,7 +112,10 @@ class Answers(BaseModel):
         description="How close is the problem `source` works on to the one `question` asks about?"
     )
     evidence_strength: EvidenceStrength = Field(
-        description="How strong is what `source` reports, as evidence about `question`?"
+        description="How strong is what `source` reports, as the kind of evidence "
+        "`question.evidence` asks for? When `question.evidence` names a primary source (a "
+        "specification, the code, the official documentation) and `source` is one, it counts "
+        "as `measured`."
     )
     novelty_vs_evidence_set: NoveltyVsSet = Field(
         description="Compared with `evidence_set` (the claims already accepted for this "

@@ -135,8 +135,12 @@ _BATCH_NOTE: Final = (
 BATCH_SUBJECT: Final = "source"
 """What every batched ask varies: the pipeline batches sources, never questions or claims."""
 
-BATCH_MAX_ITEMS: Final = 8
-"""Subjects per batched request (judge asked for 5-10 per request)."""
+BATCH_MAX_ITEMS: Final = 1
+"""Subjects per batched request. 1 = every request judges one subject: the slot bleed
+check (scratch run 3, 2026-09-23, docs/pilot-log.md) found batched and single routes
+agreeing on 11 of 20 (source, question) pairs, the batch inflating on_topic (a radiomics
+paper kept for a Jev calibration question). The judge's bar was 90%; the batching stays
+in place for a re-test, switched off here."""
 BATCH_STATE_TOKENS: Final = 24_000
 """Estimated state size a batch may reach. The limit is 32k tokens for the state plus the
 longest question and 64k per request (docs.typesafe.ai models, as-of 2026-09-23); the
@@ -149,7 +153,9 @@ def estimated_tokens(value: JsonValue) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode()) // 3 + 1
 
 
-def batches(states: Sequence[JevState], subject: str) -> list[list[int]]:
+def batches(
+    states: Sequence[JevState], subject: str, *, max_items: int = BATCH_MAX_ITEMS
+) -> list[list[int]]:
     """Indices of `states`, cut greedily into batches that stay within BATCH_MAX_ITEMS
     and BATCH_STATE_TOKENS (the shared part counted once). An item too big for any
     batch goes alone — as big as a single request would have sent anyway."""
@@ -161,7 +167,7 @@ def batches(states: Sequence[JevState], subject: str) -> list[list[int]]:
     tokens = shared
     for i, state in enumerate(states):
         size = estimated_tokens(state[subject])
-        if current and (len(current) >= BATCH_MAX_ITEMS or tokens + size > BATCH_STATE_TOKENS):
+        if current and (len(current) >= max_items or tokens + size > BATCH_STATE_TOKENS):
             out.append(current)
             current, tokens = [], shared
         current.append(i)

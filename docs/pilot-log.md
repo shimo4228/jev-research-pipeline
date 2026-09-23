@@ -51,3 +51,26 @@ Lines: authorship, ans, desire + jev.
 Found: Qwen thinks by default (flash 5.0 → 2.9 s, max 5.9 → 2.2 s with it off; the 122 s
 jev prose was mostly thinking). The method/evidence gates at 0.5 dropped most of the jev
 line's calibration papers at 0.30–0.46 ("cannot tell" from an abstract).
+
+## Run 3 — 2026-09-23 11:12 JST (scratch, fresh store seeded with the real rotation cursor)
+
+Change: 4fa7413 (Qwen thinking off; method/evidence gates 0.3; canaries via repos API and
+<main>; stage timing). Lines: authorship, ans, desire + jev — the set the final real run
+will take.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 100 s; $0.0343 + 0.0348 + 0.0249 + 0.0533 = $0.147 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | jev 24.6 KB (31 claims under one question); others 3.0–5.1 KB; Review ≤ 10 (jev 16 capped); 橋渡し 0; 未判定 0.0–0.2% | ❌ (jev size) |
+| 3 | prose for every question with a Keep, [n] resolve | authorship 1/1, jev 1/1 questions with claims have prose | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | 3 of 4 keep (one via the nets); pydantic docs page → review (evidence_strength "anecdote" for a spec page the question asks for) | ❌ |
+| 5 | no adapter failure line but web_search | none | ✅ |
+| 6 | no stack trace | none | ✅ |
+
+### Slot bleed check (judge requirement) — on this run's jev store, 20 pairs
+
+`scripts/slot_bleed.py /tmp/jrp-scratch/store jev 20` at 4fa7413: batched vs single
+**route agreement 11/20 (55%)**, max |Δp| 0.25 (on_topic). The disagreements lean one way:
+5 pairs keep in the batch and drop alone, e.g. "Machine Learning based Analysis for
+Radiomics Features Robustness" kept for a Jev calibration question. Below the 90% bar →
+**batching switched off** (core.BATCH_MAX_ITEMS = 1: one subject per request everywhere).
