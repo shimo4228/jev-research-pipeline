@@ -215,11 +215,10 @@ left out of the fidelity check; a day with prose is not a template day). Lines: 
 contemplative + jev.
 
 - akc, contemplative, jev notes written by 12:56 (≈ 2.5 min); **edge's note at 14:38** —
-  wall 6,238 s. edge's stage timers add up to ≈ 220 s, so ≈ 100 min passed outside every
-  stage timer. Cause not found before the cap. Leads: edge logged "Jev 再試行: 6 回" and a
-  keyword/arxiv ConnectError (urllib — its timeout does not bound DNS resolution); the
-  other three lines had neither. Needs a per-line watchdog and a timer around the code
-  outside the stages before the next live run.
+  wall 6,238 s. Cause (pmset log): the Mac went to "Low Power Sleep … Using Batt
+  (Charge:1%)" at 12:56:48 and woke from hibernate on AC at 14:37:34 — not the pipeline.
+  edge's stage timers add up to ≈ 220 s; the run's own work was ≈ 4 min. The 6 Jev
+  retries and the arXiv ConnectError on edge are what the sleep did to requests in flight.
 - cost: edge $0.0300, akc $0.0462, contemplative $0.0486, jev $0.0003 = $0.125.
 - notes: akc 11.9 KB, 3 sections, all prose; contemplative **16.4 KB** (3 sections, one
   template) — over 12 KB; edge 4.8 KB, its one section on the template.
