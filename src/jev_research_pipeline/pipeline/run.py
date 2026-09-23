@@ -29,7 +29,9 @@ sequential one:
 """
 
 import asyncio
-from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+import time
+from collections.abc import Awaitable, Callable, Collection, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final, override
@@ -248,6 +250,8 @@ class _State:
     pairs_screened: int = 0
     failed_pairs: int = 0
     """Pairs whose Jev request failed (prefilter or full screen) — the 未判定 share."""
+    seconds: dict[str, float] = field(default_factory=dict[str, float])
+    """Wall time per stage (operations section: where a slow run spent it)."""
     fetched: set[str] = field(default_factory=set[str])
     """URLs the nets brought today (canaries among them are judged by the screen itself)."""
     incomplete: int = 0
@@ -339,6 +343,14 @@ class LineRun:
         self.prose_slots = asyncio.Semaphore(prose_concurrency(env))
 
     # --- helpers ------------------------------------------------------------------------
+
+    @contextmanager
+    def _stage(self, name: str, **attributes: int) -> Generator[None]:
+        """One stage: its OTel span, and its wall time for the operations section."""
+        start = time.monotonic()
+        with span(f"jrp.stage.{name}", line=self.ctx.line.slug, **attributes):
+            yield
+        self.st.seconds[name] = self.st.seconds.get(name, 0.0) + time.monotonic() - start
 
     def _over_budget(self) -> bool:
         if self.budget.exceeded(jev_questions=self.jev.questions_asked, meters=self.meters):
@@ -596,15 +608,14 @@ class LineRun:
             items = question_prefilter.items(self.ctx, screen, self.questions)
             started.append((screen, asyncio.ensure_future(self._batched(ask, items))))
 
-        slug = self.ctx.line.slug
-        with span("jrp.stage.fetch", line=slug, queries=len(queries)):
+        with self._stage("fetch", queries=len(queries)):
             try:
                 sources = await self._fetch(queries, on_sources=start)
             except BaseException:
                 for _, task in started:
                     task.cancel()  # nothing is waiting on them any more
                 raise
-        with span("jrp.stage.prefilter", line=slug, sources=len(sources)):
+        with self._stage("prefilter", sources=len(sources)):
             passing: dict[str, list[int]] = {}
             for screen, task in started:
                 for s, result in zip(screen, await task, strict=True):
@@ -1076,26 +1087,29 @@ class LineRun:
             )
         if self.st.incomplete:
             lines.append(f"本文なし: {self.st.incomplete} 件 (screening 対象外)")
+        if self.st.seconds:
+            lines.append(
+                "段の所要: " + " / ".join(f"{k} {v:.0f}s" for k, v in self.st.seconds.items())
+            )
         if self.st.partial:
             lines.append("partial: 費用上限に達したため以降の判定を省略")
         return ops, lines + self.st.notes
 
     async def _gather(self) -> tuple[list[_Accepted], dict[str, list[SourceItem]]]:
-        slug = self.ctx.line.slug
         if self._over_budget():
             return [], {}
-        with span("jrp.stage.queries", line=slug, questions=len(self.questions)):
+        with self._stage("queries", questions=len(self.questions)):
             queries = await self._queries()
         sources, passing = await self._fetch_and_prefilter(queries)
-        with span("jrp.stage.triage", line=slug, sources=len(passing)):
+        with self._stage("triage", sources=len(passing)):
             safe = await self._safe_sources([s for s in sources if s.id in passing])
-        with span("jrp.stage.screen", line=slug, sources=len(safe)):
+        with self._stage("screen", sources=len(safe)):
             screened = await self._screen(safe, passing)
-        with span("jrp.stage.claims", line=slug):
+        with self._stage("claims"):
             detected = await self._claims(screened)
-        with span("jrp.stage.novelty", line=slug, claims=len(detected)):
+        with self._stage("novelty", claims=len(detected)):
             novel = await self._novel(detected)
-        with span("jrp.stage.support", line=slug, claims=len(novel)):
+        with self._stage("support", claims=len(novel)):
             return await self._supported(novel), screened
 
     async def execute(self) -> LineOutcome:
@@ -1110,10 +1124,10 @@ class LineRun:
                 # A run cut short by the cost cap never screened everything, so a missing
                 # canary would say the screen drifted when the budget simply ran out.
                 self.st.notes += canary_lines(self.questions, screened, self.st.fetched)
-                with span("jrp.stage.canary", line=slug):
+                with self._stage("canary"):
                     self.st.notes += await self._probe_canaries()
             self.st.discovery = self._discovery_lines(accepted)
-            with span("jrp.stage.sections", line=slug, claims=len(accepted)):
+            with self._stage("sections", claims=len(accepted)):
                 moving = [
                     (q, items)
                     for q in self.questions
@@ -1132,10 +1146,10 @@ class LineRun:
                         section, log, rendering = day.made
                         sections.append(section)
                         logs.append(log)
-            with span("jrp.stage.rubric", line=slug, claims=len(accepted)):
+            with self._stage("rubric", claims=len(accepted)):
                 prose = {s.question_id: s.prose for s in sections}
                 await self._rubric_claims(report_id, prose, accepted)
-            with span("jrp.stage.propose", line=slug):
+            with self._stage("propose"):
                 await self._propose()
             line.set_attribute(
                 "jrp.cost_usd",

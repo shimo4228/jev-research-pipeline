@@ -60,6 +60,11 @@ async def test_jev_requests_in_flight_never_exceed_the_limit(env: dict[str, str]
     assert counter.peak == limit
 
 
+def _stable(text: str) -> str:
+    """The note without its wall-time line, which no two runs share."""
+    return "\n".join(ln for ln in text.splitlines() if not ln.startswith("- 段の所要:"))
+
+
 def _store_bytes(root: Path) -> dict[str, bytes]:
     return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*.jsonld"))}
 
@@ -80,9 +85,9 @@ async def test_parallel_run_writes_what_a_sequential_run_writes(
         (outcome,) = await run_pipeline(run_env, now=b.T0, http=_client(InFlight()), pacing=False)
         outputs.append(
             (
-                outcome.note.read_text(encoding="utf-8"),
+                _stable(outcome.note.read_text(encoding="utf-8")),
                 _store_bytes(Path(run_env["JRP_STORE_DIR"])),
-                outcome.operations,
+                [ln for ln in outcome.operations if not ln.startswith("段の所要:")],
             )
         )
     (seq_note, seq_store, seq_ops), (par_note, par_store, par_ops) = outputs
@@ -186,7 +191,10 @@ async def test_several_question_days_in_parallel_write_the_sequential_note(
             run_env, now=b.T0, http=_client(InFlight(_is_prose)), pacing=False
         )
         notes.append(
-            (outcome.note.read_text(encoding="utf-8"), _store_bytes(Path(run_env["JRP_STORE_DIR"])))
+            (
+                _stable(outcome.note.read_text(encoding="utf-8")),
+                _store_bytes(Path(run_env["JRP_STORE_DIR"])),
+            )
         )
     assert notes[0] == notes[1]
 

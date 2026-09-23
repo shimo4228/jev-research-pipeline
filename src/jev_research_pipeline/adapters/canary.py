@@ -4,12 +4,14 @@ canary on a given day, and a screen that drifted is only visible if the canary i
 every day. Each kind goes through an ordinary Adapter, so pacing and failures behave like
 every other fetch.
 
-- github.com/<owner>/<repo>  → GitHub search `repo:<owner>/<repo>` (the adapter's own parse)
+- github.com/<owner>/<repo>  → GitHub `repos/<owner>/<repo>` (search leaves forks out, and
+                               one canary is a fork)
 - arxiv.org/abs/<id>         → arXiv API `id_list=<id>`
 - any other https page       → the page itself, tags stripped
 """
 
 import html
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import replace
@@ -26,16 +28,24 @@ from .arxiv import adapter as arxiv_adapter
 from .base import USER_AGENT, Adapter, RawDraft, one_line
 from .github import adapter as github_adapter
 from .github import build_request as github_request
+from .github import parse as github_parse
 
 _GITHUB: Final = re.compile(r"^https://github\.com/([\w.-]+/[\w.-]+?)/?$")
 _ARXIV: Final = re.compile(r"^https://arxiv\.org/abs/([\w.]+?)(v\d+)?/?$")
 _TAG: Final = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
 _TITLE: Final = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
+_MAIN: Final = re.compile(r"<(main|article)\b.*?</\1>", re.DOTALL | re.IGNORECASE)
 PAGE_CHARS: Final = 4000
 
 
 def _repo(query: str, env: Mapping[str, str]) -> httpx2.Request:
-    return github_request(f"repo:{query}", env)
+    search = github_request("x", env)  # the adapter's headers (UA, API version, token)
+    return httpx2.Request("GET", f"https://api.github.com/repos/{query}", headers=search.headers)
+
+
+def repo_parse(body: str) -> list[RawDraft]:
+    """One repository object, the same text the search adapter builds."""
+    return github_parse(json.dumps({"items": [json.loads(body)]}))
 
 
 def _arxiv_id(query: str, _env: Mapping[str, str]) -> httpx2.Request:
@@ -47,16 +57,21 @@ def _page(query: str, _env: Mapping[str, str]) -> httpx2.Request:
 
 
 def page_parse(url: str, body: str) -> list[RawDraft]:
+    """Title and text of a page; the <main> or <article> element when there is one, so
+    the navigation that opens most docs pages does not fill the excerpt."""
     found = _TITLE.search(body)
     title = one_line(html.unescape(found.group(1))) if found else url
-    text = one_line(html.unescape(_TAG.sub(" ", body)))[:PAGE_CHARS]
+    main = _MAIN.search(body)
+    content = main.group(0) if main else body
+    text = one_line(html.unescape(_TAG.sub(" ", content)))[:PAGE_CHARS]
     return [RawDraft(url=url, title=title, text=text, published_at=None)]
 
 
 def plan(url: str) -> tuple[Adapter, str] | None:
     """The adapter and query that fetch this canary, or None for a non-https URL."""
     if m := _GITHUB.match(url):
-        return replace(github_adapter(), build_request=_repo, query_kind="token"), m.group(1)
+        adapter = replace(github_adapter(), build_request=_repo, parse=repo_parse)
+        return replace(adapter, query_kind="token"), m.group(1)
     if m := _ARXIV.match(url):
         return replace(arxiv_adapter(), build_request=_arxiv_id, query_kind="token"), m.group(1)
     if url.startswith("https://"):

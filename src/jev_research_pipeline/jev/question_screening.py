@@ -139,8 +139,8 @@ of one is a plain ASK request)."""
 
 THRESHOLDS: Final = (
     Threshold(name="on_topic", value=0.5),
-    Threshold(name="method_transferable", value=0.5),
-    Threshold(name="evidence_compatible", value=0.5),
+    Threshold(name="method_transferable", value=0.3),
+    Threshold(name="evidence_compatible", value=0.3),
     Threshold(name="weight_problem_overlap", value=0.5),
     Threshold(name="weight_evidence_strength", value=0.3),
     Threshold(name="weight_novelty", value=0.2),
@@ -149,7 +149,10 @@ THRESHOLDS: Final = (
     Threshold(name="min_certainty", value=0.5),
     Threshold(name="bridges_line", value=0.8),
 )
-"""Weights sum to 1 and the cut is the vendor midpoint plus a tenth; both are starting
+"""A hard gate drops only on a No: method and evidence at 0.3, because an abstract seldom
+shows whether code and data are public, and a 0.4 there is "cannot tell", which dropped
+most of the jev line's calibration papers on scratch run 2 (2026-09-23). on_topic stays at
+the midpoint. Weights sum to 1 and the cut is the vendor midpoint plus a tenth; both are starting
 values the author's ⭕❌ refit (decision 6①). min_certainty was the jev-papers 0.9, which is
 a Choice-confidence number; on 4-level Scores it held no source at all on the first
 scratch run (2026-09-23: 0.48-0.73) — 0.5 = the landed level holds a majority."""

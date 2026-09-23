@@ -13,6 +13,7 @@ import httpx2
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.profiles import ModelProfile, merge_profile
 from pydantic_ai.providers.alibaba import AlibabaProvider
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
@@ -29,13 +30,22 @@ def _native_json_schema(base: ModelProfile) -> ModelProfile:
     )
 
 
+NO_THINKING: Final = ModelSettings(extra_body={"enable_thinking": False})
+"""qwen3.8 thinks by default. Measured 2026-09-23 on a two-sentence answer: flash 5.0 s ->
+2.9 s, max 5.9 s -> 2.2 s with it off, and the reasoning tokens (billed as output) gone;
+the first pilot's 122 s for a 705-character section was mostly thinking. Every site here
+is structured output or prose over given claims, where the rubric ladder checks the text."""
+
+
 def qwen_model(
     name: QwenModelId, http_client: httpx2.AsyncClient, *, api_key: str
 ) -> OpenAIChatModel:
     provider = AlibabaProvider(
         api_key=api_key, base_url=DASHSCOPE_BASE_URL, http_client=http_client
     )
-    return OpenAIChatModel(name, provider=provider, profile=_native_json_schema)
+    return OpenAIChatModel(
+        name, provider=provider, profile=_native_json_schema, settings=NO_THINKING
+    )
 
 
 class GenerationMeter:

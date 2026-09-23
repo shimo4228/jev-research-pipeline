@@ -32,3 +32,22 @@ queries arXiv's cache does not hold (urllib, curl, raw TLS: 200; cached queries:
 anyone). (c) keyword budget cut first-come → no GitHub query ever sent. (d) the canary
 check reported "落下" for canaries no net fetched. (e) HF daily got no room under the
 firehose cap (arXiv RSS came first and filled it).
+
+## Run 2 — 2026-09-23 10:56 JST (scratch)
+
+Change: a283ea3 (Keep reachable: certainty on the placing Scores, min_certainty 0.5;
+arXiv via urllib; keyword round-robin; HF before the arXiv listing; canary probe).
+Lines: authorship, ans, desire + jev.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 356 s; $0.0300 + 0.0422 + 0.0468 + 0.0369 = $0.156 | ❌ (wall) |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | 3.5–8.6 KB; Review 0–3; 未判定 0.0–0.1% | ✅ |
+| 3 | prose for every question with a Keep, [n] resolve | desire and jev: prose for the Keep question; authorship: 2 Keep, 0 claims | ⚠️ (authorship Keep without prose) |
+| 4 | off-topic Drop; jev canaries Keep | canaries: 2 keep, 1 not found (fork, search skips forks), 1 drop (docs page = navigation text) | ❌ |
+| 5 | no adapter failure line but web_search | none (406 and HF 400 gone) | ✅ |
+| 6 | no stack trace | none | ✅ |
+
+Found: Qwen thinks by default (flash 5.0 → 2.9 s, max 5.9 → 2.2 s with it off; the 122 s
+jev prose was mostly thinking). The method/evidence gates at 0.5 dropped most of the jev
+line's calibration papers at 0.30–0.46 ("cannot tell" from an abstract).
