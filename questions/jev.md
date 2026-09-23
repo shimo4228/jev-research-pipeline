@@ -16,6 +16,10 @@
 - canary: https://github.com/scienthoon/jev-ood-calibration
 - canary: https://github.com/anisselbd/jev-phishing-bench
 - canary: https://github.com/normalnormie/jev-papers
+- arxiv: jev system one
+- github: jev calibration
+- github: jev benchmark
+- hf: judge model calibration
 
 ## Jev を部品にして、どんな新しいプロダクト・アプリが作られているか
 - slug: jev-products
@@ -29,6 +33,8 @@
 - evidence: 動くコードか、実際に使われているプロダクト
 - not: 既存の LLM 判定を Jev に差し替えた精度比較だけのもの（失敗モードの問いで扱う）
 - not: TypeSafe の宣伝記事
+- github: topic:typesafe-jev
+- github: typesafe jev app
 
 ## Jev の判定を組み合わせる新しい使い方のパターンは何が出ているか
 - slug: jev-usage-patterns
@@ -41,3 +47,5 @@
 - method: 手法を説明した記事（コード付き）
 - evidence: 組み合わせ方が具体的に書かれ、動かした結果があるもの
 - not: 単一の質問を投げるだけの入門例
+- github: awesome jev
+- github: jev cookbook

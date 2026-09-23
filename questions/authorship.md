@@ -12,6 +12,9 @@
 - evidence: 施策と測定がセットになっているもの
 - not: 測定のない how-to やチェックリスト
 - not: 従来 SEO の順位対策だけのもの
+- arxiv: GEO generative engines
+- github: generative engine optimization benchmark
+- hf: AI search visibility
 
 ## 知識を LLM に届けるための新しい置き場所・置き方には何があり、どれが実際に使われているか
 - slug: llm-knowledge-placement
@@ -24,6 +27,10 @@
 - method: AI エージェント・検索が実際に参照したログや実測
 - evidence: 導入した結果（拾われた・使われた）が示されているもの
 - not: 規格や形式の紹介だけで、使われた証拠のないもの
+- arxiv: llms.txt
+- github: llms.txt
+- github: mcp documentation server
+- hf: agent readable documentation
 
 ## LLM 検索や AI エージェントは、何を手がかりに情報源を選んで引用しているか
 - slug: llm-source-selection
@@ -37,3 +44,5 @@
 - method: 提供元の公式 docs
 - evidence: 集計か実験の数値、または提供元の一次情報
 - not: 推測だけの「AI に好かれるコツ」
+- arxiv: AI search citation
+- hf: AI search citation
