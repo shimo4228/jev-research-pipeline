@@ -357,6 +357,18 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   addressed through its DataCite DOI (10.48550, ~2022 onward), and the preprint and the
   journal version are separate works. `docs.openalex.org` now 301s to `help.openalex.org`.
 
+### Pilot mandate (author decision 2026-09-23) — build iterates until these pass
+
+Machine-checkable necessary conditions per 3-line run; the author's reading is the
+sufficient condition. (1) 3 lines ≤ 5 min, cost ≤ $0.30; (2) note ≤ 12 KB, Review ≤ 10,
+橋渡し ≤ 5, unjudged < 5% of pairs; (3) prose for every question with a Keep, all [n]
+resolve; (4) obviously off-topic papers Drop, jev canaries Keep; (5) no adapter failure
+lines except web_search skip; (6) no stack traces. Iterate in a scratch vault/store;
+write the real vault once at the end. Stop at 8 live runs / $3 / 3 h and report.
+First pilot run measured: akc note 283 KB, 20,573 Jev questions, $0.415, bridges
+accepted 2,509/2,570 pairs, unjudged routed to Review, HF date must be ≤ yesterday UTC,
+arXiv 406 only from httpx2 (curl 200 with identical URL/headers).
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
