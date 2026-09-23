@@ -1,9 +1,10 @@
 <!-- jrp:questions:contemplative -->
+<!-- 2026-09-23 退役: 問いは AKC と AAP に分解済み（どちらも contemplative-agent の実装から生まれた問題意識） -->
 
 ## 仏教の原理を AI 自身の価値として組み込む設計（Contemplative AI 型）は、学術と実装のどこに位置づけられているか
 - slug: contemplative-ai-positioning
 - version: 1
-- status: open
+- status: dropped
 - opened: 2026-09-23
 - retire: 六ヶ月 evidence が増えなければ閉じる
 - brief: Laukkonen ら（2025）の Contemplative Constitutional AI 系を、仏教×AI の文献レビューや倫理指針がどう扱うか。収録されない場合、索引・語彙・射程のどれで外れたかまで見る
@@ -17,7 +18,7 @@
 ## ローカル 9B 級スタックで動く自律エージェントの記憶三層（episode → knowledge → identity）は、どこで壊れ、何で検知できるか
 - slug: local-agent-memory-failure
 - version: 1
-- status: open
+- status: dropped
 - opened: 2026-09-23
 - retire: 六ヶ月 evidence が増えなければ閉じる
 - brief: 小さなモデルで長期運用する agent の記憶蒸留・昇格ゲートの失敗様式（重複・drift・自己申告の誤り）と、その検知手段
@@ -30,7 +31,7 @@
 ## モデルの自己申告（嘘をついたか・何をしたか）は、どの条件で信頼でき、三人称の判定とどう違うか
 - slug: self-report-reliability
 - version: 1
-- status: open
+- status: dropped
 - opened: 2026-09-23
 - retire: 六ヶ月 evidence が増えなければ閉じる
 - brief: 承認ゲートと episode log の設計は「自己申告を信じない」に立つ。自己申告の信頼性を測った研究と、外部判定（別モデル・決定論チェック）との比較
