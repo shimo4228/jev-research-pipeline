@@ -227,3 +227,35 @@ contemplative + jev.
 Extension totals: 2 of 3 live runs (9, 10), ≈ $0.30 (runs + probes), 12:38 → 14:40 JST.
 Stopped at the 2-hour cap. The final real run was not made; the real vault and store hold
 run 8's notes.
+
+## Between runs 10 and 11 (2026-09-23 14:55–15:30 JST) — model switch and the prose A/B
+
+- FLASH site: qwen3.8-flash's free quota ran out (author). Compared on DashScope's own
+  model pages: kimi-k3 ≈ 20–30x the price; glm-5.3 cannot turn thinking off and takes
+  json_object only; deepseek-v4.1-flash chosen (free 1M to 12/13, price near
+  qwen3.8-flash). It answers 400 "This response_format type is unavailable now" to
+  json_schema although its page lists Structured Outputs → PromptedOutput; probes on akc
+  and contemplative returned clean query lists and proposals.
+- Size: claims per note ≤ 9 spread over the questions with claims; a 12,000-byte guard
+  drops proposals, then far Review (run 10 contemplative: 16.4 KB).
+- Condition 1 relaxed by the author to ≤ 10 min per tick.
+
+### Prose thinking A/B (7 question-days of run 10, same claims and instructions)
+
+qwen3.8-max, enable_thinking off vs on; 14 calls at once (contended latencies).
+
+| question-day | off: s / out tok / fidelity / unsupported | thinking: s / out tok / fidelity / unsupported | blind Opus |
+|---|---|---|---|
+| edge overdrive-verification-gap | 54 / 352 / 0.24 / 0.63 | 496 / 5305 / 0.25 / 0.51 | thinking |
+| akc scaffold-retirement-signal | 22 / 381 / **0.62** / 0.54 | 120 / 4012 / 0.16 / 0.48 | thinking |
+| akc three-layer-rate-of-change | 76 / 244 / 0.22 / – | 164 / 1433 / 0.09 / 0.26 | off (a 框架 slip in thinking) |
+| akc intent-alignment-beyond-tests | 32 / 266 / 0.14 / 0.47 | 79 / 2008 / 0.12 / 0.43 | thinking |
+| contemplative ai-positioning | 89 / 369 / 0.34, **0.87** / 0.67 | 428 / 3431 / 0.17 / 0.42 | thinking |
+| contemplative memory-failure | 148 / 501 / 0.28 / 0.41 | 151 / 3628 / 0.17 / 0.40 | thinking |
+| contemplative self-report | 93 / 509 / 0.28 / 0.46 | 279 / 6703 / 0.29 / 0.11 | thinking |
+
+Blind judge (fresh-context Opus, labels shuffled, key unblinded after): **thinking 6 / off 1**.
+The two fidelity flags on "off" are the two cases the judge faulted for conclusions inside
+evidence paragraphs — Jev and the judge agree. "off" also joined unrelated claims with
+"これに対し" (my connective example in the prompt) → the instruction now allows a connective
+only when the claims state that relation. Decision: prose thinking always, timeout 900 s.

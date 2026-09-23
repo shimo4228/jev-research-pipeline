@@ -96,7 +96,7 @@ from jev_research_pipeline.qwen import (
     query_candidates,
     qwen_model,
 )
-from jev_research_pipeline.qwen.prose import prose_timeout_s
+from jev_research_pipeline.qwen.prose import prose_thinking, prose_timeout_s
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import (
     CandidateEntry,
@@ -358,7 +358,13 @@ class LineRun:
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
         self.keys = keys
         self.flash = qwen_model(FLASH, http, api_key=keys.dashscope)
-        self.max = qwen_model(MAX, http, api_key=keys.dashscope)
+        thinking = prose_thinking(env)
+        self.max = qwen_model(MAX, http, api_key=keys.dashscope, thinking=thinking == "always")
+        self.max_rewrite = (
+            qwen_model(MAX, http, api_key=keys.dashscope, thinking=True)
+            if thinking == "rewrite"
+            else None
+        )
         self.meters = {FLASH: GenerationMeter(), MAX: GenerationMeter()}
         self.budget = Budget(env)
         self.nets = net_config or nets.NetConfig()
@@ -932,6 +938,7 @@ class LineRun:
             rendering, drafts = await rubric_ladder(
                 jev=self.jev,
                 model=self.max,
+                rewrite_model=self.max_rewrite,
                 ctx=self.ctx,
                 question=question,
                 report_id=report_id,

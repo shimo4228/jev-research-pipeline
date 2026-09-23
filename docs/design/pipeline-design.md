@@ -425,6 +425,7 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - rubric_report claim_fidelity (new axis, one Noul per evidence paragraph): p ≥ 0.6 that a paragraph exceeds the claims it cites → one rewrite with a fidelity feedback → template (final-run judge, 2026-09-23).
 - Jev transient failure (timeout, connection, 408/429/5xx): one retry after 2 s, counted in 運用.
 - condition 1 relaxed: a tick (3 rotated lines + daily) ≤ 10 min (author, 2026-09-23 15:00).
+- prose (qwen3.8-max) thinks again (`JRP_PROSE_THINKING=always`), timeout 300 → 900 s (≈ 1.8x the slowest draft seen, 496 s under contention; a draft past ~7 min breaks the 10-min tick anyway): blind A/B on 7 question-days, thinking won 6/7 and had no fidelity flag (docs/pilot-log.md). The structured-output site stays without thinking.
 - FLASH site model qwen3.8-flash → deepseek-v4.1-flash (qwen3.8-flash free quota spent), output mode NativeOutput strict → PromptedOutput (deepseek answers 400 "response_format type is unavailable" to json_schema, though its docs list it; measured 2026-09-23). Prose (qwen3.8-max) is free text and was never schema-bound.
 - keyword/arxiv 429: an informational line, not a failure line (arXiv search waits for the next day).
 - daily tracks (`daily = true`, e.g. jev) run on every tick beside the 3 rotated lines; the lines of a tick run side by side under one shared Jev rate window.

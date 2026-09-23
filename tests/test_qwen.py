@@ -235,7 +235,7 @@ def test_prose_agent_carries_a_long_per_request_timeout():
     agent = prose_agent(qwen_model(MAX, httpx2.AsyncClient(), api_key="replay"), timeout_s=300.0)
     settings: Mapping[str, object] = agent.model_settings or {}  # pyright: ignore[reportAssignmentType]
     assert settings["timeout"] == 300.0
-    assert prose_timeout_s({}) == 300.0
+    assert prose_timeout_s({}) == 900.0
     assert prose_timeout_s({PROSE_TIMEOUT_ENV: "600"}) == 600.0
 
 

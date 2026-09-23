@@ -122,6 +122,7 @@ async def rubric_ladder(
     now: AwareDatetime,
     timeout_s: float = PROSE_TIMEOUT_S,
     evidence_set: list[str] | None = None,
+    rewrite_model: OpenAIChatModel | None = None,
 ) -> tuple[Rendering, list[Judgment]]:
     """One question's section: `claims` = its accepted claim texts, in reading order.
 
@@ -132,8 +133,10 @@ async def rubric_ladder(
     judged: list[Judgment] = []
 
     async def write(feedback: str | None) -> ProseResult:
+        # A rewrite (feedback given) may go to another model setting — prose thinking
+        # policy "rewrite" spends the slow thinking draft only where the fast one failed.
         return await write_prose(
-            model,
+            rewrite_model if feedback is not None and rewrite_model is not None else model,
             ctx,
             question,
             claims,

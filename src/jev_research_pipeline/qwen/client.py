@@ -52,14 +52,22 @@ the first pilot's 122 s for a 705-character section was mostly thinking. Every s
 is structured output or prose over given claims, where the rubric ladder checks the text."""
 
 
+THINKING: Final = ModelSettings(extra_body={"enable_thinking": True})
+"""For the prose site only, by policy (qwen.prose.prose_thinking): the A/B of 2026-09-23
+measured fewer fidelity flags and lower unsupported_statement with it on."""
+
+
 def qwen_model(
-    name: QwenModelId, http_client: httpx2.AsyncClient, *, api_key: str
+    name: QwenModelId, http_client: httpx2.AsyncClient, *, api_key: str, thinking: bool = False
 ) -> OpenAIChatModel:
     provider = AlibabaProvider(
         api_key=api_key, base_url=DASHSCOPE_BASE_URL, http_client=http_client
     )
     return OpenAIChatModel(
-        name, provider=provider, profile=_native_json_schema, settings=NO_THINKING
+        name,
+        provider=provider,
+        profile=_native_json_schema,
+        settings=THINKING if thinking else NO_THINKING,
     )
 
 

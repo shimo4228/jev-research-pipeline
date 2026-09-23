@@ -105,7 +105,8 @@ arxiv_keyword_max = 1            # 1 ラインあたりの arXiv API 検索数 (
 | `JRP_JEV_USD_PER_QUESTION` | 推奨 | Jev の単価。未設定だと費用計算に Jev が乗らない |
 | `TAVILY_API_KEY` | 任意 | web 検索。未設定ならその adapter は skip（運用節に記録） |
 | `GITHUB_TOKEN` | 任意 | GitHub 検索の上限を 10/分 → 30/分 に上げる |
-| `JRP_PROSE_TIMEOUT_S` | 任意 | 本文生成の timeout（既定 300 秒） |
+| `JRP_PROSE_TIMEOUT_S` | 任意 | 本文生成の timeout（既定 900 秒。本文は thinking ありで書くため長い） |
+| `JRP_PROSE_THINKING` | 任意 | 本文の thinking: `always`（既定）/ `rewrite`（書き直し稿だけ）/ `off` |
 | `JRP_JEV_CONCURRENCY` | 任意 | 同時に投げる Jev request の数（既定 12）。rate は別に 1,200 回/分で抑える |
 | `JRP_PROSE_CONCURRENCY` | 任意 | 同時に走らせる Qwen 呼び出しの数（既定 3。検索語の生成と問いごとの本文） |
 | `JRP_SLACK_NOTIFY` | 任意 | `1` で実行結果を Slack に 1 行通知 |
