@@ -1,7 +1,7 @@
 """Qwen via DashScope (decision 10), through pydantic-ai's AlibabaProvider.
 
 Endpoint and model ids verified 2026-09-22 (packet decision 10): intl compatible-mode
-endpoint (keys are region-bound); qwen3.8-max for the Japanese prose, the one generation
+endpoint (keys are region-bound); qwen3.7-max for the Japanese prose, the one generation
 site left (the query and question-proposal sites were removed, design "Authored queries").
 The prose is free text; the json_schema profile override below is kept so the model stays
 usable for a structured site without re-deriving it (pydantic-ai 2.47's Qwen profile enables
@@ -18,10 +18,13 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-MAX: Final = "qwen3.8-max"
+MAX: Final = "qwen3.7-max"
+"""The prose model. qwen3.7-max, not 3.8-max: the prose bench tuned v7 on 3.7-max, the author
+read a 3.7-max draft over a 3.8-max one blind, and 3.8-max took 864 s and 35k output tokens
+for one section alone against 194 s and ~12k on 3.7-max (thinking on, 2026-09-23)."""
 API_KEY_ENV: Final = "DASHSCOPE_API_KEY"
 
-type QwenModelId = Literal["qwen3.8-max"]
+type QwenModelId = Literal["qwen3.7-max"]
 
 
 def _native_json_schema(base: ModelProfile) -> ModelProfile:

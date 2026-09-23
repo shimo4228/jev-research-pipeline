@@ -1,4 +1,4 @@
-"""Qwen site 2: Japanese prose for one open question (qwen3.8-max), and the rendering
+"""Qwen site 2: Japanese prose for one open question (qwen3.7-max), and the rendering
 ladder that maps onto Report.rendering (decision 8, rubric-eval row):
 
     write → rubric_report accept → "prose"

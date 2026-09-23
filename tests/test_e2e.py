@@ -159,7 +159,7 @@ async def test_operations_show_prose_time_and_failure(cassette: ClientFactory, e
     async def no_prose(request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "dashscope-intl.aliyuncs.com":
             model = json.loads(request.content)["model"]
-            if model == "qwen3.8-max":
+            if model == "qwen3.7-max":
                 return httpx2.Response(400, json={"error": {"message": "Request timed out"}})
         return await fake_world()(request)
 

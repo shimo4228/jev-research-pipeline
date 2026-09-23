@@ -32,7 +32,7 @@ CTX = LineContext(
 
 def test_endpoint_and_model_ids_are_pinned():
     assert DASHSCOPE_BASE_URL == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    assert MAX == "qwen3.8-max"
+    assert MAX == "qwen3.7-max"
 
 
 def test_qwen38_profile_enables_native_json_schema(cassette: ClientFactory):

@@ -64,7 +64,7 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--from", dest="roots", action="append", default=[], help="extra store root")
     pr.add_argument("--variant", help="bench: variant name (drafts/<name>/)")
     pr.add_argument("--prompt", help="bench: instructions file; omitted = the run's prompt")
-    pr.add_argument("--model", default="qwen3.8-max")
+    pr.add_argument("--model", default="qwen3.7-max")
     pr.add_argument("--no-thinking", action="store_true")
     pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
     pr.add_argument("--check", help="bench: self-check instructions file (second pass)")

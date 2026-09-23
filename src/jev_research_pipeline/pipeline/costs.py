@@ -10,8 +10,9 @@ from typing import Final
 
 from jev_research_pipeline.qwen import MAX, GenerationMeter
 
-PRICES: Final = {MAX: (2.0, 6.0)}
-"""USD per Mtok (input, output) for the one generation model left (the prose)."""
+PRICES: Final = {MAX: (2.5, 7.5)}
+"""USD per Mtok (input, output) for the one generation model left (the prose): qwen3.7-max,
+Singapore, thinking and non-thinking alike (alibabacloud.com model-pricing, as-of 2026-09-23)."""
 JEV_PRICE_ENV: Final = "JRP_JEV_USD_PER_QUESTION"
 COST_CAP_ENV: Final = "JRP_COST_CAP_USD"
 

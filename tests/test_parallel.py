@@ -163,7 +163,7 @@ def _four_questions(env: dict[str, str]) -> None:
 def _is_prose(request: httpx2.Request) -> bool:
     return (
         request.url.host == "dashscope-intl.aliyuncs.com"
-        and json.loads(request.content)["model"] == "qwen3.8-max"
+        and json.loads(request.content)["model"] == "qwen3.7-max"
     )
 
 
