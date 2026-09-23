@@ -363,7 +363,10 @@ Machine-checkable necessary conditions per 3-line run; the author's reading is t
 sufficient condition. (1) 3 lines ≤ 5 min, cost ≤ $0.30; (2) note ≤ 12 KB, Review ≤ 10,
 橋渡し ≤ 5, unjudged < 5% of pairs; (3) prose for every question with a Keep, all [n]
 resolve; (4) obviously off-topic papers Drop, jev canaries Keep; (5) no adapter failure
-lines except web_search skip; (6) no stack traces. Iterate in a scratch vault/store;
+lines except web_search skip; (6) no stack traces; (7) a fresh-context Opus judge (not the implementer) reads the
+three final notes against a six-axis rubric and returns Publishable / Fix / Rewrite,
+≥2 of 3 Publishable to pass (author decision: Opus may judge 「まとも」). Iterate in a
+scratch vault/store;
 write the real vault once at the end. Stop at 8 live runs / $3 / 3 h and report.
 First pilot run measured: akc note 283 KB, 20,573 Jev questions, $0.415, bridges
 accepted 2,509/2,570 pairs, unjudged routed to Review, HF date must be ≤ yesterday UTC,
