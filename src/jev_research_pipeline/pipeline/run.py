@@ -126,7 +126,10 @@ def make_adapter(kind: AdapterKind, *, pacing: bool = True) -> Adapter:
 
 
 class StoredJev(JevClient):
-    """JevClient that answers from the store when the same judgment already exists."""
+    """JevClient that answers from the store when the same judgment already exists — or
+    is being asked right now: the same claim accepted for two questions reaches support
+    twice in one stage, and a sequential run found the first answer in the store. A
+    parallel one joins the request in flight (single-flight) instead of sending it again."""
 
     def __init__(
         self, http_client: httpx2.AsyncClient, *, api_key: str, known: dict[str, GraphNodeType]
@@ -134,6 +137,7 @@ class StoredJev(JevClient):
         super().__init__(http_client, api_key=api_key)
         self.known = known
         self.fresh: list[Judgment] = []
+        self._in_flight: dict[str, asyncio.Future[Any]] = {}
 
     @override
     async def judge[OutputT: BaseModel](
@@ -143,7 +147,16 @@ class StoredJev(JevClient):
         hit = self.known.get(jid)
         if isinstance(hit, Judgment):
             return Judged(output=output_of(ask.output, hit), judgment=hit)
-        result = await super().judge(ask, subjects, state, now=now)
+        pending = self._in_flight.get(jid)
+        if pending is not None:
+            joined: Judged[OutputT] | JevFailure = await asyncio.shield(pending)
+            return joined
+        asked = asyncio.ensure_future(super().judge(ask, subjects, state, now=now))
+        self._in_flight[jid] = asked
+        try:
+            result = await asked
+        finally:
+            del self._in_flight[jid]
         self._remember(result)
         return result
 
@@ -227,6 +240,17 @@ class _State:
     discovery: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
     partial: bool = False
+
+
+@dataclass
+class _SectionDay:
+    """What one question's section decided, applied by execute() in question order."""
+
+    decisions: list[tuple[Decision, str]] = field(default_factory=list[tuple[Decision, str]])
+    rubric: list[Decision] = field(default_factory=list[Decision])
+    nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
+    notes: list[str] = field(default_factory=list[str])
+    made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
 
 
 type _Screened = dict[tuple[str, str], Judged[question_screening.Answers] | JevFailure | None]
@@ -672,13 +696,22 @@ class LineRun:
 
     async def _section(
         self, report_id: str, question: Question, items: list[_Accepted]
-    ) -> tuple[QuestionSection, QuestionLog, Rendering] | None:
-        """One question's day: did it move, and if so what the note says about it."""
+    ) -> "_SectionDay":
+        """One question's day: did it move, and if so what the note says about it. Runs
+        beside the other questions' days, so it only returns what it decided; execute()
+        applies the days in question order."""
+        day = _SectionDay()
         today = [i.claim.text for i in items]
         evidence = self._evidence_texts(question)
-        result = await question_movement.judge(self.jev, question, today, evidence, now=self.now)
-        if self._decide(question_movement.decision(result), question.title).outcome != "accept":
-            return None
+        result = await self._jev(
+            lambda: question_movement.judge(self.jev, question, today, evidence, now=self.now)
+        )
+        if result is None:
+            return day
+        moved = question_movement.decision(result)
+        day.decisions.append((moved, question.title))
+        if moved.outcome != "accept":
+            return day
         done = self.known.get(QuestionLog.id_for(question.id, self.now.date()))
         if (
             isinstance(done, QuestionLog)
@@ -687,7 +720,7 @@ class LineRun:
         ):
             # Same question-day over the same claims: reuse the text rather than paying
             # for a second draft that the author would then have to re-read.
-            return (
+            day.made = (
                 QuestionSection(
                     question_id=question.id,
                     title=question.title,
@@ -700,26 +733,30 @@ class LineRun:
                 done,
                 Rendering(rendering="prose", prose=done.text, rubric=()),
             )
-        rendering, drafts = await rubric_ladder(
-            jev=self.jev,
-            model=self.max,
-            ctx=self.ctx,
-            question=question,
-            report_id=report_id,
-            claims=today,
-            meter=self.meters[MAX],
-            now=self.now,
-            timeout_s=prose_timeout_s(self.env),
-            evidence_set=evidence,
-        )
-        self.st.decisions += list(rendering.rubric)
-        self.st.nodes += drafts
+            return day
+        async with self.prose_slots:
+            if self._over_budget():
+                return day
+            rendering, drafts = await rubric_ladder(
+                jev=self.jev,
+                model=self.max,
+                ctx=self.ctx,
+                question=question,
+                report_id=report_id,
+                claims=today,
+                meter=self.meters[MAX],
+                now=self.now,
+                timeout_s=prose_timeout_s(self.env),
+                evidence_set=evidence,
+            )
+        day.rubric += rendering.rubric
+        day.nodes += drafts
         for i, attempt in enumerate(rendering.drafts, start=1):
             state = "生成" if attempt.prose else f"失敗 ({attempt.failure})"
-            self.st.notes.append(f"{question.slug} prose 第{i}稿: {state} {attempt.seconds:.1f}s")
+            day.notes.append(f"{question.slug} prose 第{i}稿: {state} {attempt.seconds:.1f}s")
             if attempt.invalid_citations:
                 cited = ", ".join(str(n) for n in attempt.invalid_citations)
-                self.st.notes.append(f"{question.slug}: 存在しない引用 [{cited}] を削除")
+                day.notes.append(f"{question.slug}: 存在しない引用 [{cited}] を削除")
         sources = list({i.source.id: i.source for i in items}.values())
         log = QuestionLog.new(
             question=question.id,
@@ -740,7 +777,8 @@ class LineRun:
             evidence=tuple(_entry(s) for s in sources),
             contradictions=tuple(i.claim.text for i in items if i.contradicts),
         )
-        return section, log, rendering
+        day.made = (section, log, rendering)
+        return day
 
     async def _rubric_claims(
         self, report_id: str, prose: Mapping[str, str | None], accepted: list[_Accepted]
@@ -919,13 +957,22 @@ class LineRun:
                 self.st.notes += canary_lines(self.questions, screened)
             self.st.discovery = self._discovery_lines(accepted)
             with span("jrp.stage.sections", line=slug, claims=len(accepted)):
-                for question in self.questions:
-                    items = [i for i in accepted if i.question.id == question.id]
-                    if not items or self._over_budget():
-                        continue
-                    made = await self._section(report_id, question, items)
-                    if made is not None:
-                        section, log, rendering = made
+                moving = [
+                    (q, items)
+                    for q in self.questions
+                    if (items := [i for i in accepted if i.question.id == q.id])
+                ]
+                days = await asyncio.gather(
+                    *(self._section(report_id, q, items) for q, items in moving)
+                )
+                for day in days:
+                    for d, label in day.decisions:
+                        self._decide(d, label)
+                    self.st.decisions += day.rubric
+                    self.st.nodes += day.nodes
+                    self.st.notes += day.notes
+                    if day.made is not None:
+                        section, log, rendering = day.made
                         sections.append(section)
                         logs.append(log)
             with span("jrp.stage.rubric", line=slug, claims=len(accepted)):

@@ -2,6 +2,8 @@
 sequential one would have been (judge's timing 2026-09-23: 3 lines took 15-20 min)."""
 
 import asyncio
+import json
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx2
@@ -16,17 +18,23 @@ from .fakes import fake_world
 from .test_e2e import env as env  # the fixture, re-exported
 
 
-class InFlight:
-    """Counts Jev requests open at once; each one is held for a moment so they overlap."""
+def _is_jev(request: httpx2.Request) -> bool:
+    return request.url.host == "api.typesafe.ai"
 
-    def __init__(self) -> None:
+
+class InFlight:
+    """Counts requests open at once to one kind of upstream (Jev by default); each one is
+    held for a moment so they overlap."""
+
+    def __init__(self, counts: Callable[[httpx2.Request], bool] | None = None) -> None:
+        self.counts = counts or _is_jev
         self.now = 0
         self.peak = 0
         self.total = 0
         self.world = fake_world()
 
     async def __call__(self, request: httpx2.Request) -> httpx2.Response:
-        if request.url.host != "api.typesafe.ai":
+        if not self.counts(request):
             return await self.world(request)
         self.now += 1
         self.total += 1
@@ -126,3 +134,57 @@ def test_concurrency_env_falls_back_on_anything_but_a_positive_int(
     env = {} if raw is None else {"JRP_JEV_CONCURRENCY": raw, "JRP_PROSE_CONCURRENCY": raw}
     assert jev_concurrency(env) == jev
     assert prose_concurrency(env) == prose
+
+
+def _four_questions(env: dict[str, str]) -> None:
+    """Four open questions on the e2e line, so four question-days want prose at once."""
+    body = "".join(
+        f"## 問い {n} は何で決まるのか\n- slug: q{n}\n- version: 1\n- status: open\n"
+        f"- brief: 記憶機構の違い {n} が下流の精度をどれだけ動かすか。\n\n"
+        for n in range(4)
+    )
+    Path(env["JRP_QUESTIONS_DIR"], "akc.md").write_text(
+        f"<!-- jrp:questions:akc -->\n\n{body}", encoding="utf-8"
+    )
+
+
+def _is_prose(request: httpx2.Request) -> bool:
+    return (
+        request.url.host == "dashscope-intl.aliyuncs.com"
+        and json.loads(request.content)["model"] == "qwen3.8-max"
+    )
+
+
+async def test_prose_for_several_questions_runs_side_by_side_within_its_limit(
+    env: dict[str, str],
+):
+    _four_questions(env)
+    env["JRP_PROSE_CONCURRENCY"] = "2"
+    counter = InFlight(_is_prose)
+    (outcome,) = await run_pipeline(env, now=b.T0, http=_client(counter), pacing=False)
+    assert outcome.note.read_text(encoding="utf-8").count("jrp:qday:") == 4
+    assert counter.total >= 4
+    assert counter.peak == 2
+
+
+async def test_several_question_days_in_parallel_write_the_sequential_note(
+    env: dict[str, str], tmp_path: Path
+):
+    _four_questions(env)
+    notes: list[tuple[str, dict[str, bytes]]] = []
+    for limit in ("1", "3"):
+        run_env = {
+            **env,
+            "JRP_JEV_CONCURRENCY": limit,
+            "JRP_PROSE_CONCURRENCY": limit,
+            "JRP_STORE_DIR": str(tmp_path / f"store-{limit}"),
+            "JRP_VAULT_DIR": str(tmp_path / f"vault-{limit}"),
+        }
+        Path(run_env["JRP_VAULT_DIR"]).mkdir()
+        (outcome,) = await run_pipeline(
+            run_env, now=b.T0, http=_client(InFlight(_is_prose)), pacing=False
+        )
+        notes.append(
+            (outcome.note.read_text(encoding="utf-8"), _store_bytes(Path(run_env["JRP_STORE_DIR"])))
+        )
+    assert notes[0] == notes[1]
