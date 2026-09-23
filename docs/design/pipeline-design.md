@@ -410,6 +410,7 @@ before it. Built, design unchanged (questions, nets, report format as above):
 ### Pilot iteration — thresholds changed (2026-09-23, evidence in docs/pilot-log.md)
 
 - question_screening min_certainty 0.9 → 0.5, read on the three placing Scores only (run 1: no Keep possible).
+- question_screening: a score ≥ keep + review_band (0.7) is Keep whatever the certainty; certainty only decides near the cut (run 7: canary at 0.87 sent to Review).
 - question_screening method_transferable / evidence_compatible gates 0.5 → 0.3 (run 2: "cannot tell" dropped).
 - question_screening bridges_line 0.6 → 0.8, reworded to "would change the answer"; note shows ≤ 3 per question, ≤ 5 per line.
 - question_prefilter (new) on_topic 0.5 per (source, question) before the full bundle and before triage.

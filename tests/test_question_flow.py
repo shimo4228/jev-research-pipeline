@@ -54,8 +54,14 @@ KEEP: dict[str, object] = {
         ({}, "keep"),
         ({"on_topic": 0.1}, "drop"),  # a hard gate can only drop
         ({"method_transferable": 0.2}, "drop"),
-        # gates pass and the score clears the cut, but problem_overlap has no majority level
-        ({"problem_overlap": (0.3, 0.3, 0.0, 0.4)}, "review"),
+        # the score clears the cut (0.65) but not by the band, and problem_overlap has no
+        # majority level
+        (
+            {"problem_overlap": (0.3, 0.3, 0.0, 0.4), "novelty_vs_evidence_set": (0.0, 1.0, 0.0)},
+            "review",
+        ),
+        # far above the cut (0.75): a clear call, whatever the split between high levels
+        ({"problem_overlap": (0.3, 0.3, 0.0, 0.4)}, "keep"),
         (
             {
                 "problem_overlap": (0.0, 1.0, 0.0, 0.0),
@@ -73,7 +79,7 @@ KEEP: dict[str, object] = {
             "review",  # 0.53: inside the band below the 0.6 cut
         ),
     ],
-    ids=["keep", "off_topic", "method", "unsure", "weak", "borderline"],
+    ids=["keep", "off_topic", "method", "unsure", "clear", "weak", "borderline"],
 )
 async def test_gates_then_scores_then_code_routes(
     cassette: ClientFactory, overrides: dict[str, object], route: str

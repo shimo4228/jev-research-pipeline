@@ -234,13 +234,21 @@ def route(result: Judged[Answers] | JevFailure, *, source: SourceItem) -> Route:
         return "incomplete"
     if isinstance(result, JevFailure):
         return "unjudged"  # a Jev failure goes to 未判定; Review is for judged borderlines
-    if not gates_pass(result.output):
-        return "drop"
+    return _placed(result) if gates_pass(result.output) else "drop"
+
+
+def _placed(result: Judged[Answers]) -> Route:
+    """Where a source that passed the gates lands, by its weighted score."""
     score = weighted(result)
     keep = threshold(THRESHOLDS, "keep")
     band = threshold(THRESHOLDS, "review_band")
     if score < keep - band:
         return "drop"
+    if score >= keep + band:
+        # A clear call: which of two high levels a Score landed on does not change it
+        # (scratch run 7: a canary at 0.87 went to Review on novelty split between
+        # adds_detail and changes_answer, certainty 0.49).
+        return "keep"
     if score < keep or certainty(result, ROUTING_FIELDS) < threshold(THRESHOLDS, "min_certainty"):
         return "review"
     return "keep"

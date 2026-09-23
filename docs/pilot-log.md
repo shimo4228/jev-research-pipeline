@@ -136,3 +136,26 @@ Fixes: rubric_report also sees the evidence set the prose was given, and rejects
 unsupported ≥ 0.7; an empty-day note says how far the sources got; proposals see the
 existing questions (definitions follow them) and drop foreign-script slips; the pair
 failure line is named as such; gists end at a word with "…"; arXiv keyword ≤ 4 a day.
+
+## Run 7 — 2026-09-23 11:44 JST (scratch, fresh store seeded with the real cursor)
+
+Change: 74d3602 (rubric sees the evidence set, unsupported 0.7; empty-day line; proposals
+see existing questions, foreign-script filter; arXiv keyword ≤ 4/day).
+Lines: authorship, ans, desire + jev.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 136 s; $0.0239 + 0.0353 + 0.0210 + 0.0370 = $0.117 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | 3.6–10.8 KB; Review ≤ 5; 橋渡し 0; ≤ 0.3% | ✅ |
+| 3 | prose for every question with a Keep, [n] resolve | jev 1/1 (prose, no template); the three rotation lines had no Keep | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | jev-phishing-bench → review: weighted 0.87 but novelty split adds_detail/changes_answer, certainty 0.49 < 0.50 | ❌ |
+| 5 | no adapter failure line but web_search | none (arXiv keyword cap line is informational) | ✅ |
+| 6 | no stack trace | none | ✅ |
+
+### Condition 7 (dry, on run 7's notes) — fresh-context Opus judge: **Publishable 2/3**
+- authorship — Fix: the empty-day line says 4 pairs were screened, but not where they went.
+- ans — Publishable (minor: a simplified-Chinese 广播 in a proposal; an unjudged row without reason).
+- desire — Publishable (minor: a prompt phrase leaked into a proposal; duplicated fallback lines).
+
+Fixes for the final run: a score ≥ keep + band (0.7) is Keep regardless of certainty; the
+empty-day line gives the routes of the screened pairs; duplicate operations lines are merged.

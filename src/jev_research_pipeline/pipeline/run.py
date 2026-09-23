@@ -253,6 +253,8 @@ class _State:
     pairs_screened: int = 0
     failed_pairs: int = 0
     """Pairs whose Jev request failed (prefilter or full screen) — the 未判定 share."""
+    routes: dict[str, int] = field(default_factory=dict[str, int])
+    """Full-screen routes of the day (keep / review / drop / unjudged), for the empty-day line."""
     seconds: dict[str, float] = field(default_factory=dict[str, float])
     """Wall time per stage (operations section: where a slow run spent it)."""
     fetched: set[str] = field(default_factory=set[str])
@@ -753,6 +755,7 @@ class LineRun:
             if bridged.outcome == "accept" and isinstance(result, Judged):
                 bridges.append((qid, result.output.bridges_line, s))
             route = question_screening.route(result, source=s)
+            self.st.routes[route] = self.st.routes.get(route, 0) + 1
             if route == "keep":
                 kept[qid].append(s)
             elif route == "unjudged":
@@ -1037,9 +1040,16 @@ class LineRun:
         """One sentence on how far the day's sources got, for a note with no section."""
         silenced = [n.split(":")[0] for n in self.st.notes if "rate limit のため" in n]
         tail = f" {', '.join(silenced)} は rate limit で打ち切り。" if silenced else ""
+        routes = self.st.routes
+        where = (
+            f" (Keep {routes.get('keep', 0)} / Review {routes.get('review', 0)} / "
+            f"Drop {routes.get('drop', 0)})"
+            if self.st.pairs_screened
+            else ""
+        )
         return (
             f"取得 {len(self.st.fetched)} 件のうち、問いに関係しそうな (source, 問い) 対が "
-            f"{self.st.pairs_screened}、採用された claim が {claims} 件。{tail}"
+            f"{self.st.pairs_screened}{where}、採用された claim が {claims} 件。{tail}"
         )
 
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
@@ -1126,7 +1136,8 @@ class LineRun:
             )
         if self.st.partial:
             lines.append("partial: 費用上限に達したため以降の判定を省略")
-        return ops, lines + self.st.notes
+        # The same line from several (question, adapter) pairs says one thing once.
+        return ops, list(dict.fromkeys(lines + self.st.notes))
 
     async def _gather(self) -> tuple[list[_Accepted], dict[str, list[SourceItem]]]:
         if self._over_budget():
