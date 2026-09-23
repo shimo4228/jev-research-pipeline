@@ -86,7 +86,8 @@ from jev_research_pipeline.model import (
     Unit,
 )
 from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
-from jev_research_pipeline.questions import append_question
+from jev_research_pipeline.query_text import clean_query
+from jev_research_pipeline.questions import AuthoredQueries, append_question
 from jev_research_pipeline.qwen import (
     FLASH,
     MAX,
@@ -128,6 +129,44 @@ def make_adapter(kind: AdapterKind, *, pacing: bool = True) -> Adapter:
         "web_search": web_search.adapter,
     }[kind]()
     return adapter if pacing else replace(adapter, min_interval_s=0.0)
+
+
+def authored_candidates(
+    line: str,
+    questions: Sequence[Question],
+    queries: Mapping[str, AuthoredQueries],
+    *,
+    kinds: Collection[AdapterKind],
+    turn: int,
+) -> tuple[list[QueryCandidate], list[str]]:
+    """The questions' authored query lines as candidates, and the operations lines.
+
+    Each adapter's list starts one query later on every run of the line (`turn` = the
+    line's earlier runs, mod the list's length): the keyword budget and arXiv's
+    one-search-a-line cap cut the list from the front, and a fixed order would send the
+    first question's query every time and never the others. Counted in runs, not calendar
+    days: a rotated line runs every few days, and a day ordinal would then land on the
+    same start whenever that interval shares a factor with the list's length."""
+    by_kind: dict[AdapterKind, dict[str, QueryCandidate]] = {}
+    unusable: list[str] = []
+    for question in questions:
+        for kind, text in queries.get(question.id, ()):
+            if kind not in kinds:
+                continue
+            cleaned = clean_query(text)
+            if cleaned is None:
+                unusable.append(text)
+                continue
+            c = QueryCandidate.new(line=line, adapter=kind, text=cleaned)
+            by_kind.setdefault(kind, {})[c.id] = c
+    out: list[QueryCandidate] = []
+    for found in by_kind.values():
+        listed = list(found.values())
+        shift = turn % len(listed)
+        out += listed[shift:] + listed[:shift]
+    notes = [f"query: 問いファイルの {len(out)} 件を使用"] if out else []
+    notes += [f"query: 検索語にならない行を skip ({text})" for text in unusable]
+    return out, notes
 
 
 class StoredJev(JevClient):
@@ -350,9 +389,12 @@ class LineRun:
         net_config: nets.NetConfig | None = None,
         day_budget: nets.DayBudget | None = None,
         pacing: bool = True,
+        queries: Mapping[str, AuthoredQueries] | None = None,
     ) -> None:
         self.ctx, self.partition, self.index_path, self.vault = ctx, partition, index_path, vault
         self.questions, self.seeds = questions, seeds
+        self.queries: Mapping[str, AuthoredQueries] = queries or {}
+        """Authored query lines per Question @id (questions.question_queries)."""
         self.http, self.env, self.now = http, env, now
         self.known = partition.load()
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
@@ -476,19 +518,38 @@ class LineRun:
         return candidates, decisions, notes
 
     async def _queries(self) -> list[QueryCandidate]:
-        runnable: list[tuple[Question, AdapterKind]] = []
-        skipped: set[AdapterKind] = set()
-        for question in self.questions:
-            for kind in self.ctx.line.adapters:
-                needed = make_adapter(kind).required_env
-                if needed is not None and not self.env.get(needed):
-                    if kind not in skipped:
-                        skipped.add(kind)
-                        self.st.notes.append(f"{kind}: key 未設定のため skip")
-                    continue
-                runnable.append((question, kind))
+        """The authored queries of the questions that have them (no Qwen, no Jev), then
+        the generated-and-selected ones for the questions that do not."""
+        available: list[AdapterKind] = []
+        for kind in self.ctx.line.adapters:
+            needed = make_adapter(kind).required_env
+            if needed is not None and not self.env.get(needed):
+                self.st.notes.append(f"{kind}: key 未設定のため skip")
+                continue
+            available.append(kind)
+        authored, authored_notes = authored_candidates(
+            self.ctx.line.id,
+            self.questions,
+            self.queries,
+            kinds=available,
+            turn=sum(
+                1
+                for n in self.known.values()
+                if isinstance(n, Report)
+                and n.line == self.ctx.line.id
+                and n.run_date < self.now.date()
+            ),
+        )
+        self.st.notes += authored_notes
+        self.partition.put(authored)
+        runnable: list[tuple[Question, AdapterKind]] = [
+            (question, kind)
+            for question in self.questions
+            if question.id not in self.queries
+            for kind in available
+        ]
         selected = await asyncio.gather(*(self._selected(k, q) for q, k in runnable))
-        kept: list[QueryCandidate] = []
+        kept: list[QueryCandidate] = list(authored)
         for result in selected:
             if result is None:
                 continue

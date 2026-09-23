@@ -5,6 +5,8 @@ jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (n
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
 jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
+jrp queries check --line <slug>
+                   send each authored query once, print hits (pipeline.query_check)
 
 A store file from an older build stops every command with one line (store.migrate):
 additive differences are migrated in place first, incompatible ones need `jrp migrate`.
@@ -24,8 +26,10 @@ from .adapters.routing import run_client
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
+from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
+from .questions import NoQuestions
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
@@ -44,6 +48,9 @@ def parser() -> argparse.ArgumentParser:
     d.add_argument("--cassettes", default="tests/cassettes/live", help="dir of live cassettes")
     m = sub.add_parser("migrate")
     m.add_argument("--dry-run", action="store_true", help="print the plan, change nothing")
+    q = sub.add_parser("queries")
+    q.add_argument("action", choices=["check"])
+    q.add_argument("--line", required=True, help="line slug (config.toml track)")
     return p
 
 
@@ -137,12 +144,29 @@ def main(argv: list[str] | None = None) -> int:
             case "migrate":
                 return _migrate(env, dry_run=bool(args.dry_run))
             case _:
-                return asyncio.run(_drift(env, Path(args.cassettes)))
+                return asyncio.run(_async_command(env, args))
     except StoreSchemaError as e:
         sys.stderr.write(f"{e}\n")
         if args.command == "run":
             notify("jrp run STOPPED", str(e), env=env)
         return 2
+
+
+async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> int:
+    if args.command == "queries":
+        return await _check_queries(env, str(args.line))
+    return await _drift(env, Path(args.cassettes))
+
+
+async def _check_queries(env: Mapping[str, str], slug: str) -> int:
+    try:
+        async with run_client(timeout=HTTP_TIMEOUT_S) as http:
+            lines = await check_queries(env, slug, http=http, now=datetime.now().astimezone())
+    except NoQuestions as e:
+        sys.stderr.write(f"{e}\n")
+        return 1
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
 
 
 def _prepared(env: Mapping[str, str]) -> None:

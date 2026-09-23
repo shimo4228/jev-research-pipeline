@@ -431,6 +431,33 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - daily tracks (`daily = true`, e.g. jev) run on every tick beside the 3 rotated lines; the lines of a tick run side by side under one shared Jev rate window.
 - arXiv export goes through urllib (httpx2 alone gets 406 on queries arXiv's cache does not hold); canaries are probed by URL every run (GitHub README / arXiv id / page), one operations line each.
 
+### Authored queries (author decision 2026-09-23)
+
+Supersedes the "query candidates" / "query selection" rows of the judgment map for every
+question that carries query lines; those rows remain the fallback for a question without them.
+Evidence from the real notes of 2026-09-23: query selection ended in floor fallback on nearly
+every line and adapter (no candidate cleared the floor, so it only took the top-k), and the
+Qwen query site was the source of the template-token contamination, the free-quota switch to
+deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carried most accepts
+(the recommendation and citation nets need kept papers first).
+- Queries are written **with the question**, at authoring time: `- arxiv:` / `- github:` /
+  `- hf:` / `- web:` lines in `questions/<slug>.md`, English, one per line. Written by the
+  author or by Claude in the author's session — authoring, not a run-time call, so "Claude
+  calls = 0" and the non-goal "Claude at runtime" hold. Procedure: AGENTS.md.
+- Checked before a run depends on them: `jrp queries check --line <slug>` sends each once and
+  prints hit count and newest titles; nothing is stored, no model is called.
+- At run time they bypass Qwen and Jev query_selection. Each adapter's list is rotated by the
+  line's run count (earlier Reports), because the keyword budget and arXiv's one-search-a-line
+  cap cut from the front; not by the day ordinal, which repeats the same start when a rotated
+  line's interval shares a factor with the list's length (code review).
+- Questions themselves stay author-maintained, updated when the author notices (same day's
+  decision; external sweep: every living-review / PIR / KIT practice keeps a human owner).
+- Topic convergence is not solved by date windows (they only stop repeats of the same item,
+  which store dedup and newest-first sorting already do); it surfaces as empty days, the signal
+  to rewrite the question and its queries.
+Review-when: every line has query lines for two weeks → remove `qwen/queries.py` and
+`jev/query_selection.py`; or a line's authored queries return 0 hits on three runs in a row.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

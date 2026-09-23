@@ -29,7 +29,12 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
 from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Report
-from jev_research_pipeline.questions import NO_QUESTIONS, NoQuestions, open_questions
+from jev_research_pipeline.questions import (
+    NO_QUESTIONS,
+    NoQuestions,
+    open_questions,
+    question_queries,
+)
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
@@ -177,6 +182,7 @@ async def run_pipeline(
             net_config=net_config,
             day_budget=day_budget,
             pacing=pacing,
+            queries=question_queries(env, slug, questions),
         )
         run.jev.pacer = pacer
         return await run.execute()

@@ -25,6 +25,19 @@ Format — one `## ` block per question, fields as `- key: value` lines and list
 owns. A missing `slug` is derived from the heading, a missing `version` is 1. A file with
 no open question stops the line's run ("問い未設定") rather than running a question-less
 pipeline that would have nothing to anchor its judgments on.
+
+Search queries are written into the same block, one line per query, keyed by adapter:
+
+    - arxiv: agent memory benchmark
+    - github: agent memory
+    - hf: long-term memory for LLM agents
+    - web: agent memory evaluation
+
+They are authored when the question is (by the author, or by Claude in the author's
+session — never at run time), trial-fetched with `jrp queries check`, and rewritten when
+the question changes. A question with query lines runs on exactly those; one without
+falls back to the Qwen candidates scored by Jev (query_selection). arXiv ANDs every word
+(`all:w1 AND all:w2`), so its queries stay two to four words.
 """
 
 import re
@@ -37,7 +50,18 @@ from typing import Final
 
 from pydantic import AwareDatetime
 
-from jev_research_pipeline.model import GraphNodeType, Question, QuestionStatus
+from jev_research_pipeline.model import AdapterKind, GraphNodeType, Question, QuestionStatus
+
+type AuthoredQueries = tuple[tuple[AdapterKind, str], ...]
+"""One question's query lines, (adapter, text), in file order."""
+
+QUERY_FIELDS: Final[Mapping[str, AdapterKind]] = {
+    "arxiv": "arxiv",
+    "github": "github",
+    "hf": "hf_papers",
+    "web": "web_search",
+}
+"""Field key in the question block → the keyword adapter it is sent to."""
 
 QUESTIONS_ENV: Final = "JRP_QUESTIONS_DIR"
 DEFAULT_QUESTIONS_DIR: Final = Path("questions")
@@ -192,6 +216,32 @@ def open_questions(
         return question.model_copy(update={"evidence": evidence}) if evidence else question
 
     return [merged(q) for q in questions]
+
+
+def parse_queries(text: str) -> dict[str, AuthoredQueries]:
+    """Each block's query lines, keyed by the block's slug (derived the way parse_questions
+    derives it). A block without query lines is absent."""
+    out: dict[str, AuthoredQueries] = {}
+    for title, lines in _blocks(text):
+        fields = _fields(lines)
+        slug = fields.get("slug", [""])[0] or slugify(title)
+        queries: list[tuple[AdapterKind, str]] = []
+        for line in lines:  # file order across adapters, which _fields does not keep
+            m = _FIELD_RE.match(line)
+            if m and m.group(2) and (kind := QUERY_FIELDS.get(m.group(1))) is not None:
+                queries.append((kind, m.group(2)))
+        if queries:
+            out[slug] = tuple(queries)
+    return out
+
+
+def question_queries(
+    env: Mapping[str, str], slug: str, questions: Sequence[Question]
+) -> dict[str, AuthoredQueries]:
+    """The authored queries of `questions`, keyed by Question @id."""
+    path = questions_path(env, slug)
+    by_slug = parse_queries(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return {q.id: by_slug[q.slug] for q in questions if q.slug in by_slug}
 
 
 def render_question(question: Question) -> str:
