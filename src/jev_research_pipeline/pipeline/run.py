@@ -591,19 +591,6 @@ class LineRun:
         self.partition.put(self.st.candidates)
         cache.record("question_proposals", key, tuple(q.id for q in self.st.candidates), self.now)
 
-    def _canaries(self, screened: Mapping[str, list[SourceItem]]) -> list[str]:
-        """A canary paper the author named must survive screening on a day it was fetched
-        (SAFE): a drop means the screen drifted, and the note says so."""
-        lines: list[str] = []
-        for question in self.questions:
-            kept = {s.url for s in screened.get(question.id, [])}
-            lines += [
-                f"canary 落下: {question.slug} / {url}"
-                for url in question.canary_papers
-                if url not in kept
-            ]
-        return lines
-
     # --- run ----------------------------------------------------------------------------
 
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
@@ -694,7 +681,7 @@ class LineRun:
         slug = self.ctx.line.slug
         with span("jrp.line", line=slug, date=self.now.date().isoformat()) as line:
             accepted, screened = await self._gather()
-            self.st.notes += self._canaries(screened)
+            self.st.notes += canary_lines(self.questions, screened)
             self.st.discovery = self._discovery_lines(accepted)
             with span("jrp.stage.sections", line=slug, claims=len(accepted)):
                 for question in self.questions:
@@ -759,6 +746,20 @@ class LineRun:
             note=write_note(self.vault, slug, self.now.date(), text),
             operations=lines,
         )
+
+
+def canary_lines(questions: list[Question], screened: Mapping[str, list[SourceItem]]) -> list[str]:
+    """A canary paper the author named must survive screening on a day it was fetched
+    (SAFE): a drop means the screen drifted, and the note says so."""
+    lines: list[str] = []
+    for question in questions:
+        kept = {s.url for s in screened.get(question.id, [])}
+        lines += [
+            f"canary 落下: {question.slug} / {url}"
+            for url in question.canary_papers
+            if url not in kept
+        ]
+    return lines
 
 
 def _joined(rendering: Rendering, sections: list[QuestionSection]) -> Rendering:
