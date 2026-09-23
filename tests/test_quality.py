@@ -147,6 +147,7 @@ async def test_rubric_ladder_accepts_first_draft(cassette: ClientFactory):
         claims=[b.claim().text],
         meter=GenerationMeter(),
         now=b.T0,
+        check=None,  # the ladder's own logic; the self-check pass has its own test
     )
     assert (rendering.rendering, rendering.prose) == ("prose", "レポート本文 [1]。")
     assert [d.function for d in rendering.rubric] == ["rubric_report"]
@@ -182,6 +183,7 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
         claims=[b.claim().text],
         meter=GenerationMeter(),
         now=b.T0,
+        check=None,  # the ladder's own logic; the self-check pass has its own test
     )
     assert rendering.rendering == "template"
     assert [d.policy for d in rendering.rubric] == ["rubric_report@fidelity_v1"] * 2
@@ -203,6 +205,7 @@ async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFact
         claims=[b.claim().text],
         meter=GenerationMeter(),
         now=b.T0,
+        check=None,  # the ladder's own logic; the self-check pass has its own test
     )
     assert (rendering.rendering, rendering.prose) == ("template", None)
     assert len(rendering.rubric) == 2
@@ -260,6 +263,38 @@ async def test_rubric_ladder_returns_every_draft_judgment(cassette: ClientFactor
         claims=[b.claim().text],
         meter=GenerationMeter(),
         now=b.T0,
+        check=None,  # the ladder's own logic; the self-check pass has its own test
     )
     assert rendering.rendering == "template"
     assert len({j.id for j in judgments}) == 2  # one per draft, both kept
+
+
+async def test_the_self_check_pass_replaces_the_draft_and_sees_it(cassette: ClientFactory):
+    """Draft, then the same model re-reads it (the check prompt, the draft in <draft>) and
+    its text is the one the ladder evaluates."""
+    seen: list[str] = []
+    fake = fake_qwen("一稿 [1]。", "点検後 [1]。")
+
+    async def recording(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.content.decode())
+        return await fake(request)
+
+    from jev_research_pipeline.jev import JevClient
+
+    jev = JevClient(
+        cassette(fake_jev({"unsupported_statement": 0.1, "exceeds_claims": 0.1})),
+        api_key="replay",
+    )
+    rendering, _ = await rubric_ladder(
+        jev=jev,
+        model=qwen_model(MAX, cassette(recording), api_key="replay"),
+        ctx=CTX,
+        question=b.question(),
+        report_id=b.report().id,
+        claims=[b.claim().text],
+        meter=GenerationMeter(),
+        now=b.T0,
+    )
+    assert rendering.prose == "点検後 [1]。"
+    if seen:  # synthesized: the second request is the check, carrying the first draft
+        assert "<draft>" in seen[1] and "一稿" in seen[1]

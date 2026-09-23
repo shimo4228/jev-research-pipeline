@@ -60,13 +60,12 @@ from jev_research_pipeline.qwen.prose import (
     INFERENCE_MARK,
     NO_DIRECT_EVIDENCE,
     PROSE_TIMEOUT_S,
+    SOURCE_EXCERPT_CHARS,
     write_prose,
 )
 from jev_research_pipeline.store import GraphStore
 
 BENCH_DIR: Final = "prose_bench"
-EXCERPT_CHARS: Final = 1500
-"""Per source: enough of an abstract to say what the work did and on what."""
 HOLDOUT_EVERY: Final = 3
 
 type Split = Literal["dev", "holdout"]
@@ -180,7 +179,7 @@ def cases_from_nodes(
                 ),
                 known=tuple(known),
                 sources=tuple(
-                    BenchSource(title=s.title, url=s.url, excerpt=s.text[:EXCERPT_CHARS])
+                    BenchSource(title=s.title, url=s.url, excerpt=s.text[:SOURCE_EXCERPT_CHARS])
                     for s in sources
                 ),
                 baseline=log.text,

@@ -92,7 +92,11 @@ from jev_research_pipeline.qwen import (
     Rendering,
     qwen_model,
 )
-from jev_research_pipeline.qwen.prose import prose_thinking, prose_timeout_s
+from jev_research_pipeline.qwen.prose import (
+    SOURCE_EXCERPT_CHARS,
+    prose_thinking,
+    prose_timeout_s,
+)
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import (
     ClaimEntry,
@@ -911,6 +915,9 @@ class LineRun:
         async with self.prose_slots:
             if self._over_budget():
                 return day
+            # the sources behind today's claims, in first-cited order, as the writer's
+            # thicker material (prose bench: claims alone left no room to explain a study)
+            sources = list({i.source.id: i.source for i in items}.values())
             rendering, drafts = await rubric_ladder(
                 jev=self.jev,
                 model=self.max,
@@ -923,6 +930,11 @@ class LineRun:
                 now=self.now,
                 timeout_s=prose_timeout_s(self.env),
                 evidence_set=evidence,
+                sources=[
+                    {"title": s.title, "url": s.url, "excerpt": s.text[:SOURCE_EXCERPT_CHARS]}
+                    for s in sources
+                ],
+                claim_sources=[sources.index(i.source) + 1 for i in items],
             )
         day.rubric += rendering.rubric
         day.nodes += drafts

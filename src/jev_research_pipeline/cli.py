@@ -43,7 +43,7 @@ from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
 RUBRIC = Path(__file__).resolve().parents[2] / "docs" / "prose-rubric.md"
-"""The judge's rubric; the pair files embed it (pipeline.prose_bench.make_pairs)."""
+"""The fidelity judge's checks; each gate file embeds them (pipeline.prose_bench.gate_files)."""
 
 
 def parser() -> argparse.ArgumentParser:

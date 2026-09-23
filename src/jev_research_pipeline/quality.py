@@ -34,7 +34,7 @@ from .model import (
 )
 from .model.jsonld import Value
 from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
-from .qwen.prose import NO_DIRECT_EVIDENCE, PROSE_TIMEOUT_S, evidence_text
+from .qwen.prose import CHECK_INSTRUCTIONS, NO_DIRECT_EVIDENCE, PROSE_TIMEOUT_S, evidence_text
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -123,6 +123,9 @@ async def rubric_ladder(
     timeout_s: float = PROSE_TIMEOUT_S,
     evidence_set: list[str] | None = None,
     rewrite_model: OpenAIChatModel | None = None,
+    sources: list[dict[str, object]] | None = None,
+    claim_sources: list[int] | None = None,
+    check: str | None = CHECK_INSTRUCTIONS,
 ) -> tuple[Rendering, list[Judgment]]:
     """One question's section: `claims` = its accepted claim texts, in reading order.
 
@@ -135,8 +138,9 @@ async def rubric_ladder(
     async def write(feedback: str | None) -> ProseResult:
         # A rewrite (feedback given) may go to another model setting — prose thinking
         # policy "rewrite" spends the slow thinking draft only where the fast one failed.
-        return await write_prose(
-            rewrite_model if feedback is not None and rewrite_model is not None else model,
+        writer = rewrite_model if feedback is not None and rewrite_model is not None else model
+        drafted = await write_prose(
+            writer,
             ctx,
             question,
             claims,
@@ -144,14 +148,46 @@ async def rubric_ladder(
             meter=meter,
             timeout_s=timeout_s,
             evidence_set=evidence_set,
+            sources=sources,
+            claim_sources=claim_sources,
         )
+        if check is None or drafted.prose is None:
+            return drafted
+        # The self-check pass (prose bench): the same model re-reads the draft against the
+        # claims and excerpts and fixes factual slips only; a failed check keeps the draft.
+        checked = await write_prose(
+            writer,
+            ctx,
+            question,
+            claims,
+            feedback=None,
+            meter=meter,
+            timeout_s=timeout_s,
+            evidence_set=evidence_set,
+            instructions=check,
+            sources=sources,
+            claim_sources=claim_sources,
+            draft=drafted.prose,
+        )
+        return drafted.model_copy(
+            update={
+                "prose": checked.prose or drafted.prose,
+                "seconds": round(drafted.seconds + checked.seconds, 3),
+                "invalid_citations": checked.invalid_citations or drafted.invalid_citations,
+            }
+        )
+
+    excerpts = [str(s.get("excerpt", "")) for s in sources or []]
 
     async def evaluate(prose: str) -> Decision:
         # `grounded` is judged on the evidence paragraphs only: the marked inference
         # paragraph is allowed to go beyond the claims, that is what marking it is for.
         evidence = evidence_text(prose)
+        # The excerpts the writer was given count as grounding too (a fact cited (S1) is
+        # not unsupported), next to the question's evidence set.
+        known = [*(evidence_set or []), *excerpts]
         result = await rubric_report.judge(
-            jev, report_id, rubric_report.state(ctx, evidence, claims, evidence_set), now=now
+            jev, report_id, rubric_report.state(ctx, evidence, claims, known or None), now=now
         )
         if isinstance(result, Judged):
             judged.append(result.judgment)
@@ -168,7 +204,7 @@ async def rubric_ladder(
                     rubric_report.fidelity_state(
                         question.title,
                         p.replace(NO_DIRECT_EVIDENCE, "").strip(),
-                        cited_claims(p, claims),
+                        cited_claims(p, claims) + cited_excerpts(p, excerpts),
                     ),
                     now=now,
                 )
@@ -193,6 +229,15 @@ def cited_claims(paragraph: str, claims: list[str]) -> list[str]:
         if 1 <= n <= len(claims)
     ]
     return cited or list(claims)
+
+
+def cited_excerpts(paragraph: str, excerpts: list[str]) -> list[str]:
+    """The source excerpts a paragraph cites as (S1), (S2) …"""
+    return [
+        excerpts[n - 1]
+        for n in dict.fromkeys(int(m) for m in re.findall(r"\(S(\d+)\)", paragraph))
+        if 1 <= n <= len(excerpts)
+    ]
 
 
 def build_report(
