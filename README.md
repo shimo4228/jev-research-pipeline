@@ -117,7 +117,8 @@ uv run jrp run                # harvest ticks, run the next lines, write notes
 A line with no open question is skipped and reported as such. Maintenance commands, once ticks
 exist: `jrp fit` proposes refit thresholds (it writes a proposal file, never applies it),
 `jrp export-cases` turns ticked claims into pydantic-evals cases, `jrp queries check --line <slug>`
-trial-fetches a line's authored queries, `jrp drift` replays recorded Jev
+trial-fetches a line's authored queries, `jrp prose export|bench|pairs|tally` is the dev-time loop for
+the prose (frozen inputs, blind pairs for a judge; [AGENTS.md](AGENTS.md)), `jrp drift` replays recorded Jev
 inputs live and reports probability drift, and `jrp migrate --dry-run` shows how an older store would
 be upgraded. Every variable and the full `config.toml` are in
 [docs/configuration.md](docs/configuration.md).

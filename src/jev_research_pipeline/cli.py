@@ -7,6 +7,8 @@ jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
 jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
+jrp prose export|bench|pairs|tally
+                   the prose bench: frozen inputs, variants, blind pairs (pipeline.prose_bench)
 
 A store file from an older build stops every command with one line (store.migrate):
 additive differences are migrated in place first, incompatible ones need `jrp migrate`.
@@ -23,6 +25,8 @@ from pathlib import Path
 import httpx2
 
 from .adapters.routing import run_client
+from .pipeline import prose_bench as pb
+from .pipeline.concurrency import prose_concurrency
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
@@ -30,12 +34,15 @@ from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
 from .questions import NoQuestions
+from .qwen.prose import INSTRUCTIONS
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
 from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
+RUBRIC = Path(__file__).resolve().parents[2] / "docs" / "prose-rubric.md"
+"""The judge's rubric; the pair files embed it (pipeline.prose_bench.make_pairs)."""
 
 
 def parser() -> argparse.ArgumentParser:
@@ -51,6 +58,17 @@ def parser() -> argparse.ArgumentParser:
     q = sub.add_parser("queries")
     q.add_argument("action", choices=["check"])
     q.add_argument("--line", required=True, help="line slug (config.toml track)")
+    pr = sub.add_parser("prose")
+    pr.add_argument("action", choices=["export", "bench", "pairs", "tally"])
+    pr.add_argument("--from", dest="roots", action="append", default=[], help="extra store root")
+    pr.add_argument("--variant", help="bench: variant name (drafts/<name>/)")
+    pr.add_argument("--prompt", help="bench: instructions file; omitted = the run's prompt")
+    pr.add_argument("--model", default="qwen3.8-max")
+    pr.add_argument("--no-thinking", action="store_true")
+    pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
+    pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
+    pr.add_argument("--a", help="pairs/tally: baseline variant")
+    pr.add_argument("--b", help="pairs/tally: candidate variant")
     return p
 
 
@@ -155,7 +173,50 @@ def main(argv: list[str] | None = None) -> int:
 async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> int:
     if args.command == "queries":
         return await _check_queries(env, str(args.line))
+    if args.command == "prose":
+        return await _prose(env, args)
     return await _drift(env, Path(args.cassettes))
+
+
+async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
+    root = store_dir(env)
+    bench = pb.bench_dir(root)
+    match args.action:
+        case "export":
+            tracks = load_tracks(config_path(env))
+            contexts = {t.slug: line_context(t) for t in tracks}
+            roots = [root, *(Path(r) for r in args.roots)]
+            cases = pb.export(roots, contexts, bench)
+            held = sum(1 for c in cases if c.split == "holdout")
+            lines = [f"{len(cases)} cases ({held} holdout) → {bench / 'cases'}"]
+        case "bench":
+            instructions = (
+                Path(args.prompt).read_text(encoding="utf-8") if args.prompt else INSTRUCTIONS
+            )
+            variant = pb.Variant(
+                name=str(args.variant),
+                instructions=instructions,
+                model=str(args.model),
+                thinking=not args.no_thinking,
+                sources=bool(args.sources),
+            )
+            async with run_client(timeout=pb.PROSE_TIMEOUT_S) as http:
+                lines = await pb.run_bench(
+                    bench,
+                    variant,
+                    http=http,
+                    api_key=env["DASHSCOPE_API_KEY"],
+                    split=args.split,
+                    concurrency=prose_concurrency(env),
+                )
+        case "pairs":
+            rubric = RUBRIC.read_text(encoding="utf-8")
+            out = pb.make_pairs(bench, str(args.a), str(args.b), rubric, split=args.split)
+            lines = [f"pairs → {out} (verdicts go to {out / 'verdicts'})"]
+        case _:
+            lines = pb.tally(bench / "pairs" / f"{args.a}__vs__{args.b}", str(args.a), str(args.b))
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
 
 
 async def _check_queries(env: Mapping[str, str], slug: str) -> int:

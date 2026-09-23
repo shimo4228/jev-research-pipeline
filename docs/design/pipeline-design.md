@@ -469,6 +469,38 @@ judgment map's "query candidates" / "query selection" rows, the "Qwen 2 sites" f
 Review-when: a line's authored queries return 0 hits on three runs in a row, or the author
 wants proposals back (the removed code is in git: commit before this one).
 
+### Prose bench (author decision 2026-09-23)
+
+The prose is the one generation site left and reads weak: 343-1,108 chars per question-day
+on 2026-09-23, mostly claim paraphrases. Two causes: the prompt accumulated fidelity
+constraints ("evidence paragraphs only paraphrase claims", "1-3 paragraphs"), and the
+writer gets one-sentence claims without the source's context. The loop, in
+`pipeline/prose_bench.py`, runs at dev time only:
+- **Frozen cases** under `<JRP_STORE_DIR>/prose_bench/` (never the repo: verbatim
+  third-party text): every question-day with prose in the given stores, with claims,
+  their sources' title and excerpt, and the run's own prose; about one case in three
+  held out, chosen from the case id alone so later exports never move a case.
+- **Variants** = prompt file (`bench/prose/prompts/`) x DashScope model x thinking x
+  material (claims only / claims + source excerpts). Tuning uses a model with its own free
+  quota (qwen3.7-max), not the production model's.
+- **Judge = a fresh-context Opus reading a blind pair** (author decision: prose quality is
+  read, not machine-scored). This supersedes the non-goal "LLM-as-judge with another LLM as
+  the truth source" for dev-time prose evaluation only; runs still call no Claude. The
+  rubric (`docs/prose-rubric.md`) has a gate layer (fidelity, citations, marked inference)
+  and six quality axes — synthesis, reasoning between claims, development/pacing, why it
+  matters, inference quality, Japanese — plus a holistic "which would the researcher rather
+  read". Sources as-of 2026-09-23: 6+1 Trait (reasoning, pacing rows), AAC&U VALUE,
+  synthesis-vs-summary guides, WritingBench (query-dependent criteria agree with humans
+  79-87% vs 65-69% static), LongJudgeBench and arXiv 2602.02219 (surface richness mistaken
+  for substance; criterion order shifts scores up to 0.8/5).
+- **Protocol**: both orders per case (a split decision is a tie), axis order shuffled per
+  file, quote the decisive sentence before each verdict, lengths hidden, per-axis verdicts
+  never averaged; code gates are facts only (citations, marks).
+Open: anchor pairs (clear win / borderline / longer-loses) once drafts exist; ~5 cases
+judged blind by the author to measure agreement; per-question criteria (WritingBench style).
+Review-when: the author's blind verdicts disagree with the judge on more than 1 of 5, or
+longer drafts win more than ~70% of decided pairs (audit against the padding anchor).
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

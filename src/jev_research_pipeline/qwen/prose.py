@@ -139,8 +139,12 @@ def prose_thinking(env: Mapping[str, str]) -> ProseThinking:
     return "always"
 
 
-def prose_agent(model: OpenAIChatModel, *, timeout_s: float) -> Agent[None, str]:
-    return Agent(model, instructions=INSTRUCTIONS, model_settings=ModelSettings(timeout=timeout_s))
+def prose_agent(
+    model: OpenAIChatModel, *, timeout_s: float, instructions: str = INSTRUCTIONS
+) -> Agent[None, str]:
+    """`instructions` is overridden only by the prose bench (pipeline.prose_bench), which
+    compares prompt variants on frozen inputs; a run always uses INSTRUCTIONS."""
+    return Agent(model, instructions=instructions, model_settings=ModelSettings(timeout=timeout_s))
 
 
 class ProseResult(Value):
@@ -176,12 +180,22 @@ def user_prompt(
     feedback: str | None,
     *,
     evidence_set: list[str] | None = None,
+    sources: list[dict[str, object]] | None = None,
+    claim_sources: list[int] | None = None,
 ) -> str:
+    """`sources` (title / excerpt / url per source) and `claim_sources` (the 1-based source
+    of each claim) are the thicker material the prose bench tries; a run sends neither."""
     payload: dict[str, object] = {
-        "claims": [{"n": i, "text": text} for i, text in enumerate(claims, start=1)]
+        "claims": [
+            {"n": i, "text": text}
+            | ({"source": claim_sources[i - 1]} if claim_sources is not None else {})
+            for i, text in enumerate(claims, start=1)
+        ]
     }
     if evidence_set:
         payload["known"] = list(evidence_set)
+    if sources:
+        payload["sources"] = [{"s": i, **src} for i, src in enumerate(sources, start=1)]
     parts = [
         f"研究ライン: {ctx.line.name}",
         f"語彙: {', '.join(ctx.vocabulary)}",
@@ -209,15 +223,27 @@ async def write_prose(
     meter: GenerationMeter,
     timeout_s: float = PROSE_TIMEOUT_S,
     evidence_set: list[str] | None = None,
+    instructions: str = INSTRUCTIONS,
+    sources: list[dict[str, object]] | None = None,
+    claim_sources: list[int] | None = None,
 ) -> ProseResult:
     """`claims` in reading order. Never raises for model trouble; every [n] it writes is
     checked against `claims` before the text leaves this function."""
-    agent = prose_agent(model, timeout_s=timeout_s)
+    agent = prose_agent(model, timeout_s=timeout_s, instructions=instructions)
     usage = RunUsage()  # filled as the run goes, so failed runs are metered too
     started = time.perf_counter()
     try:
         result = await agent.run(
-            user_prompt(ctx, question, claims, feedback, evidence_set=evidence_set), usage=usage
+            user_prompt(
+                ctx,
+                question,
+                claims,
+                feedback,
+                evidence_set=evidence_set,
+                sources=sources,
+                claim_sources=claim_sources,
+            ),
+            usage=usage,
         )
     except AgentRunError as e:
         return ProseResult(

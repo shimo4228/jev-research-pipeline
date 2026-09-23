@@ -41,6 +41,22 @@
 5. **commit して main に入れる**。launchd は main の checkout の `questions/` を読むので、
    次の tick から効く
 
+## 本文を磨く（prose bench）
+
+本番の run は Claude を呼ばない。本文の改善は開発時のループで行う（design「Prose bench」、
+`docs/prose-rubric.md`）。材料は非公開の `<JRP_STORE_DIR>/prose_bench/` にだけ置く。
+
+1. `uv run jrp prose export --from <store> ...` — 本文のある question-day を固定する
+2. 候補のプロンプトを `bench/prose/prompts/<name>.md` に書き、
+   `uv run jrp prose bench --variant <name> --prompt <file> [--sources] --model qwen3.7-max`
+   （基準版は `--prompt` 無し。磨く作業は本番と別の無料枠のモデルで）
+3. `uv run jrp prose pairs --a <基準> --b <候補>` — case ごとに順番違いの 2 ファイルができる
+4. 判定: pair ファイル 1 つにつき、文脈を持たない Opus のサブエージェントを 1 つ起動し、
+   ファイルだけを読ませて `pairs/<a>__vs__<b>/verdicts/<同名>.json` に書かせる。
+   実装者（このセッション）は判定に口を出さない
+5. `uv run jrp prose tally --a <基準> --b <候補>` — 両方の順番で一致した軸だけが勝ち
+6. 採用は dev で勝ち、holdout で負けないとき。最後に著者が数件を blind で読む
+
 ## 触ってはいけないもの
 
 - `~/MyAI_Lab/daily-research/config.toml` は旧 pipeline と共有で gitignore（git で戻せない）。
