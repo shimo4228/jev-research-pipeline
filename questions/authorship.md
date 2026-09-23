@@ -15,6 +15,7 @@
 - arxiv: GEO generative engines
 - github: generative engine optimization benchmark
 - hf: AI search visibility
+- web: generative engine optimization case study citations
 
 ## 知識を LLM に届けるための新しい置き場所・置き方には何があり、どれが実際に使われているか
 - slug: llm-knowledge-placement
@@ -31,6 +32,7 @@
 - github: llms.txt
 - github: mcp documentation server
 - hf: agent readable documentation
+- web: llms.txt results AI crawler logs
 
 ## LLM 検索や AI エージェントは、何を手がかりに情報源を選んで引用しているか
 - slug: llm-source-selection
@@ -46,3 +48,4 @@
 - not: 推測だけの「AI に好かれるコツ」
 - arxiv: AI search citation
 - hf: AI search citation
+- web: how ChatGPT search chooses sources study

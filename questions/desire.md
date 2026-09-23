@@ -14,6 +14,7 @@
 - not: 生産性向上のノウハウ記事
 - arxiv: generative AI creative motivation
 - hf: creators motivation generative AI
+- web: AIで作りたいものがなくなった
 
 ## AI 後の余暇・選好についての予測（退屈で死ぬ / 分かっている）は、何を根拠にしており、どこが経験的問題として未決か
 - slug: post-ai-preferences-evidence
@@ -28,6 +29,7 @@
 - not: 生成 AI の技術解説
 - arxiv: AI leisure work
 - hf: post-work society preferences AI
+- web: post-work leisure AI predictions boredom
 
 ## 需要側フロンティア（何を望むか）を扱う研究・実践の場は、どこに生まれているか
 - slug: demand-side-frontier-venues

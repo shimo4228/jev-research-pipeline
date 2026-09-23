@@ -13,6 +13,7 @@
 - not: AI 倫理の一般論・宣言文
 - arxiv: AI agent liability
 - hf: autonomous agents legal responsibility
+- web: AI agent liability court ruling
 
 ## 帰責記録（audit trail・control plane）の整備は、仕事の割り当てや運用の形を実際に変えているか
 - slug: attribution-records-shape-work
@@ -28,6 +29,7 @@
 - arxiv: agent audit trail
 - github: agent audit log
 - hf: agent accountability traceability
+- web: agent audit trail control plane enterprise
 
 ## 「禁止はどこに住むべきか」— 設計時と運用時の相分離を破った失敗事例は何を示すか
 - slug: prohibition-placement
@@ -43,3 +45,4 @@
 - arxiv: agent guardrail bypass
 - github: agent approval gate
 - hf: agents violating their own rules
+- web: AI agent bypassed approval gate postmortem

@@ -14,6 +14,7 @@
 - not: 瞑想の効能を謳う一般記事
 - arxiv: active inference meditation
 - hf: meditation predictive processing
+- web: active inference meditation cessation model
 
 ## 仏教の心所（mental factor）体系を計算・AI モデルとして実装した先行例は、何を実装し何を残したか
 - slug: mental-factors-computational
@@ -29,6 +30,7 @@
 - not: 機械学習の attention / self-attention 論文
 - arxiv: Buddhist computational model
 - hf: Abhidharma mental factors
+- web: Abhidharma cetasika artificial intelligence
 
 ## 「注意であって自己ではない」という比較認知の枠組みは、認知科学・現象学のどの議論と接続し、どこで衝突するか
 - slug: attention-not-self-framework
@@ -44,3 +46,4 @@
 - not: 自己啓発・瞑想指導のコンテンツ
 - arxiv: phenomenal self-model
 - hf: minimal self meditation
+- web: Metzinger self-model meditation selflessness

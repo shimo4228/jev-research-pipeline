@@ -20,6 +20,7 @@
 - github: jev calibration
 - github: jev benchmark
 - hf: judge model calibration
+- web: TypeSafe Jev calibration failure
 
 ## Jev を部品にして、どんな新しいプロダクト・アプリが作られているか
 - slug: jev-products
@@ -35,6 +36,7 @@
 - not: TypeSafe の宣伝記事
 - github: topic:typesafe-jev
 - github: typesafe jev app
+- web: built with TypeSafe Jev
 
 ## Jev の判定を組み合わせる新しい使い方のパターンは何が出ているか
 - slug: jev-usage-patterns
@@ -49,3 +51,4 @@
 - not: 単一の質問を投げるだけの入門例
 - github: awesome jev
 - github: jev cookbook
+- web: Jev System One patterns cookbook

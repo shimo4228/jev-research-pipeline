@@ -16,6 +16,7 @@
 - arxiv: agent skills ablation
 - github: agent skill audit
 - hf: agent skill library evaluation
+- web: when to delete agent rules and skills practitioner
 
 ## エージェントと運用者の意図整合は、テストで検査できない部分をどう保っているか
 - slug: intent-alignment-beyond-tests
@@ -31,6 +32,7 @@
 - arxiv: agent harness self-improvement
 - github: agent harness memory rules
 - hf: longitudinal evaluation coding agents
+- web: coding agent harness drift evaluation over time
 
 ## 「原則 / パターン / 実装」の三層で変化率を分ける設計は、他の agent framework でどう現れているか
 - slug: three-layer-rate-of-change
@@ -45,3 +47,4 @@
 - not: 一般的なソフトウェアアーキテクチャ論（clean architecture 等）で agent と無関係なもの
 - github: agent skills design patterns
 - hf: agent framework design principles
+- web: agent framework principles patterns implementation layers

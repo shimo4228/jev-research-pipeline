@@ -14,6 +14,7 @@
 - arxiv: AI agents proof verification
 - github: autonomous agent swarm
 - hf: autonomous AI scientist verification
+- web: AI agents proved theorem verification critique
 
 ## agent が自分で書いた規則を自分で破る失敗は、何がすり抜けさせているか
 - slug: self-written-rule-bypass
@@ -29,6 +30,7 @@
 - arxiv: agent rule violation
 - github: agent guardrail postmortem
 - hf: agent instruction violation
+- web: AI agent ignored its own rules postmortem
 
 ## AI 依存の極端運用が壊れた事後検証（崩壊系）は、技能退化・依存の破綻をどう記録しているか
 - slug: collapse-postmortems
@@ -43,3 +45,4 @@
 - not: 匿名の噂・伝聞
 - arxiv: AI deskilling
 - hf: AI dependence skill decay
+- web: AI dependence developer burnout postmortem
