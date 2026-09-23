@@ -54,9 +54,12 @@ DEFAULT_BUDGETS: Final[dict[DiscoveryNet, int]] = {
     "firehose": 2,
     "recommendation": 1,
     "citation": 3,
-    "keyword": 6,
+    "keyword": 12,
     "exploration": 1,
 }
+"""keyword 6 -> 12 (scratch run 4, 2026-09-23): 5 keyword requests for 3 questions x 3
+adapters left two lines with no source on topic at all; the firehose is broad by design,
+so the targeted net carries the question-specific sources."""
 DEFAULT_EXPLORATION_SHARE: Final = 0.2
 DEFAULT_CREDIT_CAP: Final = 400
 """Requests we allow ourselves against OpenAlex per day; keyless buys 1,000 credits."""

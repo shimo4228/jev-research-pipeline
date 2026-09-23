@@ -58,7 +58,7 @@ def test_canary_urls_pick_their_fetch():
     repo = canary.plan("https://github.com/scienthoon/jev-ood-calibration")
     assert repo is not None and repo[1] == "scienthoon/jev-ood-calibration"
     assert str(repo[0].build_request(repo[1], {}).url) == (
-        "https://api.github.com/repos/scienthoon/jev-ood-calibration"
+        "https://api.github.com/repos/scienthoon/jev-ood-calibration/readme"
     )
     paper = canary.plan("https://arxiv.org/abs/2609.01234v2")
     assert paper is not None and paper[1] == "2609.01234"

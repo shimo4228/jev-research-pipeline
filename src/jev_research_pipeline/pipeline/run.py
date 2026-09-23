@@ -115,7 +115,7 @@ from .costs import Budget
 from .units import split_units
 
 QUERIES_PER_ADAPTER: Final = 3
-GIST_CHARS: Final = 160
+GIST_CHARS: Final = 120
 """One evidence line shows this much of a source's text — enough to recognize it."""
 
 

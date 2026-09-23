@@ -42,7 +42,8 @@ def test_nets_run_in_the_code_fixed_order():
         "citation",
         "citation",
         "citation",
-        *["keyword"] * 5,
+        # the default keyword budget (12) less the exploration share (20%) = 10
+        *["keyword"] * min(len(KEYWORD), 10),
         "exploration",
     ]
 

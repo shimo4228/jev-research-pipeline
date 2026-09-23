@@ -74,3 +74,22 @@ will take.
 5 pairs keep in the batch and drop alone, e.g. "Machine Learning based Analysis for
 Radiomics Features Robustness" kept for a Jev calibration question. Below the 90% bar →
 **batching switched off** (core.BATCH_MAX_ITEMS = 1: one subject per request everywhere).
+
+## Run 4 — 2026-09-23 11:18 JST (scratch, fresh store seeded with the real cursor)
+
+Change: 71f8e68 (one subject per Jev request; ≤ 8 claims per question, ≤ 2 per source;
+[n] keyed in the fold; evidence_strength read against the question's evidence kind).
+Lines: authorship, ans, desire + jev.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 116 s; $0.0227 + 0.0342 + 0.0294 + 0.0377 = $0.124 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | jev 12,394 B (12 KB = 12,288); others 3.2–4.1 KB; Review ≤ 8; 未判定 ≤ 0.3% | ❌ (jev by 106 B) |
+| 3 | prose for every question with a Keep, [n] resolve | desire 1/1, jev 1/1 | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | 3 keep; jev-papers → review (borderline; judged on a 109-character description) | ❌ |
+| 5 | no adapter failure line but web_search | none | ✅ |
+| 6 | no stack trace | none | ✅ |
+
+Single requests are stricter than the batch was: authorship and ans pass nothing past the
+prefilter (best on_topic 0.49 / 0.46) — the firehose holds nothing for them today, and the
+keyword net had 5 requests for 3 questions x 3 adapters.

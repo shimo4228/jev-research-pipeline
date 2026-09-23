@@ -4,14 +4,15 @@ canary on a given day, and a screen that drifted is only visible if the canary i
 every day. Each kind goes through an ordinary Adapter, so pacing and failures behave like
 every other fetch.
 
-- github.com/<owner>/<repo>  → GitHub `repos/<owner>/<repo>` (search leaves forks out, and
-                               one canary is a fork)
+- github.com/<owner>/<repo>  → its README through the GitHub API (a description of ~100
+                               characters is too little to judge evidence by; search also
+                               leaves forks out, and one canary is a fork)
 - arxiv.org/abs/<id>         → arXiv API `id_list=<id>`
 - any other https page       → the page itself, tags stripped
 """
 
+import functools
 import html
-import json
 import re
 from collections.abc import Mapping
 from dataclasses import replace
@@ -28,24 +29,26 @@ from .arxiv import adapter as arxiv_adapter
 from .base import USER_AGENT, Adapter, RawDraft, one_line
 from .github import adapter as github_adapter
 from .github import build_request as github_request
-from .github import parse as github_parse
 
 _GITHUB: Final = re.compile(r"^https://github\.com/([\w.-]+/[\w.-]+?)/?$")
 _ARXIV: Final = re.compile(r"^https://arxiv\.org/abs/([\w.]+?)(v\d+)?/?$")
 _TAG: Final = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
 _TITLE: Final = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
 _MAIN: Final = re.compile(r"<(main|article)\b.*?</\1>", re.DOTALL | re.IGNORECASE)
+_MD: Final = re.compile(r"!\[[^\]]*\]\([^)]*\)|[`#*>|]+")
 PAGE_CHARS: Final = 4000
 
 
-def _repo(query: str, env: Mapping[str, str]) -> httpx2.Request:
-    search = github_request("x", env)  # the adapter's headers (UA, API version, token)
-    return httpx2.Request("GET", f"https://api.github.com/repos/{query}", headers=search.headers)
+def _readme(query: str, env: Mapping[str, str]) -> httpx2.Request:
+    headers = dict(github_request("x", env).headers)  # UA, API version, token
+    headers["Accept"] = "application/vnd.github.raw+json"
+    return httpx2.Request("GET", f"https://api.github.com/repos/{query}/readme", headers=headers)
 
 
-def repo_parse(body: str) -> list[RawDraft]:
-    """One repository object, the same text the search adapter builds."""
-    return github_parse(json.dumps({"items": [json.loads(body)]}))
+def readme_parse(repo: str, url: str, body: str) -> list[RawDraft]:
+    """The README as plain text: markup and HTML stripped, the first PAGE_CHARS kept."""
+    text = one_line(html.unescape(_TAG.sub(" ", _MD.sub(" ", body))))[:PAGE_CHARS]
+    return [RawDraft(url=url, title=repo, text=text, published_at=None)]
 
 
 def _arxiv_id(query: str, _env: Mapping[str, str]) -> httpx2.Request:
@@ -70,8 +73,14 @@ def page_parse(url: str, body: str) -> list[RawDraft]:
 def plan(url: str) -> tuple[Adapter, str] | None:
     """The adapter and query that fetch this canary, or None for a non-https URL."""
     if m := _GITHUB.match(url):
-        adapter = replace(github_adapter(), build_request=_repo, parse=repo_parse)
-        return replace(adapter, query_kind="token"), m.group(1)
+        repo = m.group(1)
+        adapter = replace(
+            github_adapter(),
+            build_request=_readme,
+            parse=functools.partial(readme_parse, repo, url),
+            query_kind="token",
+        )
+        return adapter, repo
     if m := _ARXIV.match(url):
         return replace(arxiv_adapter(), build_request=_arxiv_id, query_kind="token"), m.group(1)
     if url.startswith("https://"):

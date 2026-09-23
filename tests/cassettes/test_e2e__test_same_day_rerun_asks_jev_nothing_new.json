@@ -1,4 +1,9 @@
 {
+ "GET https://api.github.com/search/repositories?order=desc&per_page=20&q=author+label+thresholds&sort=updated": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"total_count\":0,\"incomplete_results\":false,\"items\":[]}"
+ },
  "GET https://api.github.com/search/repositories?order=desc&per_page=20&q=narrow+typed+questions&sort=updated": {
   "status": 200,
   "content_type": "application/json",
