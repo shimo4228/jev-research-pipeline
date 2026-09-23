@@ -630,8 +630,11 @@ class LineRun:
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
         """Which net earned its budget, and whether the search is narrowing."""
         loaded = self.partition.load()
-        units = {i: n for i, n in loaded.items() if isinstance(n, Unit)}
+        # Today's units and claims are still in flight (they are stored after the note is
+        # rendered), so the maps have to carry them or every share reads zero.
+        units = {i: n for i, n in loaded.items() if isinstance(n, Unit)} | self.st.units
         sources = {i: n for i, n in loaded.items() if isinstance(n, SourceItem)}
+        sources |= {i.source.id: i.source for i in accepted}
         shares = meters.share_per_net([i.claim for i in accepted], units, sources)
         today = [s for s in sources.values() if s.fetched_at.date() == self.now.date()]
         before = [s for s in sources.values() if s.fetched_at.date() < self.now.date()]
@@ -648,6 +651,7 @@ class LineRun:
         cumulative = [len(r.claims) for r in reports] + [len(accepted)]
         running = [sum(cumulative[: i + 1]) for i in range(len(cumulative))]
         claims = {i: n for i, n in loaded.items() if isinstance(n, Claim)}
+        claims |= {i.claim.id: i.claim for i in accepted}
         labels = [n for n in loaded.values() if isinstance(n, Label)]
         return meters.lines(
             self.st.per_net,
