@@ -78,7 +78,7 @@ def slugify(title: str) -> str:
     they fall back to a short hash of the title — stable, and never empty."""
     folded = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
     slug = _SLUG_STRIP_RE.sub("-", folded).strip("-")
-    if len(slug) < 4:  # nothing, or a stray digit ("3" from 三軸...), is not a slug
+    if not slug:
         from jev_research_pipeline.model import sha256_hex
 
         return f"q-{sha256_hex(title)[:8]}"

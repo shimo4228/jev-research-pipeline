@@ -702,9 +702,9 @@ class LineRun:
         """Every canary the nets did not bring today is fetched by its URL and screened
         against its own question alone (a probe: SAFE's canaries must screen Keep). The
         answer is not stored and the source goes no further — it measures the screen, it
-        does not feed the note. Its questions still count toward the cost meter."""
-        probe = JevClient(self.http, api_key=self.keys.typesafe)
-        probe.pacer = self.jev.pacer
+        does not feed the note. It goes through the run's own Jev client, so its questions
+        count toward the cost cap as they are asked and a same-day re-run finds the answer
+        stored; an arXiv canary is not fetched once arXiv is rate-limited today."""
         wanted = [
             (q, url)
             for q in self.questions
@@ -713,6 +713,13 @@ class LineRun:
         ]
 
         async def one(question: Question, url: str) -> str:
+            planned = canary.plan(url)
+            if planned is not None and any(
+                key.endswith(f"/{planned[0].kind}") for key in self.day.quiet
+            ):
+                return (
+                    f"canary 未取得: {question.slug} / {url} ({planned[0].kind} は本日 rate limit)"
+                )
             got = await canary.fetch(self.http, self.ctx.line, url, now=self.now, env=self.env)
             if isinstance(got, str):
                 return f"canary 取得失敗: {question.slug} / {url} ({got})"
@@ -720,7 +727,7 @@ class LineRun:
                 self.ctx, got, question, self._evidence_texts(question)
             )
             result = await self._jev(
-                lambda: probe.judge(
+                lambda: self.jev.judge(
                     question_screening.ASK, (got.id, question.id), state, now=self.now
                 )
             )
@@ -730,9 +737,7 @@ class LineRun:
                 f"canary: {question.slug} / {url} → {question_screening.route(result, source=got)}"
             )
 
-        lines = list(await asyncio.gather(*(one(q, url) for q, url in wanted)))
-        self.jev.questions_asked += probe.questions_asked
-        return lines
+        return list(await asyncio.gather(*(one(q, url) for q, url in wanted)))
 
     async def _screen(
         self, sources: list[SourceItem], passing: Mapping[str, list[int]]
@@ -1160,8 +1165,9 @@ class LineRun:
     def _capped_claims(self, accepted: list[_Accepted]) -> list[_Accepted]:
         """At most CLAIMS_PER_QUESTION per question, and at most CLAIMS_PER_SOURCE from one
         source, the likeliest to bear on the question first (scratch run 3: 31 claims under
-        one question made a 24.6 KB note; the prose cannot use 31 anyway). The rest are
-        judged and stored, just not reported today."""
+        one question made a 24.6 KB note; the prose cannot use 31 anyway). The rest keep
+        their Decisions and Claim nodes in the store but are not reported, so they do not
+        join the evidence set and may be judged again on a later day."""
         kept: list[_Accepted] = []
         for question in self.questions:
             mine = sorted(
@@ -1180,6 +1186,7 @@ class LineRun:
                     f"{question.slug}: claim {len(mine)} 件のうち {len(chosen)} 件を掲載"
                 )
             kept += chosen
+            self.st.nodes += [i.claim for i in mine if i not in chosen]
         return kept
 
     async def execute(self) -> LineOutcome:

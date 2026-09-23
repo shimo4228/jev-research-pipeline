@@ -32,7 +32,7 @@ from jev_research_pipeline.model import GraphNodeType, Question, QuestionLog, Re
 from jev_research_pipeline.questions import NO_QUESTIONS, NoQuestions, open_questions
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
-from jev_research_pipeline.store.migrate import prepare_store
+from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
 from .config import config_path, line_context, line_seeds, load_tracks, rotation_config
 from .nets import DayBudget, load_nets
@@ -184,5 +184,17 @@ async def run_pipeline(
     # The lines run side by side: each has its own partition, meters and note; what they
     # share (the Jev rate window, adapter pacing per source, the day's OpenAlex credits)
     # is shared explicitly.
-    ran = await asyncio.gather(*(one(slug) for slug in picked))
+    async def guarded(slug: str) -> LineOutcome | None:
+        # One line's failure is one line in the CLI output, not the end of the others
+        # (they share the HTTP client, and would be cancelled mid-spend).
+        try:
+            return await one(slug)
+        except (StoreSchemaError, MissingKey):
+            raise
+        except Exception as e:
+            detail = " ".join(str(e).split())[:160]
+            unanswered.append(f"{slug}: 失敗 ({type(e).__name__}: {detail})")
+            return None
+
+    ran = await asyncio.gather(*(guarded(slug) for slug in picked))
     return [o for o in ran if o is not None]

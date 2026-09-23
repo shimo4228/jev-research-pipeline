@@ -214,11 +214,11 @@ async def test_prefilter_starts_before_the_last_net_is_fetched(env: dict[str, st
     async def record(request: httpx2.Request) -> httpx2.Response:
         body = request.content.decode() if request.url.host == "api.typesafe.ai" else ""
         order.append("prefilter" if "q0_on_topic" in body else request.url.host or "")
-        if request.url.host == "export.arxiv.org":
+        if request.url.host == "api.github.com":
             await asyncio.sleep(0.05)  # a keyword request that takes its time (pacing, network)
         return await world(request)
 
     await run_pipeline(env, now=b.T0, http=_client(record), pacing=False)
     first_prefilter = order.index("prefilter")
-    last_keyword_fetch = max(i for i, host in enumerate(order) if host == "export.arxiv.org")
+    last_keyword_fetch = max(i for i, host in enumerate(order) if host == "api.github.com")
     assert first_prefilter < last_keyword_fetch

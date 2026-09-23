@@ -23,7 +23,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import Question
+from jev_research_pipeline.model import Question, sha256_hex
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import slugify
@@ -89,7 +89,9 @@ def _question(ctx: LineContext, candidate: Candidate, now: AwareDatetime) -> Que
         return None
     return Question.new(
         line=ctx.line.id,
-        slug=slugify(title),
+        # A proposal's slug is made here, not by the author: a stray digit ("3" from
+        # 三軸…) is not a slug, so short ones take the hash form.
+        slug=slug if len(slug := slugify(title)) >= 4 else f"q-{sha256_hex(title)[:8]}",
         version=1,
         title=title,
         brief=" ".join(candidate.brief.split()),
