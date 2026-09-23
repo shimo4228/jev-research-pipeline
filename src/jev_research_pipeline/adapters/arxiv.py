@@ -68,4 +68,5 @@ def adapter() -> Adapter:
         min_interval_s=3.0,
         retry_status=ARXIV_RETRY,
         retry_waits=ARXIV_RETRY_WAITS,
+        one_connection=True,
     )

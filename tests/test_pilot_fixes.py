@@ -4,12 +4,13 @@ import urllib.error
 from datetime import datetime
 from email.message import Message
 from io import BytesIO
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx2
 import pytest
 
-from jev_research_pipeline.adapters import arxiv, canary, firehose, github, hf_papers
+from jev_research_pipeline.adapters import Adapter, arxiv, canary, firehose, github, hf_papers
 from jev_research_pipeline.adapters.routing import HostRoutedTransport, UrllibTransport
 from jev_research_pipeline.pipeline import nets
 
@@ -142,3 +143,68 @@ def test_a_folded_claim_names_the_citation_that_points_at_it_and_still_harvests(
     )
     assert line.startswith("- [ ] **agent-memory [2]** ")
     assert harvest_text(line.replace("- [ ]", "- [x]", 1)) == {b.claim().id: "correct"}
+
+
+async def test_arxiv_never_has_two_requests_in_flight():
+    """arXiv ToU: one connection at a time — a slow answer holds the next request back."""
+    import asyncio
+    from dataclasses import replace
+
+    from . import builders as b
+    from .fakes import ARXIV_ATOM
+
+    open_now = 0
+    peak = 0
+
+    async def slow(request: httpx2.Request) -> httpx2.Response:
+        nonlocal open_now, peak
+        open_now += 1
+        peak = max(peak, open_now)
+        await asyncio.sleep(0.05)
+        open_now -= 1
+        return httpx2.Response(200, text=ARXIV_ATOM)
+
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(slow))
+    adapter = replace(arxiv.adapter(), min_interval_s=0.0)
+    await asyncio.gather(
+        *(adapter.fetch(client, b.line(), f"agent memory {i}", now=b.T0, env={}) for i in range(3))
+    )
+    assert peak == 1
+
+
+async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
+    from jev_research_pipeline.store import GraphStore
+
+    from . import builders as b
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "export.arxiv.org":
+            return httpx2.Response(429, text="Rate exceeded.")
+        return httpx2.Response(
+            200, json={"total_count": 0, "incomplete_results": False, "items": []}
+        )
+
+    requests = [
+        nets.NetRequest("keyword", arxiv.adapter(), "agent memory"),
+        nets.NetRequest("keyword", arxiv.adapter(), "agent recall"),
+        nets.NetRequest("keyword", github.adapter(), "agent memory"),
+    ]
+    requests = [nets.NetRequest(r.net, replace_interval(r.adapter), r.query) for r in requests]
+    out = await nets.fetch_nets(
+        requests,
+        httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+        GraphStore(tmp_path).line("akc"),
+        b.line(),
+        now=b.T0,
+        env={},
+        config=nets.NetConfig(),
+    )
+    assert "keyword/arxiv: rate limit のため本日は打ち切り" in out.notes
+    assert sum("fetch 失敗" in n for n in out.notes) == 1  # the second arXiv query is skipped
+    assert not any("keyword/github" in n for n in out.notes)  # GitHub still ran
+
+
+def replace_interval(adapter: Adapter) -> Adapter:
+    from dataclasses import replace
+
+    return replace(adapter, min_interval_s=0.0)

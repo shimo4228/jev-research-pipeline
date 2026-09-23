@@ -74,7 +74,8 @@ class EvidenceStrength(UseEnumMemberDocstrings, IntEnum):
     anecdote = 1
     """One example, demo or story, with no comparison."""
     measured = 2
-    """It measures something and reports the numbers."""
+    """It measures something and reports the numbers, or it is the primary record of what
+    it describes (the specification, the code, the official documentation)."""
     compared = 3
     """It measures against a baseline or an ablation, so the effect can be attributed."""
 

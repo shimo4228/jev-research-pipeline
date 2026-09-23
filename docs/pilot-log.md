@@ -93,3 +93,17 @@ Lines: authorship, ans, desire + jev.
 Single requests are stricter than the batch was: authorship and ans pass nothing past the
 prefilter (best on_topic 0.49 / 0.46) — the firehose holds nothing for them today, and the
 keyword net had 5 requests for 3 questions x 3 adapters.
+
+## Run 5 — 2026-09-23 11:25 JST (scratch, fresh store seeded with the real cursor)
+
+Change: ca98119 (keyword budget 12; evidence gist 120; GitHub canaries read by README).
+Lines: authorship, ans, desire + jev.
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 149 s; $0.0459 + 0.0342 + 0.0275 + 0.0435 = $0.151 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | jev 14.6 KB (section 5.2, Review 3.3, fold 3.5); others 3.1–7.1 KB; Review ≤ 9; 未判定 ≤ 0.4% | ❌ (jev size) |
+| 3 | prose for every question with a Keep, [n] resolve | authorship 2/2, desire 1/1, jev 1/1 | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | 3 keep (jev-papers now keep on its README); pydantic docs → review at 0.58 vs cut 0.60 (evidence_strength "anecdote": the level text only knew measurements) | ❌ |
+| 5 | no adapter failure line but web_search | keyword/arxiv 429 on desire, and the net-level quiet then silenced GitHub/HF keyword for every line | ❌ |
+| 6 | no stack trace | none | ✅ |

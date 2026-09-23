@@ -383,7 +383,8 @@ before it. Built, design unchanged (questions, nets, report format as above):
   limit, as-of 2026-09-23). Results applied in input order — a test pins that concurrency
   1 and 12 write the same note and store bytes. StoredJev joins an identical in-flight
   request (same judgment @id), which a sequential run found in the store.
-- **Screening is batched**: one request per (question, ≤8 sources, estimated state ≤24k
+- **Screening is batched** (switched off the same day: the slot bleed check agreed on 11/20
+  routes; batch size is 1 — see "Pilot iteration"): one request per (question, ≤8 sources, estimated state ≤24k
   tokens; limit 32k state + longest question, 64k per request). Nested slots `sN.<field>`
   with each question rewritten to name `sources.sN`; still one Judgment per (source,
   question), state hash = the single-request state; ask `question_screening@v1_batch`
@@ -405,6 +406,22 @@ before it. Built, design unchanged (questions, nets, report format as above):
   (shared state sent once), so a per-question price calibrated on single requests now
   over-counts. Not changed here (meter design is the author's); Review-when: the first
   live batched run's usage.input_tokens is in hand.
+
+### Pilot iteration — thresholds changed (2026-09-23, evidence in docs/pilot-log.md)
+
+- question_screening min_certainty 0.9 → 0.5, read on the three placing Scores only (run 1: no Keep possible).
+- question_screening method_transferable / evidence_compatible gates 0.5 → 0.3 (run 2: "cannot tell" dropped).
+- question_screening bridges_line 0.6 → 0.8, reworded to "would change the answer"; note shows ≤ 3 per question, ≤ 5 per line.
+- question_prefilter (new) on_topic 0.5 per (source, question) before the full bundle and before triage.
+- Review ≤ 10 per note (nearest the cut first); a Jev failure goes to 未判定, not Review.
+- firehose ≤ 300 sources per line-run (`[nets] firehose_max`); HF daily before the arXiv listing.
+- keyword net budget 6 → 12 (run 4: two lines with nothing on topic).
+- claims per question section ≤ 8, ≤ 2 per source (run 3: 24.6 KB note); evidence gist 160 → 120 chars.
+- batch size 8 → 1 (slot bleed: 11/20 route agreement, bar 90%).
+- Qwen enable_thinking off everywhere (measured 2–3× faster; the 122 s prose was thinking).
+- question proposals timeout 30 s → 120 s.
+- daily tracks (`daily = true`, e.g. jev) run on every tick beside the 3 rotated lines; the lines of a tick run side by side under one shared Jev rate window.
+- arXiv export goes through urllib (httpx2 alone gets 406 on queries arXiv's cache does not hold); canaries are probed by URL every run (GitHub README / arXiv id / page), one operations line each.
 
 ### Non-goals (explicit)
 

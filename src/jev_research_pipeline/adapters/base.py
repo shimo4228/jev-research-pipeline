@@ -159,14 +159,19 @@ class Adapter:
     """Seconds to wait before each resend of a request answered with a status in
     retry_status. Empty = no retry."""
     retry_status: frozenset[int] = frozenset()
+    one_connection: bool = False
+    """At most one request of this kind in flight (arXiv ToU: one connection at a time;
+    scratch run 5 got 429 with four lines' keyword queries overlapping)."""
     query_kind: Literal["keyword", "token"] = "keyword"
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
 
-    async def _pace(self) -> None:
+    async def _paced(self, client: httpx2.AsyncClient, request: httpx2.Request) -> httpx2.Response:
         """The gap is kept per source (`kind`), not per Adapter object: the run builds a
         fresh adapter for every keyword query, and a per-object clock let two arXiv
-        requests go out back to back. The lock makes concurrent callers queue for it."""
+        requests go out back to back. The lock makes concurrent callers queue for it.
+        With one_connection the lock is held until the answer is in and the gap counts
+        from there, so a slow answer never overlaps the next request (arXiv ToU)."""
         lock = _PACE_LOCKS.setdefault(self.kind, asyncio.Lock())
         async with lock:
             last = _LAST_REQUEST.get(self.kind)
@@ -175,6 +180,12 @@ class Adapter:
                 if wait > 0:
                     await asyncio.sleep(wait)
             _LAST_REQUEST[self.kind] = time.monotonic()
+            if self.one_connection:
+                try:
+                    return await client.send(request)
+                finally:
+                    _LAST_REQUEST[self.kind] = time.monotonic()
+        return await client.send(request)
 
     async def _send(
         self, client: httpx2.AsyncClient, query: str, env: Mapping[str, str]
@@ -183,8 +194,7 @@ class Adapter:
         retry_status. Returns the last response and how many resends it took."""
         retried = 0
         while True:
-            await self._pace()
-            response = await client.send(self.build_request(query, env))
+            response = await self._paced(client, self.build_request(query, env))
             if response.status_code not in self.retry_status or retried >= len(self.retry_waits):
                 return response, retried
             await asyncio.sleep(self.retry_waits[retried])

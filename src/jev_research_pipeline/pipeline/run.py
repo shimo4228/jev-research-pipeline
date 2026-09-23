@@ -272,7 +272,7 @@ class _SectionDay:
     made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
 
 
-CLAIMS_PER_QUESTION: Final = 8
+CLAIMS_PER_QUESTION: Final = 5
 CLAIMS_PER_SOURCE: Final = 2
 """Reported claims per question section, and from one source within it (note ≤ 12 KB,
 author mandate 2026-09-23)."""

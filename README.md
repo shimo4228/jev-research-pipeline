@@ -129,8 +129,9 @@ gh auth token   # gh CLI の token をそのまま使う（repo 等の広い sco
 
 ## 速さ
 
-1 ラインの中で、同じ段の判定は並列に投げる（`JRP_JEV_CONCURRENCY`）。screening は 1 つの問いに
-対して source を最大 8 本まとめて 1 request にする。問いごとの本文生成も並列（`JRP_PROSE_CONCURRENCY`）。
+1 回の実行では輪番の 3 ラインと daily のライン（jev）を並べて走らせ、各ラインの中でも同じ段の判定を
+並列に投げる（`JRP_JEV_CONCURRENCY`）。screening は安い prefilter（問いごとの on_topic 1 問）を先に
+全 source に聞き、通った対だけに full bundle を聞く。問いごとの本文生成も並列（`JRP_PROSE_CONCURRENCY`）。
 取得は ToU の間隔を守ったまま（arXiv 3 秒、GitHub / HF 6 秒）、届いた net の分から判定を始める。
 並列度を変えても、note と store に書かれる中身は変わらない（並列度 1 と同じ bytes になることを
 テストで固定している）。

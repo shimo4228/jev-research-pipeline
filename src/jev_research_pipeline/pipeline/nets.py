@@ -251,7 +251,8 @@ class DayBudget:
 
     date: str = ""
     spent: int = 0
-    quiet: set[DiscoveryNet] = field(default_factory=set[DiscoveryNet])
+    quiet: set[str] = field(default_factory=set[str])
+    """A net ("citation") or one source within a net ("keyword/arxiv") that is done today."""
     reported: set[str] = field(default_factory=set[str])
     """Notes already written once, so a cap is not reported per net per line."""
 
@@ -280,6 +281,10 @@ def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
     if out.skipped:
         notes.append(f"{where}: 検証落ちで {out.skipped} 件 skip")
     return notes
+
+
+def _source_key(request: NetRequest) -> str:
+    return f"{request.net}/{request.adapter.kind}"
 
 
 def _capped(fresh: list[SourceItem], cap: int, outcome: NetOutcome) -> list[SourceItem]:
@@ -311,7 +316,7 @@ async def fetch_nets(
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     seen: set[str] = set()
     for request in requests:
-        if request.net in budget.quiet:
+        if request.net in budget.quiet or _source_key(request) in budget.quiet:
             continue
         if request.adapter.kind == "openalex" and budget.spent >= config.openalex_daily_credits:
             if "openalex_cap" not in budget.reported:
@@ -329,9 +334,11 @@ async def fetch_nets(
             )
             if "rate_limit" in out.failure.detail:
                 # A shared pool answering 429 is a policy signal, not a transient error:
-                # the net is done for the day, for every line, not just this one.
-                budget.quiet.add(request.net)
-                outcome.notes.append(f"{request.net}: rate limit のため本日は打ち切り")
+                # that source is done for the day in this net, for every line. The net's
+                # other sources are other pools (scratch run 5: one arXiv 429 had silenced
+                # GitHub and HF keyword search for every line).
+                budget.quiet.add(_source_key(request))
+                outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
             continue
         outcome.notes += _fetch_notes(request, out)
         if request.adapter.kind == "openalex" and not out.cached:

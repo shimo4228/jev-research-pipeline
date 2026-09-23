@@ -114,6 +114,7 @@ def arxiv_adapter() -> Adapter:
         min_interval_s=3.0,  # arXiv ToU, one request every three seconds
         retry_status=ARXIV_RETRY,
         retry_waits=ARXIV_RETRY_WAITS,
+        one_connection=True,
         net="firehose",
         query_kind="token",
     )
