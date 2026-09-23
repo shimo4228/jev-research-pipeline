@@ -24,7 +24,7 @@ import hashlib
 import json
 import random
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -116,6 +116,9 @@ class Variant:
     thinking: bool
     sources: bool
     """Send source titles and excerpts with the claims (thicker material)."""
+    check: str | None = None
+    """Instructions for a second pass by the same model that verifies the draft against
+    the claims and returns a corrected text (self-check). None = one pass."""
 
 
 def bench_dir(store_root: Path) -> Path:
@@ -243,12 +246,24 @@ def gates(prose: str, n_claims: int) -> tuple[str, ...]:
     elif re.search(r"\[\d+\]", paragraphs[-1]):
         failed.append("推論段落に [n] がある")
     for p in paragraphs[: len(paragraphs) - 1 if marked else len(paragraphs)]:
-        if p.strip() != NO_DIRECT_EVIDENCE and not re.search(r"\[\d+\]", p):
+        if not _cited_or_framing(p):
             failed.append("引用の無い根拠段落がある")
             break
     if n_claims and not re.search(r"\[\d+\]", prose):
         failed.append("引用が 1 つも無い")
     return tuple(failed)
+
+
+FRAMING_MAX_CHARS: Final = 120
+
+
+def _cited_or_framing(paragraph: str) -> bool:
+    """An evidence paragraph cites a claim [n] or a source excerpt (S1) — or is a short
+    framing sentence with no figure in it ("Jev の名は出てこないが、以下は…"), which states
+    no fact to cite. The fixed NO_DIRECT_EVIDENCE sentence is one of those."""
+    if re.search(r"\[\d+\]|\(S\d+\)", paragraph) or paragraph == NO_DIRECT_EVIDENCE:
+        return True
+    return len(paragraph) <= FRAMING_MAX_CHARS and not re.search(r"\d", paragraph)
 
 
 def bench_model(
@@ -303,12 +318,30 @@ async def draft(
         claim_sources=[c.source or 0 for c in case.claims] if thick else None,
     )
     prose = result.prose
+    seconds = result.seconds
+    if variant.check and prose:
+        checked = await write_prose(
+            model,
+            ctx,
+            question,
+            claims,
+            feedback=None,
+            meter=meter,
+            timeout_s=PROSE_TIMEOUT_S,
+            evidence_set=list(case.known) or None,
+            instructions=variant.check,
+            sources=[dict(s.model_dump()) for s in case.sources] if thick else None,
+            claim_sources=[c.source or 0 for c in case.claims] if thick else None,
+            draft=prose,
+        )
+        seconds += checked.seconds
+        prose = checked.prose or prose  # a failed check keeps the first draft
     return Draft(
         case=case.id,
         variant=variant.name,
         prose=prose,
         failure=result.failure,
-        seconds=result.seconds,
+        seconds=seconds,
         chars=len(prose or ""),
         gates=gates(prose, len(claims)) if prose else ("生成失敗",),
     )
@@ -370,19 +403,37 @@ def materials(case: BenchCase) -> str:
 
 
 def make_pairs(
-    bench: Path, a: str, b: str, rubric: str, *, split: Split | Literal["all"], seed: int = 0
+    bench: Path,
+    a: str,
+    b: str,
+    rubric: str,
+    *,
+    split: Split | Literal["all"],
+    seed: int = 0,
+    only: Collection[str] | None = None,
 ) -> Path:
     """Two files per case (A first, then B first) with the axes in a different random order
     each; key.json maps every file's 草稿X / 草稿Y to its variant. Drafts that failed a code
     gate still go in — the judge sees the gate result as a fact line."""
     head, axes, tail = rubric_parts(rubric)
     da, db = load_drafts(bench, a), load_drafts(bench, b)
+    n_claims = {c.id: len(c.claims) for c in load_cases(bench)}
+
+    def regated(d: Draft) -> Draft:
+        # gates as the code checks them now, not as they were when the draft was stored
+        # (a stricter or corrected check must reach the judge's fact line)
+        if not d.prose:
+            return d
+        return d.model_copy(update={"gates": gates(d.prose, n_claims.get(d.case, 0))})
+
+    da = {k: regated(v) for k, v in da.items()}
+    db = {k: regated(v) for k, v in db.items()}
     out = bench / "pairs" / f"{a}__vs__{b}"
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(f"{a}|{b}|{seed}")
     key: dict[str, dict[str, str]] = {}
     for case in load_cases(bench, split):
-        if case.id not in da or case.id not in db:
+        if case.id not in da or case.id not in db or (only is not None and case.id not in only):
             continue
         for order, (x, y) in enumerate(((da[case.id], db[case.id]), (db[case.id], da[case.id])), 1):
             shuffled = axes[:]
@@ -490,13 +541,16 @@ async def run_bench(
     api_key: str,
     split: Split | Literal["all"],
     concurrency: int,
+    only: Collection[str] | None = None,
 ) -> list[str]:
     """Draft every case of `split` with `variant`; lines for the terminal. A case already
     drafted by this variant is skipped (drafts are the expensive part: free quota)."""
     model = bench_model(variant.model, http, api_key=api_key, thinking=variant.thinking)
     meter = GenerationMeter()
     done = load_drafts(bench, variant.name)
-    todo = [c for c in load_cases(bench, split) if c.id not in done]
+    todo = [
+        c for c in load_cases(bench, split) if c.id not in done and (only is None or c.id in only)
+    ]
     slots = asyncio.Semaphore(concurrency)
 
     async def one(case: BenchCase) -> Draft:

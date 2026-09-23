@@ -182,6 +182,7 @@ def user_prompt(
     evidence_set: list[str] | None = None,
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
+    draft: str | None = None,
 ) -> str:
     """`sources` (title / excerpt / url per source) and `claim_sources` (the 1-based source
     of each claim) are the thicker material the prose bench tries; a run sends neither."""
@@ -210,6 +211,9 @@ def user_prompt(
     if question.brief:
         parts.append(f"問いの背景: {question.brief}")
     parts.append(f"<claims>\n{as_data(payload)}\n</claims>")
+    if draft:
+        # the bench's self-check pass: the draft to verify against the claims above
+        parts.append(f"<draft>\n{draft}\n</draft>")
     if feedback:
         parts.append(f"前回の草稿への指摘: {feedback}")
     return "\n\n".join(parts)
@@ -232,6 +236,7 @@ async def write_prose(
     instructions: str = INSTRUCTIONS,
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
+    draft: str | None = None,
 ) -> ProseResult:
     """`claims` in reading order. Never raises for model trouble; every [n] it writes is
     checked against `claims` before the text leaves this function."""
@@ -248,6 +253,7 @@ async def write_prose(
                 evidence_set=evidence_set,
                 sources=sources,
                 claim_sources=claim_sources,
+                draft=draft,
             ),
             usage=usage,
         )

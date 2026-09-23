@@ -66,6 +66,8 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--model", default="qwen3.8-max")
     pr.add_argument("--no-thinking", action="store_true")
     pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
+    pr.add_argument("--check", help="bench: self-check instructions file (second pass)")
+    pr.add_argument("--cases", help="bench/pairs: comma-separated case ids (default all)")
     pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
     pr.add_argument("--a", help="pairs/tally: baseline variant")
     pr.add_argument("--b", help="pairs/tally: candidate variant")
@@ -179,6 +181,10 @@ async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> in
     return await _drift(env, Path(args.cassettes))
 
 
+def _ids(raw: str | None) -> set[str] | None:
+    return {x.strip() for x in raw.split(",") if x.strip()} if raw else None
+
+
 async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
     root = store_dir(env)
     bench = pb.bench_dir(root)
@@ -200,6 +206,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 model=str(args.model),
                 thinking=not args.no_thinking,
                 sources=bool(args.sources),
+                check=Path(args.check).read_text(encoding="utf-8") if args.check else None,
             )
             async with run_client(timeout=pb.PROSE_TIMEOUT_S) as http:
                 lines = await pb.run_bench(
@@ -209,10 +216,13 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                     api_key=env["DASHSCOPE_API_KEY"],
                     split=args.split,
                     concurrency=prose_concurrency(env),
+                    only=_ids(args.cases),
                 )
         case "pairs":
             rubric = RUBRIC.read_text(encoding="utf-8")
-            out = pb.make_pairs(bench, str(args.a), str(args.b), rubric, split=args.split)
+            out = pb.make_pairs(
+                bench, str(args.a), str(args.b), rubric, split=args.split, only=_ids(args.cases)
+            )
             lines = [f"pairs → {out} (verdicts go to {out / 'verdicts'})"]
         case _:
             lines = pb.tally(

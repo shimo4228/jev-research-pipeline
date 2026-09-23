@@ -53,7 +53,10 @@ def test_gates_are_facts_about_marks_and_citations():
     assert pb.gates(f"{NO_DIRECT_EVIDENCE}\n\n{INFERENCE_MARK}橋。", 1) == ("引用が 1 つも無い",)
     assert "推論段落が最後に 1 つではない" in pb.gates("主張 [1]。", 1)
     assert "推論段落に [n] がある" in pb.gates(f"主張 [1]。\n\n{INFERENCE_MARK}推論 [1]。", 1)
-    assert "引用の無い根拠段落がある" in pb.gates(f"主張。\n\n{INFERENCE_MARK}推論。", 1)
+    assert "引用の無い根拠段落がある" in pb.gates(f"主張 2 件。\n\n{INFERENCE_MARK}推論。", 1)
+    # a source-excerpt citation and a short figure-free framing sentence both count
+    framed = f"Jev の名は出てこないが、以下は較正の知見である。\n\n抜粋の事実 (S1)。主張 [1]。\n\n{INFERENCE_MARK}推論。"
+    assert pb.gates(framed, 1) == ()
 
 
 def _bench(tmp_path: Path) -> Path:
