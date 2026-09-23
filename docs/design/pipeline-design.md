@@ -145,7 +145,7 @@ state (filter state in code), adversarial text (treat as data).
 - Lines and vocabulary come from `~/MyAI_Lab/daily-research/config.toml` tracks + each
   repo's graph.jsonld (read-only); tracks without a graph (desire, edge) use the track
   name only.
-- launchd: `launchd/com.shimo4228.jrp.{run,drift}.plist` (07:00 daily / Mon 07:30), not
+- launchd: `launchd/com.shimo4228.jrp.{run,drift}.plist` (05:00 daily / Mon 05:30), not
   loaded by the build.
 - Same-day re-run carries the author's ticks over; harvester withdraws Labels for `[ ]`.
 - Rubric unjudged → template (no unverifiable prose). Cassettes now keep request bodies

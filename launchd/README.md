@@ -2,8 +2,8 @@
 
 | plist | when | runs |
 |---|---|---|
-| `com.shimo4228.jrp.run.plist` | daily 07:00 | `jrp run` — harvest ticks, then the next lines in rotation |
-| `com.shimo4228.jrp.drift.plist` | Monday 07:30 | `jrp drift` — live replay of recorded Jev inputs |
+| `com.shimo4228.jrp.run.plist` | daily 05:00 | `jrp run` — harvest ticks, then the next lines in rotation |
+| `com.shimo4228.jrp.drift.plist` | Monday 05:30 | `jrp drift` — live replay of recorded Jev inputs |
 
 Both call `scripts/launchd-jrp.sh`, which reads secrets from `~/.config/jrp/env` (outside
 the repo). To start the parallel run:
