@@ -12,3 +12,7 @@ dist/
 tests/cassettes/live/
 var/
 /store/
+
+# article dossiers and pre-pilot store snapshots stay local
+drafts/
+/store.pre-pilot-*/

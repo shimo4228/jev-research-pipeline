@@ -1,190 +1,239 @@
 # jev-research-pipeline
 
-毎朝、研究ラインの **open な「問い」ごと**に、今日その答えが何に動いたかを Obsidian の vault に
-書く pipeline。制御の流れはコードが持ち、判断は TypeSafe Jev に狭い質問として投げ、文章が要る
-2 箇所だけ Qwen が書く。設計の正本は
-[docs/design/pipeline-design.md](docs/design/pipeline-design.md)。
+[日本語](README.ja.md) (older; not yet synced with this version)
 
-問いは著者が `questions/<スラッグ>.md` に手で書く。**問いが 1 つも open でないラインは走らない**
-（「問い未設定」として報告されて次のラインに進む）。
+**Code owns the loop, Jev judges, Qwen writes: a daily research monitor for standing questions.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](docs/pilot-log.md)
+
+jev-research-pipeline is a single-user, daily research-monitoring pipeline. You keep a few open
+questions per research line (a line is one long-running research topic with its own vocabulary).
+Deterministic Python owns the control flow. TypeSafe Jev, a judgment model that answers typed
+questions with probabilities and never writes text, screens every fetched source against each open
+question. Qwen, an LLM served on Alibaba Cloud's DashScope, writes only the day's prose. The output
+is one markdown note per line in an Obsidian vault, organised by question, and you close the loop by
+ticking checkboxes in that note. Notes are written in Japanese today: the prose instruction and the
+section headings are Japanese strings in the source, and there is no language switch yet. Scheduling
+uses macOS launchd; a manual run works anywhere Python 3.12 runs.
+
+I built it because LLM-driven deep-research loops converge on the same topics and cost real money
+every morning. In my previous setup an Opus agent with web search explored three or four lines a day
+for $4 to $15, and over one month 37% of its topics landed on a single theme. Moving judgment into
+cheap typed questions makes the loop machine-checkable, and a run over four lines now costs about
+$0.15 to $0.30.
+
+## How a run works
+
+You read each note and tick its checkboxes. Those ticks are the labels: they feed the threshold
+proposals that `jrp fit` writes for you to apply, seed the recommendation net, and become evaluation
+cases. Everything else is the pipeline.
+
+1. Harvest ticks from yesterday's notes (a checkbox per question, per source, per claim).
+2. Pick the next three research lines in rotation, plus any line marked daily.
+3. For each open question, fetch candidates from five fixed discovery channels, the source nets
+   (see [Source nets](#source-nets)).
+4. Jev screens each (source, question) pair: hard gates as yes/no questions, then weighted scores.
+   Code applies the thresholds and routes the pair to Keep, Review (borderline), Drop, or Incomplete
+   (the source had no abstract to judge).
+5. Kept sources are cut into verbatim sentences; Jev marks which sentences advance or contradict the
+   question. A claim is a sentence, never a paraphrase, so citations always resolve.
+6. Qwen writes one short section per question that got new evidence today, with evidence paragraphs
+   and one paragraph marked as inference. Jev then scores the section on a rubric; a failing draft is
+   rewritten once, then falls back to a template.
+7. The note is written to the vault with an operations block: Jev question count, tokens, cost,
+   per-net acceptance, canary results.
+
+Every Jev call goes through Pydantic AI's native `typesafe:` model, so each judgment is a Pydantic
+output type and the raw probability distributions are stored with the decision.
+
+## Status as of 2026-09-23
+
+This is a pilot, not a finished product.
+
+- 11 runs on my own eight research lines (2 wrote the real vault). The last run passed 5 of its 7
+  goal conditions: every note under 12 KB with a short Review list; prose for every question that had
+  evidence; off-topic papers dropped and every canary kept (a canary is a paper or repo a question
+  must always keep; see [Questions are the unit](#questions-are-the-unit)); no failed fetch from any
+  source API; no stack traces.
+- It failed the other two. Wall time for four lines was 601 s against a 600 s cap (cost, the other
+  half of that condition, was $0.297 against a $0.30 cap). An independent judge (a separate Opus model
+  reading only the finished notes against a seven-axis rubric) rated 1 of 3 notes publishable: the
+  prose still bends a paper's claim to fit the wording of the question. The full record, run by run,
+  is in [docs/pilot-log.md](docs/pilot-log.md).
+- Jev's routing thresholds are still the starting values from TypeSafe's cookbooks, not yet refit on
+  ticks. The Review section of a note lists the borderline sources for exactly that reason.
+
+## Quick start
+
+- Python 3.12 and [uv](https://docs.astral.sh/uv/).
+- A TypeSafe API key ([docs.typesafe.ai](https://docs.typesafe.ai)) and a DashScope API key
+  (Alibaba Cloud Model Studio).
+- One file, `~/.config/jrp/env`, holding every environment variable (paths and keys); research lines
+  and net budgets live in `config.toml`, questions in the repo's `questions/` directory.
+  `scripts/launchd-jrp.sh` sources the env file before a scheduled run; for a manual run:
+  `set -a; source ~/.config/jrp/env; set +a`.
+
+A minimal `~/.config/jrp/env`:
 
 ```bash
-uv run jrp run            # 記入を取り込み → 輪番で次の 3 ライン → note を書く
-uv run jrp fit            # 閾値の再推定を提案ファイルに書く（自動適用はしない）
-uv run jrp export-cases   # ⭕❌ の付いた claim を pydantic-evals の Case に出す
-uv run jrp drift          # 録画した Jev 入力を live に投げ直して確率差を出す
-uv run jrp migrate --dry-run   # store を現行 schema に上げる計画を表示（--dry-run なしで実行）
+export JRP_VAULT_DIR="/path/to/your/obsidian/vault"     # notes go to <vault>/daily-research/
+export JRP_STORE_DIR="/path/to/store"                   # pipeline state, one JSON-LD file per line
+export TYPESAFE_API_KEY="..."
+export DASHSCOPE_API_KEY="..."
+export JRP_COST_CAP_USD="0.50"                          # per line per run
+export JRP_DAILY_RESEARCH_CONFIG="/path/to/config.toml" # your research lines
 ```
 
-## 最初にやること: 問いを立てる
+`config.toml` names the lines. Each line is a `[tracks.<slug>]` table ("track" and "line" mean the
+same thing). A line enters the daily rotation only if it has a `[[tracks.<slug>.repos]]` entry; if
+that directory holds a `graph.jsonld` (a JSON-LD file whose `Concept` and `DefinedTerm` node names
+become the line's vocabulary for query writing and screening) the vocabulary is read from it, and
+otherwise the line's name is the only vocabulary. A line with `daily = true` runs on every tick beside
+the rotation and needs no repo.
 
-ライン 1 本につき 1 ファイル。`questions/akc.md` の例:
+```toml
+[general]
+lines_per_day = 3
+
+[tracks.akc]
+name = "Agent Knowledge Cycle"
+[[tracks.akc.repos]]
+target_repo = "~/projects/agent-knowledge-cycle"   # required for rotation; only graph.jsonld is read
+
+[tracks.jev]
+name = "TypeSafe Jev"
+daily = true                                       # every tick, beside the rotated lines
+```
+
+Write at least one open question per line (next section), then:
+
+```bash
+uv sync
+uv run jrp run                # harvest ticks, run the next lines, write notes
+```
+
+A line with no open question is skipped and reported as such. Maintenance commands, once ticks
+exist: `jrp fit` proposes refit thresholds (it writes a proposal file, never applies it),
+`jrp export-cases` turns ticked claims into pydantic-evals cases, `jrp drift` replays recorded Jev
+inputs live and reports probability drift, and `jrp migrate --dry-run` shows how an older store would
+be upgraded. Every variable and the full `config.toml` are in
+[docs/configuration.md](docs/configuration.md).
+
+## Questions are the unit
+
+One file per line at `questions/<slug>.md` in the repository (or wherever `JRP_QUESTIONS_DIR`
+points). The pipeline is exactly as good as the questions.
 
 ```markdown
 <!-- jrp:questions:akc -->
 
-## エージェントの記憶は何で決まるのか
-- slug: agent-memory
+## What tells you a scaffold (a rule, a skill, a procedure) is ready to be retired?
+- slug: scaffold-retirement-signal
 - version: 1
 - status: open
 - opened: 2026-09-23
-- retire: 三ヶ月 evidence が増えなければ閉じる
-- brief: 記憶機構の違いが下流の精度をどれだけ動かすか。
-- method: RAG
-- method: 長文 context
-- evidence: 測定されたもの。主張だけのものは採らない
-- not: プロンプト技法一般
-- canary: https://arxiv.org/abs/2609.01234
+- retire: close once products retire scaffolds natively and three practitioners report relying on that
+- brief: usage counts, ablations and held-out transfer are all used in practice; which one misses what?
+- method: product instrumentation
+- method: practitioner reports
+- evidence: reports that say what was counted and what was not
+- not: prompt engineering tips
+- canary: https://github.com/scienthoon/jev-ood-calibration
 ```
 
-- `slug` と `version` が Question ノードの identity。**問いの文面を直したら version を上げる**
-  （上げないと、前の文面で下された判定が新しい文面の判定として数えられる）
-- `status` は `open` / `answered` / `dropped`。open だけが走る
-- `not:` は「隣接していて毎回ひっかかるが、この問いではないもの」。screening の hard gate が使う
-- `canary:` は「この問いなら絶対に拾ってほしい論文」。screening がそれを落とした日は運用節に
-  「canary 落下」が出る = screening がずれた合図
-- 毎日の note の「## 問いの候補」に pipeline からの提案が並ぶ。**チェックを付けた候補だけ**が
-  次回の harvest でこのファイルに追記される（pipeline がこのファイルに書くのはこの 1 経路だけ）
+The parser reads every field; two of them are for you rather than for Jev. `slug` and `version`
+identify the question: change the wording, bump the version, or old judgments count as judgments of
+the new wording. `status` gates the run (`open` / `answered` / `dropped`) and `opened` is the date you
+opened it. `brief`, `method` and `evidence` go into the state Jev sees for every (source, question)
+pair. `not:` lines feed the hard gates with adjacent topics that would otherwise pass every day.
+`retire:` is prose for you, the rule you set in advance for closing the question.
 
-## 読み方 (note の構成)
+`canary:` lines name papers or repos this question must always keep. If no net brings one on a given
+day it is fetched by its URL and screened anyway, and a dropped canary shows up in the note's
+operations block as a sign that screening drifted.
+
+The daily note proposes new questions. Tick one and the next run appends it to this file. That is the
+only path by which the pipeline writes here.
+
+## What a note looks like
+
+Headings and prose are Japanese; the layout is:
 
 ```
-### <問い>          ← 今日動いた問いだけ節になる
-今日の変化           ← 本文。[n] は証拠 claim の番号。【推論】で始まる段落だけが推論
-証拠                ← その日の source
-- [ ] 読む価値があった   ← 記入率の単位。⭕ は引用された claim と source にも伝播する
-## Review           ← 判定保留 (境界 / 確信度 0.9 未満)。⭕❌ が次の閾値再推定に効く
-## 問いの候補         ← チェック = 採用
-## 橋渡し            ← 語彙の外から繋がったもの (exploration net)
-> [!note]- Claims   ← 畳まれた claim 一覧。claim 単位の記入もできる
+### <question>                 one section per question that got new evidence today
+今日の変化                      prose; [n] cites a claim; the paragraph marked 【推論】 is inference
+証拠                            today's sources for this question
+- [ ] worth reading             one checkbox per question-day; a tick propagates to its claims
+## Review                       borderline pairs (confidence below 0.9); your tick feeds the next threshold proposal
+## 問いの候補                     proposed questions; tick = adopt
+## 橋渡し                         bridged sources: found by the exploration net outside the vocabulary
+> [!note]- Claims               folded list of every claim with its source and a checkbox
+## 運用                          the operations block
 ```
 
-## 探索 (net)
+Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `[-]` means no, and
+`[ ]` means no label. Obsidian's click toggles `[x]`; type `[-]` by hand.
 
-keyword 検索だけでは収束する（実測: 30 日で単一テーマ 37%）。コードが順序を固定した 5 本の net を
-持ち、モデルは「どこを探すか」を決めない。
+## Source nets
 
-| net | 何を引くか | 既定の予算/run |
+Keyword search alone converges (the 37% figure above). So code fixes which nets run, in what order,
+and how many requests each may make. Model output enters discovery in two bounded ways: Qwen drafts
+the keyword queries and Jev ranks them, and the recommendation and citation nets are seeded by papers
+that Jev's screening kept. Neither model can add a net, skip one, or change the order.
+
+| net | what it fetches | default budget (API requests per run) |
 |---|---|---|
-| firehose | arXiv 新着 RSS（カテゴリ固定）+ HF daily papers。query なし | 2 |
-| recommendation | Semantic Scholar 推薦（⭕ と採用 claim の論文が positive、❌ と乱択が negative） | 1 |
-| citation | OpenAlex の前向き引用（採用済み論文を引いた論文） | 3 |
-| keyword | 問いごとに Qwen が書き Jev が選ぶ検索語（従来の net） | 12 |
-| exploration | 隣の OpenAlex topic。keyword 予算の一部を回す | 1 |
+| firehose | new arXiv listings for fixed categories, plus Hugging Face daily papers; no query | 2 |
+| recommendation | Semantic Scholar recommendations seeded by ticked and kept papers, with random negatives | 1 |
+| citation | OpenAlex forward citations of papers already kept | 3 |
+| keyword | queries Qwen drafts per question and Jev ranks, sent to arXiv, Hugging Face papers, GitHub and, with a key, Tavily web search | 12 |
+| exploration | neighbouring OpenAlex topics: one request of its own, and 20% of the keyword queries are aimed at those topics instead of the line's own | 1 |
 
-`config.toml` に `[nets]` を書くと変えられる:
+Every net works without source-API keys (the TypeSafe and DashScope keys are always needed), with one
+exception inside the keyword net: the Tavily web-search source is skipped when `TAVILY_API_KEY` is
+unset, and the note says so. Semantic Scholar, OpenAlex and GitHub
+have shared keyless quotas; optional keys raise them. Budgets, arXiv categories and the OpenAlex daily
+credit cap are set under `[nets]` in `config.toml`. The operations block reports acceptance per net
+and the number of distinct OpenAlex topics among kept papers; a falling topic count is the convergence
+alarm.
 
-```toml
-[nets]
-firehose = 2
-recommendation = 1
-citation = 3
-keyword = 12
-exploration = 1
-exploration_share = 0.2          # keyword 予算のうち探索に回す割合
-arxiv_categories = ["cs.AI", "cs.CL", "cs.LG", "cs.HC"]
-openalex_daily_credits = 400     # keyless は 1 日 1,000 credit ($0.10)
-firehose_max = 300               # 1 ライン 1 回の firehose 取り込み上限
-arxiv_keyword_max = 1            # 1 ラインあたりの arXiv API 検索数 (429 を避ける)
-```
+## Why judgment, not generation
 
-運用節には net ごとの取得数・採用率、OpenAlex の topic クラスタ数（**減ったら収束の警報**）、
-収束推定 f = 1 - exp(-n/tau) が出る。「n 件連続で無関係だった」は収束の証拠として扱わない。
+The design bet is that most of what an agent loop does with an LLM is judgment, and judgment can be
+asked as typed questions of a model that returns calibrated probabilities. Three measurements from
+the pilot shaped the current form:
 
-## 環境変数
+- Without a question as the anchor, Jev's relevance judgments passed almost anything sharing a term
+  with the line: one line about meditation and non-self collected 162 claims about transformer
+  attention. Anchoring every judgment on (source, question) fixed this.
+- The first run, which treated every sentence as a claim without a question, asked Jev 20,573
+  questions for one line and produced a 283 KB note. Staged screening per question brought the same
+  line to a few thousand questions and a note under 12 KB.
+- Prose written from a bag of verbatim claims reads like a bag of claims. Writing per question, with
+  inference confined to one marked paragraph, moved the independent judge from 0 of 3 publishable
+  notes (run 6) to 1 of 3 (runs 8 and 11); the verdicts and their evidence are in
+  [docs/pilot-log.md](docs/pilot-log.md).
 
-秘密は repo に置かず `~/.config/jrp/env` に書く（`scripts/launchd-jrp.sh` が読む）。
+The design record, including every decision and the external evidence it rests on, is
+[docs/design/pipeline-design.md](docs/design/pipeline-design.md).
 
-| 変数 | 要否 | 用途 |
-|---|---|---|
-| `JRP_VAULT_DIR` | 必須 | vault の root。未設定なら何も書かずに止まる |
-| `JRP_STORE_DIR` | 推奨 | pipeline の store（既定は `./var/store`） |
-| `TYPESAFE_API_KEY` | 必須 | Jev |
-| `DASHSCOPE_API_KEY` | 必須 | Qwen（DashScope の intl endpoint） |
-| `JRP_COST_CAP_USD` | 推奨 | 1 ライン分の費用上限。超えたら以降を省いて partial report |
-| `JRP_JEV_USD_PER_QUESTION` | 推奨 | Jev の単価。未設定だと費用計算に Jev が乗らない |
-| `TAVILY_API_KEY` | 任意 | web 検索。未設定ならその adapter は skip（運用節に記録） |
-| `GITHUB_TOKEN` | 任意 | GitHub 検索の上限を 10/分 → 30/分 に上げる |
-| `JRP_PROSE_TIMEOUT_S` | 任意 | 本文生成の timeout（既定 900 秒。本文は thinking ありで書くため長い） |
-| `JRP_PROSE_THINKING` | 任意 | 本文の thinking: `always`（既定）/ `rewrite`（書き直し稿だけ）/ `off` |
-| `JRP_JEV_CONCURRENCY` | 任意 | 同時に投げる Jev request の数（既定 12）。rate は別に 1,200 回/分で抑える |
-| `JRP_PROSE_CONCURRENCY` | 任意 | 同時に走らせる Qwen 呼び出しの数（既定 3。検索語の生成と問いごとの本文） |
-| `JRP_SLACK_NOTIFY` | 任意 | `1` で実行結果を Slack に 1 行通知 |
-| `JRP_DRIFT_LIVE` | 任意 | `1` で `jrp drift` が live に投げる |
-| `JRP_DAILY_RESEARCH_CONFIG` | 任意 | ライン一覧と `[nets]` を書く config.toml の path |
-| `JRP_QUESTIONS_DIR` | 任意 | 問いファイルの置き場（既定 `./questions`） |
-| `SEMANTIC_SCHOLAR_API_KEY` | 任意 | 推薦 net。未設定だと共有枠で 429 になりやすく、その日は黙る |
-| `OPENALEX_API_KEY` | 任意 | 引用 net の 1 日上限を $0.10 → $1 に上げる |
-| `HF_TOKEN` | 任意 | HF daily papers の rate limit を上げる |
+## Observability, scheduling, development
 
-### GITHUB_TOKEN の入れ方
+Traces are OpenTelemetry. With `OTEL_EXPORTER_OTLP_ENDPOINT` unset the SDK is never initialised and
+every span is a no-op. A Docker-free local viewer and the span names are in
+[docs/observability.md](docs/observability.md).
 
-未認証だと GitHub の検索は 10 回/分で、超えると 403 が返る（初回 live run で発生）。token を
-入れると 30 回/分になる。
+Two launchd plists (daily run, weekly drift) live in [launchd/](launchd/README.md); edit the absolute
+paths for your machine before loading them.
 
 ```bash
-gh auth token   # gh CLI の token をそのまま使う（repo 等の広い scope が付く）
+.claude/verify.sh     # format, lint, types, bandit, deptry, tests; offline, no keys
+uv run pytest -q      # replays committed cassettes; live recording is opt-in (docs/configuration.md)
 ```
 
-公開 repo の検索だけなら、権限を 1 つも付けない fine-grained PAT で足りる（fine-grained token は
-公開 repo への read を常に持つ）。常用にはこちらを薦める。どちらも
-`GITHUB_TOKEN=...` として `~/.config/jrp/env` に書く。
+## Related
 
-## 速さ
-
-1 回の実行では輪番の 3 ラインと daily のライン（jev）を並べて走らせ、各ラインの中でも同じ段の判定を
-並列に投げる（`JRP_JEV_CONCURRENCY`）。screening は安い prefilter（問いごとの on_topic 1 問）を先に
-全 source に聞き、通った対だけに full bundle を聞く。問いごとの本文生成も並列（`JRP_PROSE_CONCURRENCY`）。
-取得は ToU の間隔を守ったまま（arXiv 3 秒、GitHub / HF 6 秒）、届いた net の分から判定を始める。
-並列度を変えても、note と store に書かれる中身は変わらない（並列度 1 と同じ bytes になることを
-テストで固定している）。
-
-## store の schema が変わったとき
-
-古い build が書いた store は、どのコマンドも最初に検査する。
-
-- **追加だけの変更**（新しい項目が増えただけ）: その場で現行 schema に書き直し、運用節に 1 行残す
-- **非互換**（項目の削除・意味の変更、今の model で読めないノード）: 何も読み書きせずに 1 行で止まる。
-  `store/lines/<ライン>.jsonld は旧 schema (…)。` の形
-
-止まったら `jrp migrate --dry-run` で計画を見て、`jrp migrate` で実行する。非互換のファイルは
-消さずに `<store>/retired/<日付>/` へ移すので、そのラインは空の store からやり直しになる。
-
-## Observability
-
-トレースは OpenTelemetry。`OTEL_EXPORTER_OTLP_ENDPOINT` が未設定なら SDK を初期化せず、
-span は no-op になる。ローカルで見るには Docker 不要の viewer を入れる:
-
-```bash
-brew tap ctrlspice/otel-desktop-viewer
-brew trust ctrlspice/otel-desktop-viewer      # untrusted tap なのでこれが先に要る（2026-09-23 実測）
-brew install --cask otel-desktop-viewer
-```
-
-`~/.config/jrp/env` に 3 行:
-
-```bash
-export OTEL_SERVICE_NAME="jev-research-pipeline"
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"   # path は SDK が足す
-export OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
-```
-
-UI は `http://localhost:8000`。出る span は `jrp.line` / `jrp.stage.*`（stage ごとの所要時間）、
-`jev.<関数名>`（質問数・subject 数・model・結果）、Qwen 2 箇所（pydantic-ai 内蔵の計装。
-prompt 本文は送らない）、HTTP（httpx2 の計装）。研究の数値は store と運用節が正本で、
-OTel は実行中の観察用。
-
-## 定期実行
-
-[launchd/README.md](launchd/README.md) を見る（plist を 2 つ置いて `launchctl load`）。
-
-## 開発
-
-```bash
-.claude/verify.sh          # format / lint / 型 / bandit / deptry / test（offline、key 不要）
-uv run pytest -q
-```
-
-テストは外部 API を呼ばず、`tests/cassettes/` の記録を再生する。記録を作り直すときは
-`JRP_CASSETTE_SYNTHETIC=1`（tests/fakes.py の偽 upstream から合成）、live 記録は
-`JRP_CASSETTE_RECORD=1`（key が要る。書き先は gitignore された `tests/cassettes/live/`）。
+- [TypeSafe Jev](https://docs.typesafe.ai) and the [Pydantic AI `typesafe:` model](https://pydantic.dev/docs/ai/models/typesafe/)
+- [Qwen on DashScope](https://www.alibabacloud.com/help/en/model-studio/models)
