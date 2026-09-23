@@ -362,7 +362,7 @@ def materials(case: BenchCase) -> str:
         "",
         "出典(タイトルと抜粋。本文の書き手にこれが渡ったとは限らない):",
         *(
-            f"S{i}. {s.title} — {s.url}\n    {s.excerpt[:600]}"
+            f"S{i}. {s.title} — {s.url}\n    {s.excerpt}"
             for i, s in enumerate(case.sources, start=1)
         ),
     ]
@@ -430,13 +430,13 @@ class Verdict(Value):
     overall: AxisVerdict
 
 
-def tally(pairs: Path, a: str, b: str) -> list[str]:
+def tally(pairs: Path, a: str, b: str, verdicts: Path | None = None) -> list[str]:
     """Per case, an axis is won only when both orders pick the same variant (else a tie);
     a gate failure in either order loses the case's overall. Lines for the terminal."""
     key: dict[str, dict[str, str]] = json.loads((pairs / "key.json").read_text(encoding="utf-8"))
     per_case: dict[str, list[tuple[dict[str, str], Verdict]]] = {}
     for name, k in key.items():
-        path = pairs / "verdicts" / f"{name}.json"
+        path = (verdicts or pairs / "verdicts") / f"{name}.json"
         if path.is_file():
             per_case.setdefault(k["case"], []).append(
                 (k, Verdict.model_validate_json(path.read_text(encoding="utf-8")))
@@ -457,11 +457,11 @@ def tally(pairs: Path, a: str, b: str) -> list[str]:
             gate_fail[f] = gate_fail.get(f, 0) + 1
         names = {n for _, v in runs for n in v.axes} | {"総合"}
         for axis in names:
-            verdicts = [(k, v.overall if axis == "総合" else v.axes.get(axis)) for k, v in runs]
+            given = [(k, v.overall if axis == "総合" else v.axes.get(axis)) for k, v in runs]
             # Won only when every order gave a verdict and they agree (code review: an axis
             # one order left out used to be decided by the other order alone).
-            picks = {to_variant(k, av.winner) for k, av in verdicts if av is not None}
-            complete = all(av is not None for _, av in verdicts)
+            picks = {to_variant(k, av.winner) for k, av in given if av is not None}
+            complete = all(av is not None for _, av in given)
             winner = picks.pop() if complete and len(picks) == 1 else "tie"
             if axis == "総合" and failed:
                 # the rubric: a gate failure loses the overall; both failing is a tie

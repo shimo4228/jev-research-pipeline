@@ -69,6 +69,7 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
     pr.add_argument("--a", help="pairs/tally: baseline variant")
     pr.add_argument("--b", help="pairs/tally: candidate variant")
+    pr.add_argument("--verdicts", help="tally: verdict dir (default pairs/<a>__vs__<b>/verdicts)")
     return p
 
 
@@ -214,7 +215,12 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
             out = pb.make_pairs(bench, str(args.a), str(args.b), rubric, split=args.split)
             lines = [f"pairs → {out} (verdicts go to {out / 'verdicts'})"]
         case _:
-            lines = pb.tally(bench / "pairs" / f"{args.a}__vs__{args.b}", str(args.a), str(args.b))
+            lines = pb.tally(
+                bench / "pairs" / f"{args.a}__vs__{args.b}",
+                str(args.a),
+                str(args.b),
+                Path(args.verdicts) if args.verdicts else None,
+            )
     sys.stdout.write("\n".join(lines) + "\n")
     return 0
 

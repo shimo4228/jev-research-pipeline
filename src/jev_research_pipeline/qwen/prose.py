@@ -188,14 +188,20 @@ def user_prompt(
     payload: dict[str, object] = {
         "claims": [
             {"n": i, "text": text}
-            | ({"source": claim_sources[i - 1]} if claim_sources is not None else {})
+            | (
+                {"source": f"S{claim_sources[i - 1]}"}
+                if claim_sources is not None and claim_sources[i - 1]
+                else {}
+            )
             for i, text in enumerate(claims, start=1)
         ]
     }
     if evidence_set:
         payload["known"] = list(evidence_set)
     if sources:
-        payload["sources"] = [{"s": i, **src} for i, src in enumerate(sources, start=1)]
+        # "S1", not 1: a numeric source id got cited as a claim number (first bench judge
+        # round, 2026-09-23 — [3] written for claim [1] throughout a draft)
+        payload["sources"] = [{"id": f"S{i}", **src} for i, src in enumerate(sources, start=1)]
     parts = [
         f"研究ライン: {ctx.line.name}",
         f"語彙: {', '.join(ctx.vocabulary)}",

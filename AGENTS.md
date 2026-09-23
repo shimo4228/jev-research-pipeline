@@ -53,8 +53,9 @@
 3. `uv run jrp prose pairs --a <基準> --b <候補>` — case ごとに順番違いの 2 ファイルができる
 4. 判定: pair ファイル 1 つにつき、文脈を持たない Opus のサブエージェントを 1 つ起動し、
    ファイルだけを読ませて `pairs/<a>__vs__<b>/verdicts/<同名>.json` に書かせる。
-   実装者（このセッション）は判定に口を出さない
-5. `uv run jrp prose tally --a <基準> --b <候補>` — 両方の順番で一致した軸だけが勝ち
+   実装者（このセッション）は判定に口を出さない。worktree のセッションからは base の store に
+   Write できない（hook が止める）ので、そのときは verdict を session の scratchpad に書かせる
+5. `uv run jrp prose tally --a <基準> --b <候補> [--verdicts <dir>]` — 両方の順番で一致した軸だけが勝ち
 6. 採用は dev で勝ち、holdout で負けないとき。最後に著者が数件を blind で読む
 
 ## 触ってはいけないもの
