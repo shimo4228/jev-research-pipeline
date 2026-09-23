@@ -18,6 +18,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from jev_research_pipeline.adapters.base import reset_pacing
 from jev_research_pipeline.cassette import RECORD_ENV, Cassette, CassetteTransport, cassette_client
 
 CASSETTES = Path(__file__).parent / "cassettes"
@@ -32,6 +33,12 @@ def _cassette_path(request: pytest.FixtureRequest) -> Path:
     current = os.environ["PYTEST_CURRENT_TEST"].split("::")[-1].split(" ")[0]
     name = current.replace("[", "__").replace("]", "").replace("/", "_")
     return CASSETTES / f"{request.path.stem}__{name}.json"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_pacing() -> None:
+    """Pacing is process-wide per source; one test's request must not delay the next."""
+    reset_pacing()
 
 
 @pytest.fixture

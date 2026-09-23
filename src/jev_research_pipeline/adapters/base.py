@@ -16,7 +16,7 @@ and CassetteMiss in tests — propagate.
 import asyncio
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from typing import Final, Literal, Self, TypedDict
 from xml.etree.ElementTree import ParseError
@@ -130,6 +130,18 @@ def iso_date(value: object) -> date | None:
         return None
 
 
+_LAST_REQUEST: dict[AdapterKind, float] = {}
+"""When each source was last asked, process-wide (see Adapter._pace)."""
+_PACE_LOCKS: dict[AdapterKind, asyncio.Lock] = {}
+
+
+def reset_pacing() -> None:
+    """Forget every source's last request (tests: each test is a fresh process's worth
+    of traffic; a lock is bound to the event loop that first used it)."""
+    _LAST_REQUEST.clear()
+    _PACE_LOCKS.clear()
+
+
 @dataclass
 class Adapter:
     kind: AdapterKind
@@ -144,14 +156,19 @@ class Adapter:
     query_kind: Literal["keyword", "token"] = "keyword"
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
-    _last_request: float | None = field(default=None, init=False, repr=False)
 
     async def _pace(self) -> None:
-        if self._last_request is not None:
-            wait = self.min_interval_s - (time.monotonic() - self._last_request)
-            if wait > 0:
-                await asyncio.sleep(wait)
-        self._last_request = time.monotonic()
+        """The gap is kept per source (`kind`), not per Adapter object: the run builds a
+        fresh adapter for every keyword query, and a per-object clock let two arXiv
+        requests go out back to back. The lock makes concurrent callers queue for it."""
+        lock = _PACE_LOCKS.setdefault(self.kind, asyncio.Lock())
+        async with lock:
+            last = _LAST_REQUEST.get(self.kind)
+            if last is not None:
+                wait = self.min_interval_s - (time.monotonic() - last)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+            _LAST_REQUEST[self.kind] = time.monotonic()
 
     async def fetch(
         self,

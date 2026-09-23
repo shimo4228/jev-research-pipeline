@@ -168,6 +168,27 @@ def test_pacing_intervals_follow_published_limits():
     assert hf_papers.adapter().min_interval_s == 6.0
 
 
+async def test_pacing_holds_across_adapter_instances():
+    """The run builds a fresh adapter per keyword query, so a gap kept per instance let
+    two arXiv requests go out back to back — the ToU interval is per source, not per object."""
+    import time
+    from dataclasses import replace
+
+    sent: list[float] = []
+
+    async def record(request: httpx2.Request) -> httpx2.Response:
+        sent.append(time.monotonic())
+        return httpx2.Response(
+            200, text=ARXIV_ATOM, headers={"content-type": "application/atom+xml"}
+        )
+
+    http = httpx2.AsyncClient(transport=httpx2.MockTransport(record))
+    for _ in range(2):
+        adapter = replace(arxiv.adapter(), min_interval_s=0.2)
+        await adapter.fetch(http, b.line(), QUERY, now=b.T0, env=NO_ENV)
+    assert sent[1] - sent[0] >= 0.2
+
+
 # --- collect: stage cache around one fetch ----------------------------------------------
 
 
