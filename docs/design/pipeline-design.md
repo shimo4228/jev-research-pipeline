@@ -326,6 +326,37 @@ line's graph.jsonld / ADR / vault note (an objective, zero-effort delayed label)
 canary papers and cross-net agreement as weak supervision, ⭕❌ demoted to optional gold,
 Review section kept. Decide after the pilot has run for a few weeks.
 
+### jevcal (search-first 2026-09-23) — NOT-ADOPT
+
+Two packages share the name. `pip install jevcal` fetches aakgna/jevcal 0.2.0 (2026-09-21),
+which logs decisions and measures calibration (ECE/Brier) and explicitly does no threshold
+selection. The one that does per-question thresholds — abhixhek/jevcal, MIT, Python ≥3.10 —
+is git-install only, five days old, has no `py.typed`, and its own README says not to expect
+it to hold under ~100 labeled rows per question, which is exactly this pipeline's regime.
+Verdict: keep the hand-rolled grid search; steal the two ideas that matter at our N —
+split fit/verify and report the held-out number, and select on the Wilson lower bound of
+accepted accuracy rather than the point estimate (proposed, not yet implemented).
+Review-when: abhixhek/jevcal ships to PyPI with `py.typed` and a library API that takes
+raw (scores, labels, group_id) without a provider key, or per-function label counts cross
+~100. Alternatives if probability calibration (not thresholds) is ever wanted: netcal
+1.4.0, mapie 1.5.0, sklearn.calibration.
+
+### Discovery endpoints (search-first 2026-09-23, measured)
+
+- arXiv firehose = `rss.arxiv.org/rss/<cat>+<cat>` (full abstracts, `arxiv:announce_type`
+  new/cross/replace, description prefixed "arXiv:<id>vN Announce Type:", empty at weekends).
+  `export.arxiv.org/api/query` stays the keyword net; ToU is one request per 3 s and the
+  406 is an undocumented CDN rule, not policy.
+- HF daily papers = `huggingface.co/api/daily_papers?date=&limit=` — live, keyless,
+  undocumented; only `date` and `limit` verified, so the field set needs a golden test.
+- Semantic Scholar keyless is a globally shared pool: a single cold request answered 429
+  (measured). Plan for a key or treat the net as best-effort with a hard give-up.
+- OpenAlex: `mailto=` no longer buys a polite pool; keyless = 1,000 credits = $0.10/day,
+  a filtered list is 1 credit, a `search=` is 10, singleton lookups are free, reset at
+  midnight UTC. `per_page` max is 100. There is no arXiv id filter — an arXiv paper is
+  addressed through its DataCite DOI (10.48550, ~2022 onward), and the preprint and the
+  journal version are separate works. `docs.openalex.org` now 301s to `help.openalex.org`.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

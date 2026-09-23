@@ -1,8 +1,12 @@
 # jev-research-pipeline
 
-毎朝、研究ラインごとに 1 本のレポートを Obsidian の vault に書く pipeline。制御の流れは
-コードが持ち、判断は TypeSafe Jev に狭い質問の束として投げ、文章が要る 2 箇所だけ Qwen が書く。
-設計の正本は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)。
+毎朝、研究ラインの **open な「問い」ごと**に、今日その答えが何に動いたかを Obsidian の vault に
+書く pipeline。制御の流れはコードが持ち、判断は TypeSafe Jev に狭い質問として投げ、文章が要る
+2 箇所だけ Qwen が書く。設計の正本は
+[docs/design/pipeline-design.md](docs/design/pipeline-design.md)。
+
+問いは著者が `questions/<スラッグ>.md` に手で書く。**問いが 1 つも open でないラインは走らない**
+（「問い未設定」として報告されて次のラインに進む）。
 
 ```bash
 uv run jrp run            # 記入を取り込み → 輪番で次の 3 ライン → note を書く
@@ -10,6 +14,79 @@ uv run jrp fit            # 閾値の再推定を提案ファイルに書く（�
 uv run jrp export-cases   # ⭕❌ の付いた claim を pydantic-evals の Case に出す
 uv run jrp drift          # 録画した Jev 入力を live に投げ直して確率差を出す
 ```
+
+## 最初にやること: 問いを立てる
+
+ライン 1 本につき 1 ファイル。`questions/akc.md` の例:
+
+```markdown
+<!-- jrp:questions:akc -->
+
+## エージェントの記憶は何で決まるのか
+- slug: agent-memory
+- version: 1
+- status: open
+- opened: 2026-09-23
+- retire: 三ヶ月 evidence が増えなければ閉じる
+- brief: 記憶機構の違いが下流の精度をどれだけ動かすか。
+- method: RAG
+- method: 長文 context
+- evidence: 測定されたもの。主張だけのものは採らない
+- not: プロンプト技法一般
+- canary: https://arxiv.org/abs/2609.01234
+```
+
+- `slug` と `version` が Question ノードの identity。**問いの文面を直したら version を上げる**
+  （上げないと、前の文面で下された判定が新しい文面の判定として数えられる）
+- `status` は `open` / `answered` / `dropped`。open だけが走る
+- `not:` は「隣接していて毎回ひっかかるが、この問いではないもの」。screening の hard gate が使う
+- `canary:` は「この問いなら絶対に拾ってほしい論文」。screening がそれを落とした日は運用節に
+  「canary 落下」が出る = screening がずれた合図
+- 毎日の note の「## 問いの候補」に pipeline からの提案が並ぶ。**チェックを付けた候補だけ**が
+  次回の harvest でこのファイルに追記される（pipeline がこのファイルに書くのはこの 1 経路だけ）
+
+## 読み方 (note の構成)
+
+```
+### <問い>          ← 今日動いた問いだけ節になる
+今日の変化           ← 本文。[n] は証拠 claim の番号。【推論】で始まる段落だけが推論
+証拠                ← その日の source
+- [ ] 読む価値があった   ← 記入率の単位。⭕ は引用された claim と source にも伝播する
+## Review           ← 判定保留 (境界 / 確信度 0.9 未満)。⭕❌ が次の閾値再推定に効く
+## 問いの候補         ← チェック = 採用
+## 橋渡し            ← 語彙の外から繋がったもの (exploration net)
+> [!note]- Claims   ← 畳まれた claim 一覧。claim 単位の記入もできる
+```
+
+## 探索 (net)
+
+keyword 検索だけでは収束する（実測: 30 日で単一テーマ 37%）。コードが順序を固定した 5 本の net を
+持ち、モデルは「どこを探すか」を決めない。
+
+| net | 何を引くか | 既定の予算/run |
+|---|---|---|
+| firehose | arXiv 新着 RSS（カテゴリ固定）+ HF daily papers。query なし | 2 |
+| recommendation | Semantic Scholar 推薦（⭕ と採用 claim の論文が positive、❌ と乱択が negative） | 1 |
+| citation | OpenAlex の前向き引用（採用済み論文を引いた論文） | 3 |
+| keyword | 問いごとに Qwen が書き Jev が選ぶ検索語（従来の net） | 6 |
+| exploration | 隣の OpenAlex topic。keyword 予算の一部を回す | 1 |
+
+`config.toml` に `[nets]` を書くと変えられる:
+
+```toml
+[nets]
+firehose = 2
+recommendation = 1
+citation = 3
+keyword = 6
+exploration = 1
+exploration_share = 0.2          # keyword 予算のうち探索に回す割合
+arxiv_categories = ["cs.AI", "cs.CL", "cs.LG", "cs.HC"]
+openalex_daily_credits = 400     # keyless は 1 日 1,000 credit ($0.10)
+```
+
+運用節には net ごとの取得数・採用率、OpenAlex の topic クラスタ数（**減ったら収束の警報**）、
+収束推定 f = 1 - exp(-n/tau) が出る。「n 件連続で無関係だった」は収束の証拠として扱わない。
 
 ## 環境変数
 
@@ -28,7 +105,11 @@ uv run jrp drift          # 録画した Jev 入力を live に投げ直して�
 | `JRP_PROSE_TIMEOUT_S` | 任意 | 本文生成の timeout（既定 300 秒） |
 | `JRP_SLACK_NOTIFY` | 任意 | `1` で実行結果を Slack に 1 行通知 |
 | `JRP_DRIFT_LIVE` | 任意 | `1` で `jrp drift` が live に投げる |
-| `JRP_DAILY_RESEARCH_CONFIG` | 任意 | ライン一覧の config.toml の path |
+| `JRP_DAILY_RESEARCH_CONFIG` | 任意 | ライン一覧と `[nets]` を書く config.toml の path |
+| `JRP_QUESTIONS_DIR` | 任意 | 問いファイルの置き場（既定 `./questions`） |
+| `SEMANTIC_SCHOLAR_API_KEY` | 任意 | 推薦 net。未設定だと共有枠で 429 になりやすく、その日は黙る |
+| `OPENALEX_API_KEY` | 任意 | 引用 net の 1 日上限を $0.10 → $1 に上げる |
+| `HF_TOKEN` | 任意 | HF daily papers の rate limit を上げる |
 
 ### GITHUB_TOKEN の入れ方
 
