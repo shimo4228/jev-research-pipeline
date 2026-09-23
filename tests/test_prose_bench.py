@@ -94,7 +94,7 @@ def test_pairs_are_blind_both_orders_with_the_rubric_inside(tmp_path: Path):
     assert {k["X"] for k in key.values()} == {"base", "cand"}  # each variant first once
     text = next(out.glob("*.md")).read_text(encoding="utf-8")
     assert "base" not in text and "cand" not in text  # variant names never shown
-    assert "### 統合" in text and "## 草稿X" in text and "## 材料" in text
+    assert "### わかりやすさ" in text and "## 草稿X" in text and "## 材料" in text
 
 
 def _verdict(winner: str, gate_y: str = "pass") -> str:
