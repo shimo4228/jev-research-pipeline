@@ -69,7 +69,7 @@ keyword 検索だけでは収束する（実測: 30 日で単一テーマ 37%）
 | firehose | arXiv 新着 RSS（カテゴリ固定）+ HF daily papers。query なし | 2 |
 | recommendation | Semantic Scholar 推薦（⭕ と採用 claim の論文が positive、❌ と乱択が negative） | 1 |
 | citation | OpenAlex の前向き引用（採用済み論文を引いた論文） | 3 |
-| keyword | 問いごとに Qwen が書き Jev が選ぶ検索語（従来の net） | 6 |
+| keyword | 問いごとに Qwen が書き Jev が選ぶ検索語（従来の net） | 12 |
 | exploration | 隣の OpenAlex topic。keyword 予算の一部を回す | 1 |
 
 `config.toml` に `[nets]` を書くと変えられる:
@@ -79,11 +79,13 @@ keyword 検索だけでは収束する（実測: 30 日で単一テーマ 37%）
 firehose = 2
 recommendation = 1
 citation = 3
-keyword = 6
+keyword = 12
 exploration = 1
 exploration_share = 0.2          # keyword 予算のうち探索に回す割合
 arxiv_categories = ["cs.AI", "cs.CL", "cs.LG", "cs.HC"]
 openalex_daily_credits = 400     # keyless は 1 日 1,000 credit ($0.10)
+firehose_max = 300               # 1 ライン 1 回の firehose 取り込み上限
+arxiv_keyword_max = 1            # 1 ラインあたりの arXiv API 検索数 (429 を避ける)
 ```
 
 運用節には net ごとの取得数・採用率、OpenAlex の topic クラスタ数（**減ったら収束の警報**）、

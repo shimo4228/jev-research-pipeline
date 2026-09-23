@@ -159,3 +159,31 @@ Lines: authorship, ans, desire + jev.
 
 Fixes for the final run: a score ≥ keep + band (0.7) is Keep regardless of certainty; the
 empty-day line gives the routes of the screened pairs; duplicate operations lines are merged.
+
+## Run 8 — 2026-09-23 12:00 JST (FINAL, real vault and store; live-run cap reached)
+
+Change: 5879fef (clear-call keep ≥ 0.7; empty-day routes; merged operations lines; code
+review fixes: canary probe through StoredJev, arXiv keyword 1 per line, capped claims
+stored, per-line failure isolation). Lines: authorship, ans, desire + jev.
+Real notes and store were backed up to /tmp/jrp-scratch/old/real-*-backup-1150 first
+(no author ticks in the overwritten notes).
+
+| # | condition | measured | pass |
+|---|---|---|---|
+| 1 | wall ≤ 5 min, cost ≤ $0.30 | 155 s; $0.0349 + 0.0352 + 0.0315 + 0.0422 = $0.144 | ✅ |
+| 2 | note ≤ 12 KB, Review ≤ 10, 橋渡し ≤ 5, 未判定 < 5% | 3.5–11.3 KB; Review ≤ 5; 橋渡し 0; ≤ 0.1% | ✅ |
+| 3 | prose for every question with a Keep, [n] resolve | authorship, desire, jev: prose (no template); [n] in range (code-checked) | ✅ |
+| 4 | off-topic Drop; jev canaries Keep | no weather-PDE / medical-RL kind of paper in Keep or Review (read by hand); canaries 3 keep, jev-phishing-bench **unjudged** (its one Jev request failed) | ❌ |
+| 5 | no adapter failure line but web_search | keyword/arxiv 429 / ConnectError on authorship, ans, desire (arXiv throttling after a day of pilot traffic, one request per line) | ❌ |
+| 6 | no stack trace | none | ✅ |
+
+### Condition 7 — fresh-context Opus judge on the final notes: **Publishable 1/3** ❌
+- authorship — Fix: readable; paragraph 1 draws an inference ("移行は現場ではまだ起きていない")
+  inside the evidence paragraph; the granularity PeerPrism defines is missing; the Review
+  reason is a score, not why the source bears on the question.
+- ans — Publishable: an honest empty day with the reason (0 pairs, arXiv cut off).
+- desire — Rewrite: citations match their claims, but the prose reads single studies as
+  "places" (venues) the question asks for, and the inference builds on that misreading.
+
+Cumulative: 8 live runs, ≈ $1.12 (run costs $1.104 + probes), 10:28 → 12:08 JST.
+Stopped at the live-run cap with conditions 4, 5 and 7 open.
