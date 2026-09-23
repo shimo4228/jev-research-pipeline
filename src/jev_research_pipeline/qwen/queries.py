@@ -1,10 +1,10 @@
-"""Qwen site 1: N query candidates per adapter from the line vocabulary (qwen3.8-flash).
+"""Qwen site 1: N query candidates per adapter from the line vocabulary (the FLASH model, qwen.client).
 
 Query strings are validated strictly (query_text.clean_query): a leaked chat-template
 token fails validation, is retried, and then counted in GenerationMeter.output_violations
 — that rate decides whether to move from NativeOutput to PromptedOutput later.
 
-Output = NativeOutput over a Pydantic model; the field name `queries` is also spelled
+Output = the FLASH output mode over a Pydantic model (client.flash_output); the field name `queries` is also spelled
 out in the instructions (packet decision 10). Validation retried up to OUTPUT_RETRIES;
 if it still fails — or the request fails — the adapter runs on code-built fallback
 queries (the line's concept names), flagged in QueryResult.fallback (decision 8).
@@ -14,7 +14,7 @@ The candidates are then scored by Jev (jev.query_selection); Qwen never picks so
 from typing import Annotated, Final
 
 from pydantic import AfterValidator, BaseModel, Field
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.usage import RunUsage
@@ -24,7 +24,7 @@ from jev_research_pipeline.model import AdapterKind, QueryCandidate, Question
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.query_text import clean_query
 
-from .client import GenerationMeter
+from .client import GenerationMeter, flash_output
 
 OUTPUT_RETRIES: Final = 2
 """Validation retries after the first attempt (pydantic-ai retries={'output': N})."""
@@ -100,7 +100,7 @@ async def query_candidates(
 ) -> QueryResult:
     agent = Agent(
         model,
-        output_type=NativeOutput(QueryList, strict=True),
+        output_type=flash_output(QueryList),
         instructions=instructions(adapter, n),
         retries={"output": OUTPUT_RETRIES},
     )

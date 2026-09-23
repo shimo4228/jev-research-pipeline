@@ -1,4 +1,4 @@
-"""Qwen site 1b: question candidates for a line (qwen3.8-flash).
+"""Qwen site 1b: question candidates for a line (the FLASH model, qwen.client).
 
 Seeds are gathered by code — the line's ResearchLine description and the "Review-when"
 lines of its ADRs, i.e. the conditions the author already wrote down for revisiting a
@@ -7,7 +7,7 @@ the note proposes them with a checkbox and the author adopts. One candidate per 
 asked for from a changed vantage point, because a proposal round that only rephrases the
 line's own vocabulary cannot open anything new (packet "Question-centric redesign").
 
-NativeOutput over a Pydantic model, same as the query site; a failed or empty generation
+The FLASH output mode over a Pydantic model (client.flash_output), same as the query site; a failed or empty generation
 yields no proposals rather than a made-up one.
 """
 
@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from typing import Final
 
 from pydantic import AwareDatetime, BaseModel, Field
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.settings import ModelSettings
@@ -28,7 +28,7 @@ from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import slugify
 
-from .client import GenerationMeter
+from .client import GenerationMeter, flash_output
 
 PROPOSALS: Final = 5
 """Per round. The author reads them in the note; more than a handful is a wall."""
@@ -116,7 +116,7 @@ async def propose_questions(
 ) -> ProposalResult:
     agent = Agent(
         model,
-        output_type=NativeOutput(CandidateList, strict=True),
+        output_type=flash_output(CandidateList),
         instructions=instructions(n),
         retries={"output": OUTPUT_RETRIES},
         model_settings=ModelSettings(timeout=PROPOSAL_TIMEOUT_S),

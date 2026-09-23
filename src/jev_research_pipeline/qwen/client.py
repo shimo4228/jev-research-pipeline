@@ -10,6 +10,7 @@ qwen3.5 names, so the profile is overridden here — without it NativeOutput is 
 from typing import Final, Literal
 
 import httpx2
+from pydantic_ai import PromptedOutput
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.profiles import ModelProfile, merge_profile
 from pydantic_ai.providers.alibaba import AlibabaProvider
@@ -17,11 +18,25 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-FLASH: Final = "qwen3.8-flash"
+FLASH: Final = "deepseek-v4.1-flash"
+"""The structured-output site (query candidates, question proposals). qwen3.8-flash until
+2026-09-23, when its free quota ran out; deepseek-v4.1-flash on the same DashScope key and
+endpoint supports Structured Outputs and enable_thinking=false (help.aliyun.com
+model-studio/deepseek-v4-1-flash, read 2026-09-23). GLM-5.3 was ruled out (thinking cannot
+be turned off; json_object only), kimi-k3 on price (≈ 20-30x)."""
 MAX: Final = "qwen3.8-max"
 API_KEY_ENV: Final = "DASHSCOPE_API_KEY"
 
-type QwenModelId = Literal["qwen3.8-flash", "qwen3.8-max"]
+type QwenModelId = Literal["deepseek-v4.1-flash", "qwen3.8-max"]
+
+
+def flash_output[T](output: type[T]) -> PromptedOutput[T]:
+    """The FLASH site's output mode: PromptedOutput (the schema goes into the prompt,
+    pydantic validates, output retries re-ask). deepseek-v4.1-flash answers 400 "This
+    response_format type is unavailable now" to json_schema — strict or not — although
+    its docs list Structured Outputs (measured 2026-09-23); PromptedOutput returned clean
+    lists on every probe. The query guard (query_text.clean_query) stays behind it."""
+    return PromptedOutput(output)
 
 
 def _native_json_schema(base: ModelProfile) -> ModelProfile:
@@ -57,7 +72,7 @@ class GenerationMeter:
         self.input_tokens = 0
         self.output_tokens = 0
         self.output_violations = 0
-        """Runs that exhausted output retries — the NativeOutput failure rate (operations
+        """Runs that exhausted output retries — the structured-output failure rate (operations
         section) that decides whether to move to PromptedOutput."""
 
     def add(self, usage: RunUsage) -> None:

@@ -354,7 +354,7 @@ def fake_world() -> Handler:
         if host == "dashscope-intl.aliyuncs.com":
             body = json.loads(request.content)
             asked = json.dumps(body, ensure_ascii=False)
-            if body["model"] != "qwen3.8-flash":
+            if body["model"] != "deepseek-v4.1-flash":
                 content = "狭い型付き質問への分解で判定が安定する [1]。"
             elif "問い" in asked and "queries" not in asked:
                 content = PROPOSALS

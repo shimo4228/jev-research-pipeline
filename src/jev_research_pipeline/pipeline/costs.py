@@ -10,7 +10,9 @@ from typing import Final
 
 from jev_research_pipeline.qwen import FLASH, MAX, GenerationMeter
 
-PRICES: Final = {FLASH: (0.15, 0.47), MAX: (2.0, 6.0)}
+PRICES: Final = {FLASH: (0.15, 0.61), MAX: (2.0, 6.0)}
+"""USD per Mtok (input, output). deepseek-v4.1-flash: Singapore idle 1.094 / 4.375 CNY at
+~7.2 CNY/USD (help.aliyun.com, as-of 2026-09-23; busy hours cost twice that)."""
 JEV_PRICE_ENV: Final = "JRP_JEV_USD_PER_QUESTION"
 COST_CAP_ENV: Final = "JRP_COST_CAP_USD"
 
