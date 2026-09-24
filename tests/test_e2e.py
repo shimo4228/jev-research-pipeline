@@ -16,7 +16,7 @@ from jev_research_pipeline.store import GraphStore
 
 from . import builders as b
 from .conftest import ClientFactory
-from .fakes import fake_world
+from .fakes import QWEN, codex_login, fake_world
 from .test_config import CONFIG, GRAPH
 
 
@@ -58,6 +58,9 @@ def env(tmp_path: Path) -> dict[str, str]:
         "JRP_QUESTIONS_DIR": str(questions),
         "JRP_DAILY_RESEARCH_CONFIG": str(cfg),
         "TYPESAFE_API_KEY": "replay",
+        # The cassettes of these tests were synthesized on Qwen, before the Codex default;
+        # test_default_prose_model_is_gpt56_sol_on_the_codex_subscription runs the default.
+        "JRP_PROSE_MODEL": QWEN,
         "DASHSCOPE_API_KEY": "replay",
     }
 
@@ -114,7 +117,25 @@ async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env:
     assert second.report.claims == first.report.claims  # not emptied by the re-run
     assert second.report.rendering == first.report.rendering
     assert second.report.operations.jev_questions == 0
-    assert second.report.operations.generation_output_tokens == 0  # Qwen not asked again
+    assert second.report.operations.generation_output_tokens == 0  # the prose model not asked again
+
+
+async def test_default_prose_model_is_gpt56_sol_on_the_codex_subscription(
+    cassette: ClientFactory, env: dict[str, str], tmp_path: Path
+):
+    """No JRP_PROSE_MODEL and no DashScope key: GPT-5.6 Sol writes the prose on the Codex
+    subscription, and the note counts its tokens but prices them at nothing."""
+    del env["JRP_PROSE_MODEL"], env["DASHSCOPE_API_KEY"]
+    env["JRP_CODEX_AUTH"] = str(codex_login(tmp_path / "codex-auth.json"))
+    env["JRP_JEV_USD_PER_QUESTION"] = "0.001"
+    (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(fake_world()), pacing=False)
+    assert outcome.report.rendering == "prose"
+    ops = outcome.report.operations
+    assert ops.generation_output_tokens > 0
+    assert ops.cost_usd == pytest.approx(ops.jev_questions * 0.001)
+    text = outcome.note.read_text(encoding="utf-8")
+    assert "生成 token (openai-codex:gpt-5.6-sol): in " in text
+    assert "(生成はサブスクリプション定額で 0 計上)" in text
 
 
 async def test_missing_vault_env_writes_nothing(cassette: ClientFactory, env: dict[str, str]):

@@ -15,7 +15,7 @@ fallbacks become operations lines; over the cost cap the remaining stages are sk
 the report is written as partial.
 
 Concurrency: within a stage every independent Jev request is in flight at once, up to
-JRP_JEV_CONCURRENCY (pipeline.concurrency); Qwen calls up to JRP_PROSE_CONCURRENCY. Stages
+JRP_JEV_CONCURRENCY (pipeline.concurrency); prose calls up to JRP_PROSE_CONCURRENCY. Stages
 still run one after another — novelty reads the evidence set the earlier stages settled,
 question_movement reads what survived support. Three rules keep a parallel run equal to a
 sequential one:
@@ -48,6 +48,12 @@ from jev_research_pipeline.adapters import (
     hf_papers,
     openalex,
     web_search,
+)
+from jev_research_pipeline.generation import GenerationMeter, Rendering, Writer
+from jev_research_pipeline.generation.prose import (
+    SOURCE_EXCERPT_CHARS,
+    prose_thinking,
+    prose_timeout_s,
 )
 from jev_research_pipeline.jev import (
     Ask,
@@ -86,17 +92,6 @@ from jev_research_pipeline.model import (
 from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import AuthoredQueries
-from jev_research_pipeline.qwen import (
-    MAX,
-    GenerationMeter,
-    Rendering,
-    qwen_model,
-)
-from jev_research_pipeline.qwen.prose import (
-    SOURCE_EXCERPT_CHARS,
-    prose_thinking,
-    prose_timeout_s,
-)
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.report import (
     ClaimEntry,
@@ -110,7 +105,7 @@ from jev_research_pipeline.telemetry import span
 
 from . import meters, nets
 from .concurrency import jev_concurrency, prose_concurrency
-from .costs import Budget
+from .costs import Budget, generation_price
 from .units import split_units
 
 GIST_CHARS: Final = 120
@@ -245,7 +240,6 @@ class StoredJev(JevClient):
 @dataclass
 class Keys:
     typesafe: str
-    dashscope: str
 
 
 @dataclass
@@ -377,6 +371,7 @@ class LineRun:
         vault: Path,
         http: httpx2.AsyncClient,
         keys: Keys,
+        writer: Writer,
         env: Mapping[str, str],
         now: AwareDatetime,
         harvest_notes: list[str],
@@ -393,14 +388,11 @@ class LineRun:
         self.known = partition.load()
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
         self.keys = keys
+        self.writer = writer
         thinking = prose_thinking(env)
-        self.max = qwen_model(MAX, http, api_key=keys.dashscope, thinking=thinking == "always")
-        self.max_rewrite = (
-            qwen_model(MAX, http, api_key=keys.dashscope, thinking=True)
-            if thinking == "rewrite"
-            else None
-        )
-        self.meters = {MAX: GenerationMeter()}
+        self.prose_model = writer.model(thinking=thinking == "always")
+        self.prose_rewrite_model = writer.model(thinking=True) if thinking == "rewrite" else None
+        self.meters = {writer.spec: GenerationMeter()}
         self.budget = Budget(env)
         self.nets = net_config or nets.NetConfig()
         self.day = day_budget or nets.DayBudget()
@@ -920,13 +912,13 @@ class LineRun:
             sources = list({i.source.id: i.source for i in items}.values())
             rendering, drafts = await rubric_ladder(
                 jev=self.jev,
-                model=self.max,
-                rewrite_model=self.max_rewrite,
+                model=self.prose_model,
+                rewrite_model=self.prose_rewrite_model,
                 ctx=self.ctx,
                 question=question,
                 report_id=report_id,
                 claims=today,
-                meter=self.meters[MAX],
+                meter=self.meters[self.writer.spec],
                 now=self.now,
                 timeout_s=prose_timeout_s(self.env),
                 evidence_set=evidence,
@@ -1051,6 +1043,15 @@ class LineRun:
             ttd=meters.time_to_discovery(labels, sources, claims, units),
         )
 
+    def _cost_caveats(self) -> str:
+        """What the cost line leaves out, said next to it."""
+        caveats = [] if self.budget.jev_price_known else ["Jev 単価未設定"]
+        if self.writer.spec.subscription:
+            caveats.append("生成はサブスクリプション定額で 0 計上")
+        elif generation_price(self.writer.spec) is None:
+            caveats.append("生成単価未設定")
+        return f" ({', '.join(caveats)})" if caveats else ""
+
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
         log = DecisionLog.from_nodes(
             [*self.partition.load().values(), *self.st.nodes, *self.jev.fresh, *self.st.decisions]
@@ -1070,9 +1071,10 @@ class LineRun:
         )
         lines = [
             f"Jev 質問数: {ops.jev_questions}",
-            f"生成 token: in {ops.generation_input_tokens} / out {ops.generation_output_tokens}",
+            f"生成 token ({self.writer.spec}): in {ops.generation_input_tokens}"
+            f" / out {ops.generation_output_tokens}",
             "claude_calls: 0",
-            f"cost: ${cost:.4f}" + ("" if self.budget.jev_price_known else " (Jev 単価未設定)"),
+            f"cost: ${cost:.4f}" + self._cost_caveats(),
             f"記入率 (前回・問い日): {fill:.2f}" if fill is not None else "記入率 (前回): なし",
             f"open な問い: {len(self.questions)} 件",
             *(

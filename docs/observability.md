@@ -30,6 +30,7 @@ Any OTLP backend works; only the standard `OTEL_*` variables are read.
 - `jrp.line` and `jrp.stage.*`: time per line and per stage.
 - `jev.<function>`: one span per Jev request, with question count, number of subjects, model id
   and outcome as attributes.
-- The one Qwen site (the prose), through Pydantic AI's built-in instrumentation (prompt text is not sent).
+- The one generation site (the prose, whichever model `JRP_PROSE_MODEL` names), through Pydantic AI's
+  built-in instrumentation (prompt text is not sent).
 - HTTP requests, through the httpx instrumentation. A cassette-replayed test run shows stage and
   Jev spans but no HTTP spans, because the cassette transport replaces the instrumented one.

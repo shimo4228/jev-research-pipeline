@@ -256,8 +256,8 @@ async def test_a_transient_jev_failure_is_sent_once_more(monkeypatch: pytest.Mon
 def test_a_day_with_some_prose_is_not_a_template_day():
     """Scratch run 9: the last section fell to the template while an earlier one had prose,
     and Report refused rendering=template with prose set — the line failed."""
+    from jev_research_pipeline.generation import Rendering
     from jev_research_pipeline.pipeline import run
-    from jev_research_pipeline.qwen import Rendering
     from jev_research_pipeline.report import QuestionSection
 
     joined = run._joined  # pyright: ignore[reportPrivateUsage]

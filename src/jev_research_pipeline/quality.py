@@ -1,8 +1,8 @@
 """Step 8: the rubric ladder wired to Report.rendering, and rubric-vs-gold agreement.
 
-Ladder (decision 8): qwen.prose.render drives draft → rubric_report → one rewrite →
-template; rubric_ladder() supplies the real writer (Qwen max) and grader (Jev
-rubric_report), and build_report() maps the result onto Report.
+Ladder (decision 8): generation.prose.render drives draft → rubric_report → one rewrite →
+template; rubric_ladder() supplies the real writer (the prose model, generation.client) and
+grader (Jev rubric_report), and build_report() maps the result onto Report.
 
 Agreement (decision 5): per rubric axis, a rubric_claim judgment "predicts correct" when
 the axis' expected position clears its threshold; the author's Label is the gold. An
@@ -16,8 +16,15 @@ from datetime import date
 from typing import Final
 
 from pydantic import AwareDatetime, computed_field
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models import Model
 
+from .generation import GenerationMeter, ProseResult, Rendering, render, write_prose
+from .generation.prose import (
+    CHECK_INSTRUCTIONS,
+    NO_DIRECT_EVIDENCE,
+    PROSE_TIMEOUT_S,
+    evidence_text,
+)
 from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
 from .jev.core import score, threshold
@@ -33,8 +40,6 @@ from .model import (
     kind_of,
 )
 from .model.jsonld import Value
-from .qwen import GenerationMeter, ProseResult, Rendering, render, write_prose
-from .qwen.prose import CHECK_INSTRUCTIONS, NO_DIRECT_EVIDENCE, PROSE_TIMEOUT_S, evidence_text
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -113,7 +118,7 @@ def axis_meters(
 async def rubric_ladder(
     *,
     jev: JevClient,
-    model: OpenAIChatModel,
+    model: Model,
     ctx: LineContext,
     question: Question,
     report_id: str,
@@ -122,7 +127,7 @@ async def rubric_ladder(
     now: AwareDatetime,
     timeout_s: float = PROSE_TIMEOUT_S,
     evidence_set: list[str] | None = None,
-    rewrite_model: OpenAIChatModel | None = None,
+    rewrite_model: Model | None = None,
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
     check: str | None = CHECK_INSTRUCTIONS,

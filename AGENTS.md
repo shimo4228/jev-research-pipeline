@@ -51,8 +51,10 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 **忠実さの足切りだけ**を草稿 1 本ずつ判定する（`docs/prose-rubric.md`）。形式はコードが見る。
 
 1. `uv run jrp prose export --from <store> ...` — 本文のある question-day を固定する（dev / holdout は id で決まる）
-2. `uv run jrp prose bench --variant <name> --prompt bench/prose/prompts/<file> --check bench/prose/prompts/check6.md --sources --model qwen3.7-max --cases <ids>`
-   — 候補の草稿を作る（磨く作業は本番と別の無料枠のモデルで。難所セットの数件に絞る）
+2. `uv run jrp prose bench --variant <name> --prompt bench/prose/prompts/<file> --check bench/prose/prompts/check6.md --sources --model <backend>:<model> --cases <ids>`
+   — 候補の草稿を作る。`--model` は `JRP_PROSE_MODEL` と同じ形（省略すると本番のモデル。既定は
+   `openai-codex:gpt-5.6-sol`、要 `uv run jrp codex login`）。`dashscope:qwen3.7-max` は DashScope の
+   無料枠で回せる。サブスクリプションも利用上限を食うので、難所セットの数件に絞る
 3. `uv run jrp prose read --variants <a>,<b>,... --cases <ids> --out <scratchpad>/read.md`
    — 著者向けの blind 読み比べを作り、著者に送る。聞くのは「一番良いのはどれか・なぜか」か
    「読めるか・どこで止まったか」だけ。対応表は `read.key.json`
@@ -62,8 +64,9 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 5. `uv run jrp prose gate --variant <name> --verdicts <dir>` — pass / fail の集計
 6. 難所セットで著者の読みと足切りの両方を通ったら、holdout から型の違う数件で 3〜5 を繰り返す
 
-現行の本文プロンプトの候補は `bench/prose/prompts/v7.md` + `check6.md`（著者の読みと足切りを
-難所セットと holdout で通した版）。
+現行の本文プロンプトの候補は `bench/prose/prompts/v7.md` + `check6.md`（qwen3.7-max で、著者の
+読みと足切りを難所セットと holdout で通した版）。本番のモデルは 2026-09-24 に
+`openai-codex:gpt-5.6-sol` に替わったが、この組はまだ GPT-5.6 Sol で読み直していない。
 
 ## trace を見る（OTel）
 
