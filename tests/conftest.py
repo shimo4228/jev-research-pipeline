@@ -1,4 +1,4 @@
-"""Cassette fixture shared by adapter / Jev / Qwen tests.
+"""Cassette fixture shared by adapter / Jev / prose-model tests.
 
 Three modes, one driver (the test itself):
 - default: replay tests/cassettes/<test name>.json offline; a missing entry fails loudly.
@@ -53,7 +53,7 @@ def cassette(request: pytest.FixtureRequest) -> ClientFactory:
     path = _cassette_path(request)
 
     # Synthesis starts from an empty file once per test; every client the test makes
-    # (e.g. one for Jev, one for Qwen) records into the same Cassette object.
+    # (e.g. one for Jev, one for the prose model) records into the same Cassette object.
     synthetic = os.environ.get(SYNTHETIC_ENV) == "1"
     if synthetic:
         path.unlink(missing_ok=True)

@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
+from jev_research_pipeline.generation.prose import INFERENCE_MARK, NO_DIRECT_EVIDENCE
 from jev_research_pipeline.pipeline import prose_bench as pb
-from jev_research_pipeline.qwen.prose import INFERENCE_MARK, NO_DIRECT_EVIDENCE
 
 from . import builders as b
 

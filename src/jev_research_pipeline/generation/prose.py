@@ -1,5 +1,6 @@
-"""The Qwen site: Japanese prose for one open question (qwen3.7-max), and the rendering
-ladder that maps onto Report.rendering (decision 8, rubric-eval row):
+"""The generation site: Japanese prose for one open question (the model JRP_PROSE_MODEL
+names, generation.client), and the rendering ladder that maps onto Report.rendering
+(decision 8, rubric-eval row):
 
     write → rubric_report accept → "prose"
           → reject → rewrite once with feedback → accept → "rewritten"
@@ -28,7 +29,7 @@ from typing import Final, Literal
 
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import AgentRunError
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
@@ -116,7 +117,9 @@ def prose_timeout_s(env: Mapping[str, str]) -> float:
 PROSE_THINKING_ENV: Final = "JRP_PROSE_THINKING"
 PROSE_THINKING: Final = "always"
 """off = never think; rewrite = the second draft only (the one after a rubric or fidelity
-rejection); always = every draft. always, from the A/B of 2026-09-23 (docs/pilot-log.md):
+rejection); always = every draft. The backend maps it (generation.client: DashScope's
+enable_thinking, the Codex model's reasoning effort). always, from the A/B of 2026-09-23 on
+qwen3.8-max (docs/pilot-log.md):
 thinking won 6 of 7 blind comparisons and had no fidelity flag; off put conclusions into
 evidence paragraphs twice. It costs time (79-496 s a draft, contended) — hence the 900 s (≈ 1.8x the slowest seen)
 prose timeout."""
@@ -133,7 +136,7 @@ def prose_thinking(env: Mapping[str, str]) -> ProseThinking:
 
 
 def prose_agent(
-    model: OpenAIChatModel, *, timeout_s: float, instructions: str = INSTRUCTIONS
+    model: Model, *, timeout_s: float, instructions: str = INSTRUCTIONS
 ) -> Agent[None, str]:
     """`instructions` is overridden only by the prose bench (pipeline.prose_bench), which
     compares prompt variants on frozen inputs; a run always uses INSTRUCTIONS."""
@@ -217,7 +220,7 @@ def _since(started: float) -> float:
 
 
 async def write_prose(
-    model: OpenAIChatModel,
+    model: Model,
     ctx: LineContext,
     question: Question,
     claims: list[str],

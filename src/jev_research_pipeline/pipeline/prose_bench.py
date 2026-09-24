@@ -33,10 +33,16 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final, Literal
 
-import httpx2
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.alibaba import AlibabaProvider
+from pydantic_ai.models import Model
 
+from jev_research_pipeline.generation import GenerationMeter, Writer
+from jev_research_pipeline.generation.prose import (
+    INFERENCE_MARK,
+    NO_DIRECT_EVIDENCE,
+    PROSE_TIMEOUT_S,
+    SOURCE_EXCERPT_CHARS,
+    write_prose,
+)
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import (
     Claim,
@@ -49,20 +55,6 @@ from jev_research_pipeline.model import (
     Unit,
 )
 from jev_research_pipeline.model.jsonld import Value
-from jev_research_pipeline.qwen import GenerationMeter
-from jev_research_pipeline.qwen.client import (
-    DASHSCOPE_BASE_URL,
-    NO_THINKING,
-    THINKING,
-    _native_json_schema,  # pyright: ignore[reportPrivateUsage]
-)
-from jev_research_pipeline.qwen.prose import (
-    INFERENCE_MARK,
-    NO_DIRECT_EVIDENCE,
-    PROSE_TIMEOUT_S,
-    SOURCE_EXCERPT_CHARS,
-    write_prose,
-)
 from jev_research_pipeline.store import GraphStore
 
 BENCH_DIR: Final = "prose_bench"
@@ -115,6 +107,7 @@ class Variant:
     name: str
     instructions: str
     model: str
+    """`<backend>:<model>` (generation.client.parse_model)."""
     thinking: bool
     sources: bool
     """Send source titles and excerpts with the claims (thicker material)."""
@@ -268,20 +261,6 @@ def _cited_or_framing(paragraph: str) -> bool:
     return len(paragraph) <= FRAMING_MAX_CHARS and not re.search(r"\d", paragraph)
 
 
-def bench_model(
-    name: str, http: httpx2.AsyncClient, *, api_key: str, thinking: bool
-) -> OpenAIChatModel:
-    """Any DashScope model id — the bench tries models a run does not pin (each has its own
-    free quota). Same profile and thinking switch as qwen.client.qwen_model."""
-    provider = AlibabaProvider(api_key=api_key, base_url=DASHSCOPE_BASE_URL, http_client=http)
-    return OpenAIChatModel(
-        name,
-        provider=provider,
-        profile=_native_json_schema,
-        settings=THINKING if thinking else NO_THINKING,
-    )
-
-
 def case_context(case: BenchCase) -> tuple[LineContext, Question]:
     line = Line(
         id=f"https://github.com/shimo4228/{case.line_slug}",
@@ -300,9 +279,7 @@ def case_context(case: BenchCase) -> tuple[LineContext, Question]:
     return LineContext(line=line, vocabulary=case.vocabulary or (case.line_name,)), question
 
 
-async def draft(
-    case: BenchCase, variant: Variant, model: OpenAIChatModel, meter: GenerationMeter
-) -> Draft:
+async def draft(case: BenchCase, variant: Variant, model: Model, meter: GenerationMeter) -> Draft:
     ctx, question = case_context(case)
     claims = [c.text for c in case.claims]
     thick = variant.sources and bool(case.sources)
@@ -523,15 +500,16 @@ async def run_bench(
     bench: Path,
     variant: Variant,
     *,
-    http: httpx2.AsyncClient,
-    api_key: str,
+    writer: Writer,
     split: Split | Literal["all"],
     concurrency: int,
     only: Collection[str] | None = None,
 ) -> list[str]:
     """Draft every case of `split` with `variant`; lines for the terminal. A case already
-    drafted by this variant is skipped (drafts are the expensive part: free quota)."""
-    model = bench_model(variant.model, http, api_key=api_key, thinking=variant.thinking)
+    drafted by this variant is skipped (drafts are the expensive part: a free quota or the
+    subscription's usage limits). `writer` is built for variant.model; any backend a run
+    can use, and models a run does not pin."""
+    model = writer.model(thinking=variant.thinking)
     meter = GenerationMeter()
     done = load_drafts(bench, variant.name)
     todo = [

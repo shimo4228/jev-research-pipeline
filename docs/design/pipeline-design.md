@@ -1,4 +1,4 @@
-# Research pipeline: code / Jev / Qwen explicit separation
+# Research pipeline: code / Jev / generation model explicit separation
 
 grill-me interview 2026-09-22. Read this as the design packet; the interview log is
 collapsed into decisions. External facts carry as-of dates (LLM field goes stale weekly).
@@ -7,7 +7,8 @@ collapsed into decisions. External facts carry as-of dates (LLM field goes stale
 
 The author wants a production-style AI workflow whose architecture is the research object:
 deterministic code owns control flow, a decision model (TypeSafe Jev) owns bounded
-judgment as narrow functions, a generation model (Qwen via DashScope API) writes text only
+judgment as narrow functions, a generation model (Qwen via DashScope API at the interview; GPT-5.6
+Sol on the Codex subscription since 2026-09-24, "Prose model" below) writes text only
 where text is truly needed. No ReAct / generic agent loop. Pydantic + Pydantic AI for
 types, schemas, validation and minimal model integration. The workload is the existing
 daily-research lines (the design of daily-research is explicitly NOT inherited). Deliverable
@@ -114,7 +115,8 @@ state (filter state in code), adversarial text (treat as data).
 
 ### Providers, placement, cutover
 
-10. **Qwen via DashScope**, intl endpoint `https://dashscope-intl.aliyuncs.com/
+10. **Qwen via DashScope** (the prose moved to GPT-5.6 Sol on the Codex subscription on
+    2026-09-24; DashScope stays a backend, "Prose model"), intl endpoint `https://dashscope-intl.aliyuncs.com/
     compatible-mode/v1` (keys are region-bound). Model ids as-of 2026-09-22: no `qwen4-*`
     exists; use `qwen3.8-flash` ($0.15/$0.47 per Mtok, 1M ctx) for queries and
     `qwen3.8-max` ($2/$6) for Japanese prose. Structured output via json_schema strict
@@ -508,6 +510,37 @@ author-calibrated-eval, the steps AGENTS.md):
 Review-when: the author's reading of a new batch disagrees with the fidelity gate's
 direction, or production notes read as "eyes slide" again.
 
+### Prose model (author decision 2026-09-24)
+
+The prose, the one generation site left, moves from `qwen3.7-max` on DashScope to
+`gpt-5.6-sol` on the author's ChatGPT/Codex subscription, and the model becomes config
+(decision 11's "generation provider is config", made real):
+- **`JRP_PROSE_MODEL=<backend>:<model>`**, default `openai-codex:gpt-5.6-sol`; backends
+  `openai-codex` (pydantic-ai 2.47 `OpenAICodexProvider` + `OpenAICodexModel`, the Codex
+  backend's streamed, `store=false` Responses dialect) and `dashscope` (`AlibabaProvider`, as
+  before). A bare model name or an unknown backend stops the run before the store is touched;
+  no silent fallback to a model the author did not name. `generation/client.py` (was `qwen/`).
+- **Login of the pipeline's own** (`jrp codex login` → `~/.config/jrp/codex-auth.json`, mode
+  600, `JRP_CODEX_AUTH`), not the Codex CLI's `~/.codex/auth.json`: refresh tokens are
+  single-use and pydantic-ai reads the CLI file read-only, so a refresh inside a run would
+  leave the CLI (and the next run) with a spent token. The file is an
+  `OpenAICodexCredentialSource`: every refresh is written back. One provider per process
+  (`Writer`), shared by the lines that run side by side, so a refresh is single-flight.
+- **Prompt cache key pinned** (`jrp-prose`): `OpenAICodexModel` otherwise sets it to each
+  call's fresh conversation id, which defeats the cache across sections and makes every
+  request body unique (no cassette replay).
+- **Thinking policy** maps per backend: DashScope `enable_thinking`; GPT-5.6's reasoning
+  effort (`off` → `none`, otherwise the model's default, medium).
+- **Cost**: a subscription is a flat plan, so its tokens are counted in the operations
+  section but priced 0; the cost line says so and the cap then covers Jev alone. A
+  per-token model with no entry in `PRICES` counts 0 and is flagged ("生成単価未設定").
+- **Not yet done**: the prompt (v7 + check6, "Prose bench") was tuned and read on
+  qwen3.7-max. It has not been re-read on gpt-5.6-sol; the bench's `--model` takes the same
+  spec, so the comparison runs on the same frozen cases.
+Review-when: the author's reading of GPT-5.6 Sol notes is worse than the qwen3.7-max
+baseline, the plan's usage limits cut a morning run short, or OpenAI's terms for
+subscription auth outside the Codex clients change.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
@@ -518,7 +551,9 @@ LLM-as-judge with another LLM as the truth source.
 
 - `typesafe-sdk`: Pydantic-native; `system_one(state, questions, response_model=…)`;
   `AsyncTypeSafeClient`; `RetryPolicy`; default timeout 10s; `TYPESAFE_API_KEY`.
-- `pydantic-ai` 2.47.0: `AlibabaProvider` (`DASHSCOPE_API_KEY`), `Agent(output_type=…)`
+- `pydantic-ai` 2.47.0: `OpenAICodexProvider` / `OpenAICodexModel` (ChatGPT/Codex
+  subscription OAuth, `openai-codex:` models; added 2026-09-24), `AlibabaProvider`
+  (`DASHSCOPE_API_KEY`), `Agent(output_type=…)`
   with no tools = one typed request + `retries={'output': N}`; `pydantic_ai.direct.
   model_request` for no-validation single calls.
 - `pydantic-evals`: `Dataset`/`Case` to YAML, pytest integration — the golden layer.

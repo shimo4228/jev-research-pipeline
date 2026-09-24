@@ -4,7 +4,11 @@ Environment (nothing is guessed):
     JRP_VAULT_DIR          vault root (required; nothing is written without it)
     JRP_STORE_DIR          pipeline store root (default ./var/store)
     TYPESAFE_API_KEY       Jev key (required)
-    DASHSCOPE_API_KEY      Qwen key (required)
+    JRP_PROSE_MODEL        optional prose model, <backend>:<model>
+                           (default openai-codex:gpt-5.6-sol; generation.client)
+    JRP_CODEX_AUTH         optional path of the pipeline's Codex login
+                           (default ~/.config/jrp/codex-auth.json; `jrp codex login`)
+    DASHSCOPE_API_KEY      required only for a dashscope: prose model
     TAVILY_API_KEY         optional; web_search is skipped without it
     GITHUB_TOKEN           optional; raises the GitHub search limit
     JRP_COST_CAP_USD       optional cost cap per line-run → partial report
@@ -12,7 +16,7 @@ Environment (nothing is guessed):
     JRP_DAILY_RESEARCH_CONFIG  optional config.toml path
     JRP_QUESTIONS_DIR      optional question-file root (default ./questions)
     JRP_JEV_CONCURRENCY    optional Jev requests in flight (default 12; pipeline.concurrency)
-    JRP_PROSE_CONCURRENCY  optional Qwen calls in flight (default 3)
+    JRP_PROSE_CONCURRENCY  optional prose calls in flight (default 3)
 
 The store is checked before anything else (store.migrate.prepare_store).
 """
@@ -27,6 +31,13 @@ from typing import Final
 import httpx2
 from pydantic import AwareDatetime
 
+from jev_research_pipeline.generation import (
+    MissingCredentials,
+    ModelSpecError,
+    ProseAuth,
+    Writer,
+    prose_auth,
+)
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
 from jev_research_pipeline.model import GraphNodeType, QuestionLog, Report
 from jev_research_pipeline.questions import (
@@ -45,7 +56,7 @@ from .run import Keys, LineOutcome, LineRun
 
 STORE_ENV: Final = "JRP_STORE_DIR"
 DEFAULT_STORE: Final = Path("var/store")
-KEY_ENVS: Final = ("TYPESAFE_API_KEY", "DASHSCOPE_API_KEY")
+KEY_ENVS: Final = ("TYPESAFE_API_KEY",)
 
 
 class MissingKey(RuntimeError):
@@ -57,11 +68,17 @@ def store_dir(env: Mapping[str, str]) -> Path:
     return Path(raw) if raw else DEFAULT_STORE
 
 
-def keys(env: Mapping[str, str]) -> Keys:
+def keys(env: Mapping[str, str]) -> tuple[Keys, ProseAuth]:
+    """Everything a run needs to reach Jev and the prose model, checked before the store is
+    touched: a missing key or login stops the run at the start, not halfway through."""
     missing = [k for k in KEY_ENVS if not env.get(k)]
     if missing:
         raise MissingKey(f"missing env: {', '.join(missing)}")
-    return Keys(typesafe=env["TYPESAFE_API_KEY"], dashscope=env["DASHSCOPE_API_KEY"])
+    try:
+        prose = prose_auth(env)
+    except (ModelSpecError, MissingCredentials) as e:
+        raise MissingKey(str(e)) from e
+    return Keys(typesafe=env["TYPESAFE_API_KEY"]), prose
 
 
 def harvest_line(store: GraphStore, vault: Path, slug: str, now: AwareDatetime) -> list[str]:
@@ -122,7 +139,9 @@ async def run_pipeline(
     can show them (the CLI prints them; a silent skip would look like a quiet success)."""
     unanswered = unanswered if unanswered is not None else []
     vault = vault_dir(env)
-    api_keys = keys(env)
+    api_keys, prose = keys(env)
+    # One writer for the whole tick: the lines share its provider (and so the Codex login).
+    writer = Writer(prose, http)
     cfg = config_path(env)
     tracks = {t.slug: t for t in load_tracks(cfg)}
     rotation = rotation_config(list(tracks.values()), per_tick=lines_per_day(cfg))
@@ -170,6 +189,7 @@ async def run_pipeline(
             vault=vault,
             http=http,
             keys=api_keys,
+            writer=writer,
             env=env,
             now=now,
             harvest_notes=harvested[slug],

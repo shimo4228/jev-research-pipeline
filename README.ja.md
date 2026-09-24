@@ -2,21 +2,21 @@
 
 [English](README.md) | **日本語**
 
-**立てた問いを毎朝追いかける、リサーチの見張り番です。ループはコードが回し、判定は判定専用モデルの Jev、文章は Qwen が受け持ちます。**
+**立てた問いを毎朝追いかける、リサーチの見張り番です。ループはコードが回し、判定は判定専用モデルの Jev、文章は選んだ LLM が受け持ちます。**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 [![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](docs/pilot-log.md)
 
 <p align="center">
-  <img src="assets/overview.ja.svg" width="760" alt="「あなたの問い」を中心に 4 つの枠が回るループの図。毎朝、新しい論文と repo を集める。Jev が一つずつ、あなたの問いの答えに役立つかを判定し、採る・保留・捨てるに振り分ける。Qwen が問いごとに短い節を書く。その日のノートが Obsidian に届き、読む価値があったものに印を付けると、点線の矢印のとおり、その印が翌朝の実行に効く。">
+  <img src="assets/overview.ja.svg" width="760" alt="「あなたの問い」を中心に 4 つの枠が回るループの図。毎朝、新しい論文と repo を集める。Jev が一つずつ、あなたの問いの答えに役立つかを判定し、採る・保留・捨てるに振り分ける。LLM が問いごとに短い節を書く。その日のノートが Obsidian に届き、読む価値があったものに印を付けると、点線の矢印のとおり、その印が翌朝の実行に効く。">
 </p>
 
-jev-research-pipeline は、1 人で使うリサーチ用のパイプラインです。研究テーマごとに、まだ答えの出ていない問いをいくつか立てておきます。すると毎朝、新しい論文とリポジトリをその問いに照らして確かめ、テーマごとに 1 枚のノートを Obsidian の vault に書きます。ノートには、その日に動きのあった問いごとの節が並びます。ループは、毎回同じ手順で動く Python のコードが回します。各資料が問いの答えに役立つかを決めるのは、API 企業 TypeSafe の判定モデル Jev です。Jev は文章を書かず、答えの決まった質問（Yes/No、点数、一覧から 1 つ選ぶ質問）に確率で答えます。Alibaba Cloud の DashScope で動く LLM の Qwen は、本文だけを書きます。ノートのチェックボックスに印を付けるとループが閉じ、その印が次の実行に効きます。
+jev-research-pipeline は、1 人で使うリサーチ用のパイプラインです。研究テーマごとに、まだ答えの出ていない問いをいくつか立てておきます。すると毎朝、新しい論文とリポジトリをその問いに照らして確かめ、テーマごとに 1 枚のノートを Obsidian の vault に書きます。ノートには、その日に動きのあった問いごとの節が並びます。ループは、毎回同じ手順で動く Python のコードが回します。各資料が問いの答えに役立つかを決めるのは、API 企業 TypeSafe の判定モデル Jev です。Jev は文章を書かず、答えの決まった質問（Yes/No、点数、一覧から 1 つ選ぶ質問）に確率で答えます。本文だけは汎用の LLM が書きます。既定は ChatGPT／Codex のサブスクリプション経由の GPT-5.6 Sol で、環境変数 1 つで Alibaba Cloud の DashScope の Qwen に切り替えられます（[本文を書くモデル](#本文を書くモデル)）。ノートのチェックボックスに印を付けるとループが閉じ、その印が次の実行に効きます。
 
-まだ試験運用（pilot）の段階で、作者が毎日使っています。Python 3.12 と、有料の API key が 2 つ（Jev 用の TypeSafe と、Qwen 用の DashScope）必要です。定期実行には macOS の launchd を使います（手動の実行は、Python 3.12 が動く環境ならどこでもできます）。ライセンスは MIT です。ノートは今のところ日本語で書かれます。本文への指示と節見出しがソースに日本語の文字列で入っていて、言語の切り替えはまだありません。
+まだ試験運用（pilot）の段階で、作者が毎日使っています。Python 3.12 と、Jev 用の TypeSafe の有料 API key が要ります。本文には、Codex を含む ChatGPT のプラン（既定）か、DashScope の API key のどちらかが要ります。定期実行には macOS の launchd を使います（手動の実行は、Python 3.12 が動く環境ならどこでもできます）。ライセンスは MIT です。ノートは今のところ日本語で書かれます。本文への指示と節見出しがソースに日本語の文字列で入っていて、言語の切り替えはまだありません。
 
-これを作ったのは、前の仕組みの [daily-research](https://github.com/shimo4228/daily-research) では、Web 検索ができる Opus の agent に、Claude Code の非対話モード `claude -p` でループ全体を任せていたからです。研究テーマ 3〜4 本で 1 日あたり $8〜15 の利用額が報告され、agent は同じ主題に戻り続けました。agent がこれまでに選んだ調査題目 238 件のうち、88 件（37%）が同じ 1 つの主題でした。ここでは、判定はすべて答えの決まった安い質問で、一つひとつをコードが確かめられます。どこを探すかを、モデルが決めることもありません。研究テーマ 4 本の朝の費用は、ノート自身の費用欄で $1〜2 です（[現状](#現状2026-09-25-時点)を見てください）。経緯の全体は記事「[LLMに任せていたリサーチの判定を、判定専用モデルJevに移す](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)」（[英語版](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)）に書きました。Jev を使ったほかの実験と、このパイプラインが見張っているプロジェクトは「[著者のほかの仕事](#著者のほかの仕事)」にあります。
+これを作ったのは、前の仕組みの [daily-research](https://github.com/shimo4228/daily-research) では、Web 検索ができる Opus の agent に、Claude Code の非対話モード `claude -p` でループ全体を任せていたからです。研究テーマ 3〜4 本で 1 日あたり $8〜15 の利用額が報告され、agent は同じ主題に戻り続けました。agent がこれまでに選んだ調査題目 238 件のうち、88 件（37%）が同じ 1 つの主題でした。ここでは、判定はすべて答えの決まった安い質問で、一つひとつをコードが確かめられます。どこを探すかを、モデルが決めることもありません。研究テーマ 4 本の朝の費用は、Qwen が従量課金で本文を書いていた間、ノート自身の費用欄で $1〜2 でした（[現状](#現状2026-09-25-時点)を見てください）。既定のサブスクリプションなら、本文にトークン単位の費用はかかりません。経緯の全体は記事「[LLMに任せていたリサーチの判定を、判定専用モデルJevに移す](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)」（[英語版](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)）に書きました。Jev を使ったほかの実験と、このパイプラインが見張っているプロジェクトは「[著者のほかの仕事](#著者のほかの仕事)」にあります。
 
 ## 毎朝の実行の流れ
 
@@ -27,7 +27,7 @@ jev-research-pipeline は、1 人で使うリサーチ用のパイプライン�
 3. 未解決の問いごとに、固定された 5 本の探索経路（[探索の網](#探索の網)）から候補を集めます。
 4. Jev が (資料, 問い) の組を 1 つずつふるいにかけます。まず安い「話題に合うか」の確認、次に Yes/No の関門と、重み付きの採点です。閾値を当てるのはコードで、組を Keep（採る）、Review（保留。境界のもの）、Drop（捨てる）、Incomplete（判定できる要旨が無い）、Unjudged（Jev への問い合わせが失敗した）に振り分けます。
 5. Keep になった資料は原文の文に切り分けられ、どの文が問いを前に進めるか、あるいは問いに反するかを Jev が見分けます。こうして選び出した文を claim と呼びます。claim は常に原文の 1 文で、言い換えではないので、引用は必ずたどれます。
-6. Qwen が、今日新しい証拠が出た問いごとに短い節を書きます。材料はそれらの claim と出典の短い抜粋で、推論の段落を 1 つだけ明示します。Qwen は自分の下書きを 1 回点検し、そのあと Jev が節を採点基準（rubric）で採点し、証拠の段落が claim と合っているかを 1 段落ずつ確かめます。通らなかった下書きは 1 回だけ書き直し、それでも通らなければテンプレートに戻します。
+6. 本文を書くモデル（既定は GPT-5.6 Sol）が、今日新しい証拠が出た問いごとに短い節を書きます。材料はそれらの claim と出典の短い抜粋で、推論の段落を 1 つだけ明示します。モデルは自分の下書きを 1 回点検し、そのあと Jev が節を採点基準（rubric）で採点し、証拠の段落が claim と合っているかを 1 段落ずつ確かめます。通らなかった下書きは 1 回だけ書き直し、それでも通らなければテンプレートに戻します。
 7. ノートを運用節つきで vault に書きます。運用節には、Jev への質問数、トークン数、費用、網ごとの採用率、canary の結果（その問いなら必ず残すべき論文が残ったか）が並びます。
 
 あなたが付ける印が、そのままラベルになります。推薦の網（印を付けた論文に近い論文を探す網）の種になり、`jrp fit` が書く閾値の見直し案（適用するのはあなたです）に効き、評価用のケースにもなります。Jev の呼び出しはすべて Pydantic AI の `typesafe:` モデルを通るので、判定はどれも Pydantic の出力型で、確率分布の生の値も判定と一緒に保存されます。
@@ -36,13 +36,15 @@ jev-research-pipeline は、1 人で使うリサーチ用のパイプライン�
 
 - **評価のための実行は 11 回で、2026-09-23 に終えました。** 最後の回は、7 つの目標条件のうち 5 つを満たしました。どのノートも 12 KB 未満で Review の一覧が短い、証拠のある問いにはすべて本文がある、話題外の論文は捨てて canary はすべて残した（canary とは、その問いなら必ず残すべき論文やリポジトリのことです。[中心にあるのは問い](#中心にあるのは問い)を見てください）、その回は資料 API の取得失敗がなかった、stack trace がない、の 5 つです。時間と費用の条件は、時間だけで落ちました。上限 600 秒に対して 601 秒です（費用は上限 $0.30 に対して $0.297）。もう 1 つ、独立した判定者（完成したノートだけを 7 軸の採点基準で読む、別の Opus）が、3 本中 1 本しか公開できると判定しませんでした。1 回ごとの記録は [docs/pilot-log.md](docs/pilot-log.md)（英語）にあります。
 - **評価のあと、本文を書く工程を作り直しました。** 何をなぜ変えたかは「[なぜ生成でなく判定なのか](#なぜ生成でなく判定なのか)」にあります。過去の実行から凍結した入力で試したところ、私は 6 件すべてを読みやすいと感じ、忠実さの検査（下書きを出典と照らし合わせる別のモデル）は 5 件を通しました（[docs/design/pipeline-design.md](docs/design/pipeline-design.md)、英語）。
-- **2026-09-24 からは毎朝動いています。** launchd が毎朝、本物の vault に対して、私の 7 つのラインを回します。新しい本文の工程のぶん、費用は評価の最後の回（同じく 4 ラインで $0.297）より上がり、最初の 2 日は $1.05 と $1.75、所要時間は約 15 分でした。この 2 日のノートは、まだ独立した Opus の判定者に読ませていません。また、これまでの 2 回の毎朝の実行では、arXiv のキーワード検索が HTTP 406 を返したので、`arxiv:` の検索語は何も持ってきませんでした（arXiv の新着は firehose の網から届いています）。OpenAlex の引用検索も一部が失敗しました。OpenAlex の失敗は 2026-09-25 に直しました。arXiv については、リトライしても 406 が続いたら、その日のキーワード検索を打ち切るようにして、ラインごとにリトライを繰り返さないようにしました。
+- **2026-09-24 からは毎朝動いています。** launchd が毎朝、本物の vault に対して、私の 7 つのラインを回します。新しい本文の工程のぶん、費用は評価の最後の回（同じく 4 ラインで $0.297）より上がり、最初の 2 日は（Qwen が本文を書いて）$1.05 と $1.75、所要時間は約 15 分でした。この 2 日のノートは、まだ独立した Opus の判定者に読ませていません。また、これまでの 2 回の毎朝の実行では、arXiv のキーワード検索が HTTP 406 を返したので、`arxiv:` の検索語は何も持ってきませんでした（arXiv の新着は firehose の網から届いています）。OpenAlex の引用検索も一部が失敗しました。OpenAlex の失敗は 2026-09-25 に直しました。arXiv については、リトライしても 406 が続いたら、その日のキーワード検索を打ち切るようにして、ラインごとにリトライを繰り返さないようにしました。
+- **本文を書くモデルを、DashScope の qwen3.7-max から Codex サブスクリプションの GPT-5.6 Sol に替えました**（2026-09-24）。プロンプトは qwen3.7-max で調整して読んだもので、GPT-5.6 Sol ではまだ読み直していません。Qwen には環境変数 1 つ（`JRP_PROSE_MODEL=dashscope:qwen3.7-max`）で戻せます。サブスクリプションでは、ノートの費用欄は Jev の分だけになります。
 - **閾値。** Jev の振り分けの閾値は、TypeSafe が公開している例（cookbook）の値から始めて、評価の間に手で調整しました。印からの再推定はまだしていないので、境界の判定は出てきます。それが各ノートの Review に並び、そこに付けた印が、再推定の材料になります。
 
 ## はじめかた
 
 - Python 3.12 と [uv](https://docs.astral.sh/uv/)。
-- TypeSafe の API key（[docs.typesafe.ai](https://docs.typesafe.ai)）と、DashScope の API key（Alibaba Cloud Model Studio）。
+- TypeSafe の API key（[docs.typesafe.ai](https://docs.typesafe.ai)）。
+- 本文用に、次のどちらか。Codex を含む ChatGPT のプラン（既定。`uv run jrp codex login` で 1 回ログインする）か、Qwen 用の DashScope の API key（Alibaba Cloud Model Studio）。[本文を書くモデル](#本文を書くモデル)を見てください。
 - 実行に要る環境変数（path と key）は `~/.config/jrp/env` の 1 ファイルに書きます。ラインと網の予算は `config.toml` に、問いはリポジトリの `questions/` ディレクトリに置きます。定期実行では `scripts/launchd-jrp.sh` がこの env ファイルを読みます。手動で実行するときは、先に `set -a; source ~/.config/jrp/env; set +a` を実行します。
 
 最小の `~/.config/jrp/env`:
@@ -51,7 +53,6 @@ jev-research-pipeline は、1 人で使うリサーチ用のパイプライン�
 export JRP_VAULT_DIR="/path/to/your/obsidian/vault"     # ノートは <vault>/daily-research/ に書かれる
 export JRP_STORE_DIR="/path/to/store"                   # パイプラインの状態。ライン 1 本に JSON-LD 1 ファイル
 export TYPESAFE_API_KEY="..."
-export DASHSCOPE_API_KEY="..."
 export JRP_COST_CAP_USD="0.50"                          # 1 回の実行の、ライン 1 本あたりの上限
 export JRP_DAILY_RESEARCH_CONFIG="/path/to/config.toml" # ラインの一覧
 ```
@@ -76,6 +77,7 @@ daily = true                                       # 輪番のラインと並ん
 
 ```bash
 uv sync
+uv run jrp codex login        # 1 回だけ。既定の本文モデルのため、ブラウザで ChatGPT にログインする
 uv run jrp run                # 印を取り込み、次のラインを走らせ、ノートを書く
 ```
 
@@ -145,7 +147,22 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 | keyword（キーワード） | 問いごとに書いた検索語を、arXiv（1 回）、Hugging Face papers、GitHub、key があれば Tavily の Web 検索に送る | 10。設定の 12 から、exploration 用に 20%（2）を取り分けた残り |
 | exploration（探索） | Keep の論文に隣り合う OpenAlex の topic。store に OpenAlex の論文が入るまでは何もしない | 1。取り分けた 2 のうち 1（残りは使わない） |
 
-資料側の API key が無くても、どの網も動きます（TypeSafe と DashScope の key は常に要ります）。例外はキーワード網の中の 1 つで、`TAVILY_API_KEY` が無ければ Tavily の Web 検索は飛ばされ、ノートにそう書かれます。Semantic Scholar、OpenAlex、GitHub には key なしの共有枠があり、key を入れると上限が上がります。予算、exploration に回す割合、arXiv のカテゴリ、OpenAlex の 1 日の credit 上限は、`config.toml` の `[nets]` で変えられます。運用節には網ごとの採用率と、Keep の論文に含まれる OpenAlex の topic の種類数が出ます。topic の数が減っていくのは、探索が集まり始めた警報です。
+資料側の API key が無くても、どの網も動きます（Jev 用の TypeSafe の key と、本文を書くモデルのログインか key は常に要ります）。例外はキーワード網の中の 1 つで、`TAVILY_API_KEY` が無ければ Tavily の Web 検索は飛ばされ、ノートにそう書かれます。Semantic Scholar、OpenAlex、GitHub には key なしの共有枠があり、key を入れると上限が上がります。予算、exploration に回す割合、arXiv のカテゴリ、OpenAlex の 1 日の credit 上限は、`config.toml` の `[nets]` で変えられます。運用節には網ごとの採用率と、Keep の論文に含まれる OpenAlex の topic の種類数が出ます。topic の数が減っていくのは、探索が集まり始めた警報です。
+
+## 本文を書くモデル
+
+文章を生成するのは、問いごとの節を書く 1 か所だけです。どのモデルが書くかは、環境変数 `JRP_PROSE_MODEL` 1 つで、`<backend>:<model>` の形で決めます。
+
+| backend | 例 | 要るもの | ノートの費用欄 |
+|---|---|---|---|
+| `openai-codex`（既定） | `openai-codex:gpt-5.6-sol` | Codex を含む ChatGPT のプランと、1 回の `uv run jrp codex login` | トークン単位では 0。プランの利用上限に数えられる |
+| `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio、国際版の endpoint） | トークン単位。単価の記録が無いモデルはそう表示される |
+
+どちらの backend も Pydantic AI（`OpenAICodexProvider`、`AlibabaProvider`）を通るので、それぞれが提供するモデルなら名前で指定できます。backend を足すのは `src/jev_research_pipeline/generation/client.py` の分岐 1 つです。`JRP_PROSE_THINKING`（`always` / `rewrite` / `off`）は、backend ごとのスイッチ（DashScope の thinking、GPT-5.6 の reasoning effort）に対応します。
+
+`jrp codex login` は、Codex CLI と同じ ChatGPT のログイン画面をブラウザで開き、結果を `~/.config/jrp/codex-auth.json`（所有者だけが読める。`JRP_CODEX_AUTH` で場所を変えられる）に保存します。ブラウザが `localhost:1455` に戻ってくるので、launchd を動かす機械で実行してください。これはパイプライン専用のログインで、Codex CLI の `~/.codex/auth.json` とは別です。refresh token は 1 回しか使えないので、CLI と共有すると、最初の refresh のあとでどちらかが失効した grant を持つことになります。refresh のたびにファイルへ書き戻すので、次の定期実行は有効な token から始まります。運用節で本文の下書きが `CredentialsRefreshError` で失敗していたら、grant が拒否されたということなので、もう一度ログインしてください。この使い方がサブスクリプションの規約上どう扱われるかは、OpenAI との契約に従います。
+
+本文のプロンプトは `dashscope:qwen3.7-max` で調整して読んだものです。本文のベンチ（AGENTS.md）の `--model` も同じ `<backend>:<model>` の形なので、凍結した同じ入力で両方のモデルを比べられます。
 
 ## なぜ生成でなく判定なのか
 
@@ -153,7 +170,7 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 
 - 判定の基準になる問いが無いと、Jev の関連度の判定は、ラインと言葉を 1 つでも共有するものをほとんど通しました。瞑想と無我についてのラインが、transformer の attention についての claim で埋まったほどです。すべての判定を (資料, 問い) の組に結び付けたことで、これは直りました。
 - ふるい分けを段階に分ける前の実行では、1 ラインに Jev への質問が 20,573 問、ノートは 283 KB になりました。まず各資料を問いに照らしてふるい（安い「話題に合うか」の確認のあとに本番の判定）、claim は Keep の資料からだけ切り出すようにしたことで、1 ラインの質問はおよそ 900〜1,900 問、ノートは 12 KB 未満になりました。
-- 難しいのは本文です。評価の間、独立した判定者が公開できると判定したのは多くても 3 本中 1 本で、よくある失敗は、論文の主張を問いの言い回しに合わせて曲げることでした。そこで本文の工程を作り直しました。新しいプロンプトとモデル qwen3.7-max、原文の claim と並べて渡す出典の短い抜粋、下書きの自己点検、そしてノートを書く前に、証拠の段落が claim と合っているかを Jev が 1 段落ずつ確かめることです。
+- 難しいのは本文です。評価の間、独立した判定者が公開できると判定したのは多くても 3 本中 1 本で、よくある失敗は、論文の主張を問いの言い回しに合わせて曲げることでした。そこで本文の工程を作り直しました。新しいプロンプトとモデル qwen3.7-max、原文の claim と並べて渡す出典の短い抜粋、下書きの自己点検、そしてノートを書く前に、証拠の段落が claim と合っているかを Jev が 1 段落ずつ確かめることです。これらの点検は、どのモデルが書くかに依存しません。既定の書き手は、その後 GPT-5.6 Sol に替わりました。
 
 すべての判断と、その根拠にした外部の証拠を含む設計の記録は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)（英語）にあります。
 
@@ -171,6 +188,7 @@ uv run pytest -q      # 記録済みの cassette を再生する。実際の API
 ## 関連
 
 - [TypeSafe Jev](https://docs.typesafe.ai) と [Pydantic AI の `typesafe:` モデル](https://pydantic.dev/docs/ai/models/typesafe/)
+- [Pydantic AI の OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md)（ChatGPT／Codex のサブスクリプション）
 - [DashScope の Qwen](https://www.alibabacloud.com/help/en/model-studio/models)
 
 ## 著者のほかの仕事

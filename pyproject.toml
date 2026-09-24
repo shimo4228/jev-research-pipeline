@@ -1,7 +1,7 @@
 [project]
 name = "jev-research-pipeline"
 version = "0.1.0"
-description = "Research pipeline with explicit separation: code owns control flow, TypeSafe Jev owns bounded judgment, Qwen writes text."
+description = "Research pipeline with explicit separation: code owns control flow, TypeSafe Jev owns bounded judgment, a swappable LLM writes text."
 authors = [
     { name = "Tatsuya Shimomoto", email = "shimo4228@gmail.com" }
 ]

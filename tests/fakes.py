@@ -6,10 +6,37 @@ Response shapes follow the providers' wire formats as read from the SDK sources
 
 import json
 from collections.abc import Mapping
+from pathlib import Path
+from typing import Final
 
 import httpx2
+from pydantic_ai.models import Model
+from pydantic_ai.providers.openai_codex import OpenAICodexCredentials
+
+from jev_research_pipeline.generation import ProseAuth, Writer, parse_model
+from jev_research_pipeline.generation.codex import write_credentials
 
 from .conftest import Handler
+
+QWEN: Final = "dashscope:qwen3.7-max"
+"""The backend the prose tests' cassettes were synthesized on (before the Codex default)."""
+
+
+def qwen_model(http: httpx2.AsyncClient, *, thinking: bool = False) -> Model:
+    return Writer(ProseAuth(spec=parse_model(QWEN), api_key="replay"), http).model(
+        thinking=thinking
+    )
+
+
+def codex_login(path: Path, *, access_token: str = "replay") -> Path:
+    """A stored Codex login. A non-JWT access token carries no expiry, so it is never
+    refreshed proactively: no request to the token endpoint."""
+    write_credentials(
+        path,
+        OpenAICodexCredentials(access_token=access_token, refresh_token="r1", account_id="acct"),
+    )
+    return path
+
 
 type NoulValue = float
 type Distribution = tuple[float, ...]
@@ -203,6 +230,72 @@ def fake_qwen(*contents: str | None, status: int = 200) -> Handler:
     return handle
 
 
+def fake_codex(*contents: str | None, status: int = 200) -> Handler:
+    """The Codex backend's /responses (chatgpt.com/backend-api/codex): stream-only, so every
+    answer is a Responses API event stream. Returns `contents` in order, one per request;
+    None = an HTTP error `status`. Usage lives on response.completed, as upstream."""
+    queue = list(contents)
+
+    async def handle(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        content = queue.pop(0) if queue else None
+        if content is None:
+            return httpx2.Response(
+                status if status != 200 else 500, json={"error": {"message": "synthetic"}}
+            )
+        response: dict[str, object] = {
+            "id": "resp_synthetic",
+            "object": "response",
+            "created_at": 1790000000,
+            "model": body["model"],
+            "status": "completed",
+            "output": [],
+            "parallel_tool_calls": True,
+            "tool_choice": "auto",
+            "tools": [],
+            "usage": {
+                "input_tokens": 120,
+                "output_tokens": 40,
+                "total_tokens": 160,
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 0},
+            },
+        }
+        message: dict[str, object] = {
+            "type": "message",
+            "id": "msg_synthetic",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": content, "annotations": []}],
+        }
+        events: list[dict[str, object]] = [
+            {"type": "response.created", "response": {**response, "status": "in_progress"}},
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {**message, "status": "in_progress", "content": []},
+            },
+            {
+                "type": "response.output_text.delta",
+                "item_id": "msg_synthetic",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": content,
+                "logprobs": [],
+            },
+            {"type": "response.output_item.done", "output_index": 0, "item": message},
+            {"type": "response.completed", "response": response},
+        ]
+        stream = "".join(
+            f"event: {e['type']}\ndata: "
+            f"{json.dumps({**e, 'sequence_number': i}, ensure_ascii=False)}\n\n"
+            for i, e in enumerate(events)
+        )
+        return httpx2.Response(200, text=stream, headers={"content-type": "text/event-stream"})
+
+    return handle
+
+
 E2E_ABSTRACT = (
     # Long enough to be an abstract: screening routes anything shorter to "incomplete".
     "We decompose research judgment into narrow typed questions. "
@@ -363,6 +456,8 @@ def fake_world() -> Handler:
                     {"queries": ["narrow typed questions", "author label thresholds"]}
                 )
             return await fake_qwen(content)(request)
+        if host == "chatgpt.com":
+            return await fake_codex("狭い型付き質問への分解で判定が安定する [1]。")(request)
         return _keyword_response(host)
 
     return handle

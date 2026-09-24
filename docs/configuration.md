@@ -15,15 +15,17 @@ uv run jrp run
 | `JRP_VAULT_DIR` | yes | vault root; notes go to `<vault>/daily-research/`. Unset: nothing is written |
 | `JRP_STORE_DIR` | recommended | pipeline store, one JSON-LD file per line (default `./var/store`) |
 | `TYPESAFE_API_KEY` | yes | Jev ([docs.typesafe.ai](https://docs.typesafe.ai)) |
-| `DASHSCOPE_API_KEY` | yes | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio) |
+| `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-5.6-sol`; or e.g. `dashscope:qwen3.7-max`). See [The writing model](../README.md#the-writing-model) |
+| `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
+| `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
 | `JRP_DAILY_RESEARCH_CONFIG` | yes | the `config.toml` with your lines and `[nets]` |
-| `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on |
+| `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`) counts 0 toward it |
 | `JRP_JEV_USD_PER_QUESTION` | recommended | Jev unit price for the note's cost line; unset, Jev is not counted |
 | `JRP_QUESTIONS_DIR` | no | question files (default `./questions`) |
 | `JRP_PROSE_TIMEOUT_S` | no | prose call timeout (default 900 s; prose is written with thinking on) |
-| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off` |
+| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default) |
 | `JRP_JEV_CONCURRENCY` | no | concurrent Jev requests (default 12; a separate limiter holds 1,200 per minute) |
-| `JRP_PROSE_CONCURRENCY` | no | concurrent Qwen calls (default 3) |
+| `JRP_PROSE_CONCURRENCY` | no | concurrent prose-model calls (default 3) |
 | `JRP_SLACK_NOTIFY` | no | `1` sends a one-line result to Slack |
 | `JRP_DRIFT_LIVE` | no | `1` lets `jrp drift` call Jev live |
 | `GITHUB_TOKEN` | no | raises GitHub search from 10 to 30 requests per minute (a fine-grained token with no permissions is enough) |

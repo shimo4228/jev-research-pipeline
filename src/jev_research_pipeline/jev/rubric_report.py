@@ -1,6 +1,6 @@
 """rubric_report — per report: readability, coherence, unsupported statements.
 
-Subjects: (Report,). A failing decision drives the rendering ladder (qwen.prose):
+Subjects: (Report,). A failing decision drives the rendering ladder (generation.prose):
 prose → one rewrite → template. The state holds the prose and the accepted claims it
 may rest on, so "unsupported" means "not backed by any of `claims`".
 """

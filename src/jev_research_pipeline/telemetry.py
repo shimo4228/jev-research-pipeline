@@ -1,6 +1,6 @@
 """OpenTelemetry wiring (author decision 2026-09-23): the live-debugging channel.
 
-Not a hand-rolled tracer and not a cloud account: the Qwen calls are traced by
+Not a hand-rolled tracer and not a cloud account: the prose-model calls are traced by
 pydantic-ai's own instrumentation, the Jev calls and the run's stages by explicit spans
 here, and export is configured only through the standard `OTEL_*` env vars. The store and
 the report's operations section stay the source of truth for the research meters.

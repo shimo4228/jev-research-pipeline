@@ -6,6 +6,7 @@ from enum import IntEnum
 import httpx2
 import pytest
 
+from jev_research_pipeline.generation import GenerationMeter
 from jev_research_pipeline.jev import rubric_claim, rubric_report
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.jev.core import score_levels
@@ -27,11 +28,10 @@ from jev_research_pipeline.quality import (
     rubric_ladder,
     trusted_axes,
 )
-from jev_research_pipeline.qwen import MAX, GenerationMeter, qwen_model
 
 from . import builders as b
 from .conftest import ClientFactory
-from .fakes import fake_jev, fake_qwen
+from .fakes import fake_jev, fake_qwen, qwen_model
 
 CTX = LineContext(line=b.line(), vocabulary=("agent memory",))
 
@@ -140,7 +140,7 @@ async def test_rubric_ladder_accepts_first_draft(cassette: ClientFactory):
     )
     rendering, _ = await rubric_ladder(
         jev=jev,
-        model=qwen_model(MAX, client, api_key="replay"),
+        model=qwen_model(client),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,
@@ -160,8 +160,8 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
     """claim_fidelity (author mandate 2026-09-23): the judge read general LLM-calibration
     papers written up as findings about Jev. One evidence paragraph over the bar sends the
     draft back with the fidelity feedback; still over → template."""
+    from jev_research_pipeline.generation.prose import FIDELITY_FEEDBACK
     from jev_research_pipeline.jev import JevClient
-    from jev_research_pipeline.qwen.prose import FIDELITY_FEEDBACK
 
     seen: list[str] = []
     qwen = fake_qwen("Jev の較正が崩れる [1]。", "一般の LLM で較正が崩れる [1]。")
@@ -176,7 +176,7 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
     )
     rendering, judged = await rubric_ladder(
         jev=jev,
-        model=qwen_model(MAX, cassette(recording), api_key="replay"),
+        model=qwen_model(cassette(recording)),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,
@@ -198,7 +198,7 @@ async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFact
     jev = JevClient(cassette(fake_jev({"unsupported_statement": 0.9})), api_key="replay")
     rendering, _ = await rubric_ladder(
         jev=jev,
-        model=qwen_model(MAX, cassette(fake_qwen("一稿。", "二稿。")), api_key="replay"),
+        model=qwen_model(cassette(fake_qwen("一稿。", "二稿。"))),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,
@@ -212,7 +212,7 @@ async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFact
 
 
 def test_build_report_maps_rendering_and_operations():
-    from jev_research_pipeline.qwen import Rendering
+    from jev_research_pipeline.generation import Rendering
 
     report = build_report(
         line=b.LINE_IRI,
@@ -256,7 +256,7 @@ async def test_rubric_ladder_returns_every_draft_judgment(cassette: ClientFactor
     jev = JevClient(cassette(fake_jev({"unsupported_statement": 0.9})), api_key="replay")
     rendering, judgments = await rubric_ladder(
         jev=jev,
-        model=qwen_model(MAX, cassette(fake_qwen("一稿。", "二稿。")), api_key="replay"),
+        model=qwen_model(cassette(fake_qwen("一稿。", "二稿。"))),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,
@@ -287,7 +287,7 @@ async def test_the_self_check_pass_replaces_the_draft_and_sees_it(cassette: Clie
     )
     rendering, _ = await rubric_ladder(
         jev=jev,
-        model=qwen_model(MAX, cassette(recording), api_key="replay"),
+        model=qwen_model(cassette(recording)),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,

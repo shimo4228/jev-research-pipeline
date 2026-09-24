@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 562" role="img" aria-labelledby="title desc">
   <title id="title">How jev-research-pipeline works</title>
-  <desc id="desc">A loop that runs every morning around your open questions. It gathers new papers and repositories. Jev, a judgment model, checks each one against your questions and keeps it, sends it to review, or drops it. Qwen, a language model, writes a short section per question. The day's note lands in your Obsidian vault, you tick what was worth reading, and those ticks steer the next morning's run.</desc>
+  <desc id="desc">A loop that runs every morning around your open questions. It gathers new papers and repositories. Jev, a judgment model, checks each one against your questions and keeps it, sends it to review, or drops it. A language model (GPT-5.6 Sol by default, or Qwen) writes a short section per question. The day's note lands in your Obsidian vault, you tick what was worth reading, and those ticks steer the next morning's run.</desc>
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #24292F; }
     .emo { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
@@ -46,10 +46,10 @@
 
   <line x1="730" y1="234" x2="730" y2="326" stroke="#8C959F" stroke-width="4" marker-end="url(#arrow)"/>
 
-  <!-- 3. Qwen writes (bottom right) -->
+  <!-- 3. an LLM writes (bottom right) -->
   <rect x="540" y="336" width="380" height="190" rx="22" fill="#E2F5E9" stroke="#57A874" stroke-width="2.5"/>
   <text class="emo" x="604" y="452" font-size="64" text-anchor="middle">✍️</text>
-  <text class="lbl" x="660" y="404">Qwen writes</text>
+  <text class="lbl" x="660" y="404">An LLM writes</text>
   <text class="sub" x="660" y="438">a short section</text>
   <text class="sub" x="660" y="464">per question</text>
 

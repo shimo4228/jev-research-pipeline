@@ -10,6 +10,8 @@ jrp queries check --line <slug>
 jrp prose export|bench|read|gate
                    the prose bench: frozen inputs, variants, the author's blind reading file,
                    the fidelity judge's gate files (pipeline.prose_bench)
+jrp codex login    sign in to the ChatGPT/Codex subscription once, for the default prose
+                   model (generation.codex)
 
 A store file from an older build stops every command with one line (store.migrate):
 additive differences are migrated in place first, incompatible ones need `jrp migrate`.
@@ -19,6 +21,7 @@ import argparse
 import asyncio
 import os
 import sys
+import webbrowser
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +29,16 @@ from pathlib import Path
 import httpx2
 
 from .adapters.routing import run_client
+from .generation import (
+    MissingCredentials,
+    ModelSpecError,
+    Writer,
+    parse_model,
+    prose_auth,
+    prose_model_spec,
+)
+from .generation.codex import codex_auth_path, login
+from .generation.prose import INSTRUCTIONS
 from .pipeline import prose_bench as pb
 from .pipeline.concurrency import prose_concurrency
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
@@ -35,7 +48,6 @@ from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, store_dir
 from .quality import agreement, trusted_axes
 from .questions import NoQuestions
-from .qwen.prose import INSTRUCTIONS
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
@@ -64,7 +76,9 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--from", dest="roots", action="append", default=[], help="extra store root")
     pr.add_argument("--variant", help="bench: variant name (drafts/<name>/)")
     pr.add_argument("--prompt", help="bench: instructions file; omitted = the run's prompt")
-    pr.add_argument("--model", default="qwen3.7-max")
+    pr.add_argument(
+        "--model", help="bench: <backend>:<model>; omitted = the run's (JRP_PROSE_MODEL)"
+    )
     pr.add_argument("--no-thinking", action="store_true")
     pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
     pr.add_argument("--check", help="bench: self-check instructions file (second pass)")
@@ -73,6 +87,8 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--variants", help="read: comma-separated variants to show side by side")
     pr.add_argument("--out", help="read: the reading file to write")
     pr.add_argument("--verdicts", help="gate: summarize the judge's verdict dir instead")
+    c = sub.add_parser("codex")
+    c.add_argument("action", choices=["login"])
     return p
 
 
@@ -179,6 +195,8 @@ async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> in
         return await _check_queries(env, str(args.line))
     if args.command == "prose":
         return await _prose(env, args)
+    if args.command == "codex":
+        return await _codex_login(env)
     return await _drift(env, Path(args.cassettes))
 
 
@@ -204,10 +222,16 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
             instructions = (
                 Path(args.prompt).read_text(encoding="utf-8") if args.prompt else INSTRUCTIONS
             )
+            try:
+                spec = parse_model(args.model) if args.model else prose_model_spec(env)
+                auth = prose_auth(env, spec)
+            except (ModelSpecError, MissingCredentials) as e:
+                sys.stderr.write(f"{e}\n")
+                return 1
             variant = pb.Variant(
                 name=str(args.variant),
                 instructions=instructions,
-                model=str(args.model),
+                model=str(spec),
                 thinking=not args.no_thinking,
                 sources=bool(args.sources),
                 check=Path(args.check).read_text(encoding="utf-8") if args.check else None,
@@ -216,8 +240,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 lines = await pb.run_bench(
                     bench,
                     variant,
-                    http=http,
-                    api_key=env["DASHSCOPE_API_KEY"],
+                    writer=Writer(auth, http),
                     split=split,
                     concurrency=prose_concurrency(env),
                     only=_ids(args.cases),
@@ -258,6 +281,21 @@ async def _check_queries(env: Mapping[str, str], slug: str) -> int:
         sys.stderr.write(f"{e}\n")
         return 1
     sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+async def _codex_login(env: Mapping[str, str]) -> int:
+    """A browser login of the pipeline's own (generation.codex): run once in a terminal on
+    the machine that runs launchd, and again if a run reports the grant was rejected."""
+    path = codex_auth_path(env)
+
+    def show(url: str) -> None:
+        sys.stdout.write(f"Sign in to ChatGPT in the browser (if none opens, visit):\n{url}\n")
+        sys.stdout.flush()
+        webbrowser.open(url)
+
+    await login(path, show=show)
+    sys.stdout.write(f"Codex login saved → {path}\n")
     return 0
 
 

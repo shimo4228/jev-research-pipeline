@@ -1,6 +1,6 @@
 """Pipeline types (packet "Build sequence" 2). Every type here is a JSON-LD node or value.
 
-Flow the types encode (code owns control; Jev judges; Qwen writes):
+Flow the types encode (code owns control; Jev judges; the generation model writes):
     Line → Question → QueryCandidate → SourceItem → Unit → Claim → QuestionLog → Report ← Label
                  each Jev call → Judgment (raw probabilities) → Decision (code + thresholds)
 
@@ -582,7 +582,7 @@ class Report(StoreNode):
     """One line-run's report. Identity = (line, run_date): one report per line per day,
     so a same-day re-run overwrites instead of duplicating.
 
-    Invariants: rendering "template" ⇔ prose is None (Qwen synthesis failed or rubric
+    Invariants: rendering "template" ⇔ prose is None (prose synthesis failed or rubric
     stayed low after one rewrite); `claims` is the reading order and holds only claims,
     each once; `unjudged` never overlaps `claims` (no fail-open into the body).
     """

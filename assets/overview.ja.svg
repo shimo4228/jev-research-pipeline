@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 562" role="img" aria-labelledby="title desc">
   <title id="title">jev-research-pipeline のしくみ</title>
-  <desc id="desc">あなたの open な問いを中心に、毎朝回るループです。新しい論文と repository を集め、判定モデル Jev が一つずつ問いと照らして「採る」「保留」「捨てる」に振り分け、言語モデル Qwen が問いごとに短い節を書きます。その日のノートは Obsidian の vault に届き、読む価値があったものに印を付けると、その印が翌朝の実行に効きます。</desc>
+  <desc id="desc">あなたの open な問いを中心に、毎朝回るループです。新しい論文と repository を集め、判定モデル Jev が一つずつ問いと照らして「採る」「保留」「捨てる」に振り分け、言語モデル（既定は GPT-5.6 Sol、Qwen にも切り替えられる）が問いごとに短い節を書きます。その日のノートは Obsidian の vault に届き、読む価値があったものに印を付けると、その印が翌朝の実行に効きます。</desc>
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic", Meiryo, Helvetica, Arial, sans-serif; fill: #24292F; }
     .emo { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
@@ -46,10 +46,10 @@
 
   <line x1="730" y1="234" x2="730" y2="326" stroke="#8C959F" stroke-width="4" marker-end="url(#arrow)"/>
 
-  <!-- 3. Qwen writes (bottom right) -->
+  <!-- 3. an LLM writes (bottom right) -->
   <rect x="540" y="336" width="380" height="190" rx="22" fill="#E2F5E9" stroke="#57A874" stroke-width="2.5"/>
   <text class="emo" x="604" y="452" font-size="64" text-anchor="middle">✍️</text>
-  <text class="lbl" x="660" y="404">Qwen が書く</text>
+  <text class="lbl" x="660" y="404">LLM が書く</text>
   <text class="sub" x="660" y="438">問いごとに</text>
   <text class="sub" x="660" y="464">短い節を</text>
 

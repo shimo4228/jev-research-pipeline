@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # launchd entry for `jrp <command>` (run | drift). A human loads the jobs (launchd/README.md).
 # Secrets live outside the repo in ~/.config/jrp/env (KEY=value lines: JRP_VAULT_DIR,
-# JRP_STORE_DIR, TYPESAFE_API_KEY, DASHSCOPE_API_KEY, optional TAVILY_API_KEY /
-# GITHUB_TOKEN / JRP_COST_CAP_USD / JRP_SLACK_NOTIFY / JRP_DRIFT_LIVE). The repo never
-# holds them.
+# JRP_STORE_DIR, TYPESAFE_API_KEY, optional JRP_PROSE_MODEL / DASHSCOPE_API_KEY (for a
+# dashscope: model) / TAVILY_API_KEY / GITHUB_TOKEN / JRP_COST_CAP_USD / JRP_SLACK_NOTIFY /
+# JRP_DRIFT_LIVE) and, for the default prose model, the login `jrp codex login` wrote to
+# ~/.config/jrp/codex-auth.json. The repo never holds them.
 #
 # The vault lives in iCloud Drive, which macOS privacy (TCC) guards per executable. Under
 # launchd, /bin/bash may open it but the uv-managed python may not: its open() waits on an
