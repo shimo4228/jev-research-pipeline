@@ -16,6 +16,7 @@ budget: `x-ratelimit-remaining` tells them apart.
 
 from collections.abc import Mapping
 from typing import Final
+from urllib.parse import quote
 
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
@@ -72,8 +73,11 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
 
 
 def lookup_request(work: str, env: Mapping[str, str]) -> httpx2.Request:
-    """The singleton `works/doi:<doi>`, id only."""
-    return httpx2.Request("GET", f"{WORKS}/{work}", params={"select": "id"}, headers=_headers(env))
+    """The singleton `works/doi:<doi>`, id only. The DOI is escaped into the path: `?` and
+    `#` are legal in a DOI, and a control character would make httpx2 raise InvalidURL;
+    existing `%` escapes are kept (OpenAlex decodes them — measured 2026-09-25)."""
+    path = quote(work, safe=":/%")
+    return httpx2.Request("GET", f"{WORKS}/{path}", params={"select": "id"}, headers=_headers(env))
 
 
 async def resolve_work(

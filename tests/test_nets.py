@@ -232,6 +232,15 @@ async def _openalex_api(request: httpx2.Request) -> httpx2.Response:
     return httpx2.Response(200, json=OPENALEX_WORKS, headers={"x-ratelimit-credits-used": "1"})
 
 
+@pytest.mark.parametrize("work", ["doi:10.1000/a?b#c", "doi:10.1000/a\x01b"])
+def test_the_lookup_keeps_the_whole_doi_in_the_path(work: str):
+    # `?` and `#` are legal in a DOI and would cut it short; a control character from a
+    # malformed stored URL made httpx2 raise InvalidURL, which is not a RequestError.
+    request = openalex.lookup_request(work, {})
+    assert request.url.path == f"/works/{work}"
+    assert dict(request.url.params) == {"select": "id"}
+
+
 def _citation(work: str) -> list[nets.NetRequest]:
     return [nets.NetRequest("citation", openalex.citation_adapter(), openalex.cites_token(work))]
 
