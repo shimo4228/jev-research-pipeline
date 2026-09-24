@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 562" role="img" aria-labelledby="title desc">
+  <title id="title">jev-research-pipeline のしくみ</title>
+  <desc id="desc">あなたの open な問いを中心に、毎朝回るループです。新しい論文と repository を集め、判定モデル Jev が一つずつ問いと照らして「採る」「保留」「捨てる」に振り分け、言語モデル Qwen が問いごとに短い節を書きます。その日のノートは Obsidian の vault に届き、読む価値があったものに印を付けると、その印が翌朝の実行に効きます。</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic", Meiryo, Helvetica, Arial, sans-serif; fill: #24292F; }
+    .emo { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+    .lbl { font-size: 29px; font-weight: 700; }
+    .sub { font-size: 20px; fill: #57606A; }
+    .chip { font-size: 17px; font-weight: 700; }
+    .loop { font-size: 19px; font-weight: 600; fill: #9A6700; }
+    .hub { font-size: 25px; font-weight: 700; }
+    .hubsub { font-size: 17px; fill: #57606A; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8C959F"/>
+    </marker>
+    <marker id="arrow-loop" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#D9A33C"/>
+    </marker>
+  </defs>
+
+  <rect width="960" height="562" rx="28" fill="#FFFBF2" stroke="#EADFC8" stroke-width="2"/>
+
+  <!-- 1. gather (top left) -->
+  <rect x="40" y="36" width="380" height="190" rx="22" fill="#E7F0FA" stroke="#6A9BC3" stroke-width="2.5"/>
+  <text class="emo" x="104" y="152" font-size="64" text-anchor="middle">📚</text>
+  <text class="lbl" x="160" y="104">集める</text>
+  <text class="sub" x="160" y="138">新しい論文と repo</text>
+  <text class="sub" x="160" y="164">毎朝</text>
+
+  <line x1="428" y1="131" x2="530" y2="131" stroke="#8C959F" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <!-- 2. Jev judges (top right) -->
+  <rect x="540" y="36" width="380" height="190" rx="22" fill="#EBE4FA" stroke="#8B72D6" stroke-width="2.5"/>
+  <text class="emo" x="604" y="140" font-size="64" text-anchor="middle">⚖️</text>
+  <text class="lbl" x="660" y="90">Jev が判定</text>
+  <text class="sub" x="660" y="122">あなたの問いの</text>
+  <text class="sub" x="660" y="148">答えに役立つか？</text>
+  <rect x="660" y="168" width="70" height="32" rx="16" fill="#DAF0E2" stroke="#57A874" stroke-width="1.5"/>
+  <text class="chip" x="695" y="190" text-anchor="middle" fill="#1A7F37">採る</text>
+  <rect x="738" y="168" width="84" height="32" rx="16" fill="#FFF3D6" stroke="#D9A33C" stroke-width="1.5"/>
+  <text class="chip" x="780" y="190" text-anchor="middle" fill="#9A6700">保留</text>
+  <rect x="830" y="168" width="70" height="32" rx="16" fill="#F3F4F6" stroke="#8C959F" stroke-width="1.5"/>
+  <text class="chip" x="865" y="190" text-anchor="middle" fill="#57606A">捨てる</text>
+
+  <line x1="730" y1="234" x2="730" y2="326" stroke="#8C959F" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <!-- 3. Qwen writes (bottom right) -->
+  <rect x="540" y="336" width="380" height="190" rx="22" fill="#E2F5E9" stroke="#57A874" stroke-width="2.5"/>
+  <text class="emo" x="604" y="452" font-size="64" text-anchor="middle">✍️</text>
+  <text class="lbl" x="660" y="404">Qwen が書く</text>
+  <text class="sub" x="660" y="438">問いごとに</text>
+  <text class="sub" x="660" y="464">短い節を</text>
+
+  <line x1="532" y1="431" x2="430" y2="431" stroke="#8C959F" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <!-- 4. you read and tick (bottom left) -->
+  <rect x="40" y="336" width="380" height="190" rx="22" fill="#FFF3D6" stroke="#D9A33C" stroke-width="2.5"/>
+  <text class="emo" x="104" y="452" font-size="64" text-anchor="middle">📓</text>
+  <text class="lbl" x="160" y="404">読んで印を付ける</text>
+  <text class="sub" x="160" y="438">その日のノートが</text>
+  <text class="sub" x="160" y="464">Obsidian に届く</text>
+
+  <!-- the loop back -->
+  <line x1="230" y1="328" x2="230" y2="236" stroke="#D9A33C" stroke-width="4" stroke-dasharray="9 7" marker-end="url(#arrow-loop)"/>
+  <text class="loop" x="214" y="274" text-anchor="end">☑️ 付けた印が</text>
+  <text class="loop" x="214" y="300" text-anchor="end">翌朝の実行に効く</text>
+
+  <!-- the center: your questions -->
+  <rect x="330" y="241" width="300" height="80" rx="40" fill="#FFFFFF" stroke="#24292F" stroke-width="2"/>
+  <text class="hub" x="480" y="276" text-anchor="middle">❓ あなたの問い</text>
+  <text class="hubsub" x="480" y="303" text-anchor="middle">どの工程もこの問いのために動く</text>
+</svg>

@@ -1,76 +1,100 @@
 # jev-research-pipeline
 
-[日本語](README.ja.md) (older; not yet synced with this version)
+**English** | [日本語](README.ja.md)
 
-**Code owns the loop, Jev judges, Qwen writes: a daily research monitor for standing questions.**
+**A daily research monitor for your open questions: code owns the loop, Jev (a judgment-only model) judges, Qwen writes.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
 [![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](docs/pilot-log.md)
 
-jev-research-pipeline is a single-user, daily research-monitoring pipeline. You keep a few open
-questions per research line (a line is one long-running research topic with its own vocabulary).
-Deterministic Python owns the control flow. TypeSafe Jev, a judgment model that answers typed
-questions with probabilities and never writes text, screens every fetched source against each open
-question. Qwen, an LLM served on Alibaba Cloud's DashScope, writes only the day's prose. The output
-is one markdown note per line in an Obsidian vault, organised by question, and you close the loop by
-ticking checkboxes in that note. Notes are written in Japanese today: the prose instruction and the
-section headings are Japanese strings in the source, and there is no language switch yet. Scheduling
-uses macOS launchd; a manual run works anywhere Python 3.12 runs.
+<p align="center">
+  <img src="assets/overview.svg" width="760" alt="A loop of four boxes around a center labelled Your questions: gather new papers and repos every morning; Jev judges whether each one helps answer one of your questions and marks it keep, review or drop; Qwen writes a short section per question; you read the day's note in your Obsidian vault and tick what was worth reading, and a dashed arrow shows the ticks steering tomorrow's run.">
+</p>
 
-I built it because LLM-driven deep-research loops converge on the same topics and cost real money
-every morning. In my previous setup an Opus agent with web search explored three or four lines a day
-for $4 to $15, and over one month 37% of its topics landed on a single theme. Moving judgment into
-cheap typed questions makes the loop machine-checkable, and a run over four lines now costs about
-$0.15 to $0.30.
+jev-research-pipeline is a single-user pipeline for keeping up with research. You keep a few open
+questions for each research topic. Every morning it checks new papers and repositories against those
+questions and writes one note per topic into your Obsidian vault, with a section for each question
+that moved. Plain Python code runs the loop the same way every time. Jev, a judgment model from the
+API company TypeSafe, never writes text: it answers questions that have a fixed set of answers (yes or
+no, a score, one pick from a list) with probabilities, and here it decides whether each source helps
+answer a question. Qwen, an LLM served on Alibaba Cloud's DashScope, writes only the prose. You close
+the loop by ticking checkboxes in the note, and the ticks steer the next run.
 
-## How a run works
+It is a pilot, in daily use by its author. It needs Python 3.12 and two paid API keys (TypeSafe for
+Jev, DashScope for Qwen), is scheduled with macOS launchd (a manual run works anywhere Python 3.12
+runs), and is MIT licensed. Notes are written in Japanese today: the prose instruction and the section
+headings are Japanese strings in the source, and there is no language switch yet.
 
-You read each note and tick its checkboxes. Those ticks are the labels: they feed the threshold
-proposals that `jrp fit` writes for you to apply, seed the recommendation net, and become evaluation
-cases. Everything else is the pipeline.
+I built it because my previous setup, [daily-research](https://github.com/shimo4228/daily-research),
+let an Opus agent with web search run the whole loop through `claude -p`, Claude Code's
+non-interactive mode. It reported $8 to $15 of usage a day for three or four topics, and the agent
+kept returning to the same theme: 88 of its 238 past topics (37%) landed on one. Here every judgment
+is a cheap question with a fixed set of answers, code can check each one, and no model decides where
+to look. A morning over four topics now costs $1 to $2 by the notes' own cost lines (see [Status](#status-as-of-2026-09-25)).
+The full story is in the article
+[Moving My Research Pipeline's Judgment Calls from an LLM to Jev, a Judgment-Only Model](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)
+([Japanese](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)). Other experiments
+with Jev, and the projects this pipeline watches, are under [More from the author](#more-from-the-author).
 
-1. Harvest ticks from yesterday's notes (a checkbox per question, per source, per claim).
-2. Pick the next three research lines in rotation, plus any line marked daily.
-3. For each open question, fetch candidates from five fixed discovery channels, the source nets
-   (see [Source nets](#source-nets)).
-4. Jev screens each (source, question) pair: hard gates as yes/no questions, then weighted scores.
-   Code applies the thresholds and routes the pair to Keep, Review (borderline), Drop, or Incomplete
-   (the source had no abstract to judge).
-5. Kept sources are cut into verbatim sentences; Jev marks which sentences advance or contradict the
-   question. A claim is a sentence, never a paraphrase, so citations always resolve.
-6. Qwen writes one short section per question that got new evidence today, with evidence paragraphs
-   and one paragraph marked as inference. Jev then scores the section on a rubric; a failing draft is
-   rewritten once, then falls back to a template.
+## How a morning run works
+
+Each research topic is a *line*: one long-running topic with its own vocabulary. Each morning:
+
+1. Harvest your ticks from the line's earlier notes.
+2. Pick the next three lines in rotation, plus any line marked daily.
+3. For each open question, fetch candidates from five fixed discovery channels, the
+   [source nets](#source-nets).
+4. Jev screens each (source, question) pair: a cheap on-topic check first, then hard gates as yes/no
+   questions and weighted scores. Code applies the thresholds and routes the pair to Keep, Review
+   (borderline), Drop, Incomplete (the source had no abstract to judge) or Unjudged (the Jev request
+   failed).
+5. Kept sources are cut into verbatim sentences, and Jev picks out the sentences that advance or
+   contradict the question. A claim is a sentence, never a paraphrase, so citations always resolve.
+6. Qwen writes one short section per question that got new evidence today, from those claims and
+   short excerpts of their sources, with one paragraph marked as inference. Qwen checks its own draft
+   once. Jev then scores the section on a rubric and checks each evidence paragraph against its
+   claims; a failing draft is rewritten once, then falls back to a template.
 7. The note is written to the vault with an operations block: Jev question count, tokens, cost,
-   per-net acceptance, canary results.
+   per-net acceptance, and canary results (whether the papers a question must always keep were kept).
 
+Your ticks are the labels. They seed the recommendation net (papers related to the ones you ticked),
+feed the threshold proposals that `jrp fit` writes for you to apply, and become evaluation cases.
 Every Jev call goes through Pydantic AI's native `typesafe:` model, so each judgment is a Pydantic
 output type and the raw probability distributions are stored with the decision.
 
-## Status as of 2026-09-23
+## Status as of 2026-09-25
 
-This is a pilot, not a finished product.
-
-- 11 runs on my own eight research lines (2 wrote the real vault). The last run passed 5 of its 7
-  goal conditions: every note under 12 KB with a short Review list; prose for every question that had
-  evidence; off-topic papers dropped and every canary kept (a canary is a paper or repo a question
-  must always keep; see [Questions are the unit](#questions-are-the-unit)); no failed fetch from any
-  source API; no stack traces.
-- It failed the other two. Wall time for four lines was 601 s against a 600 s cap (cost, the other
-  half of that condition, was $0.297 against a $0.30 cap). An independent judge (a separate Opus model
-  reading only the finished notes against a seven-axis rubric) rated 1 of 3 notes publishable: the
-  prose still bends a paper's claim to fit the wording of the question. The full record, run by run,
+- **The evaluation: 11 runs, ended 2026-09-23.** The last run passed 5 of its 7 goal conditions:
+  every note under 12 KB with a short Review list; prose for every question that had evidence;
+  off-topic papers dropped and every canary kept (a canary is a paper or repo a question must always
+  keep; see [Questions are the unit](#questions-are-the-unit)); no failed fetch from any source API in
+  that run; no stack traces. The time-and-cost condition failed on time alone: 601 s against a 600 s
+  cap (cost was $0.297 against $0.30). And an independent judge, a separate Opus model reading only the
+  finished notes against a seven-axis rubric, rated 1 of 3 notes publishable. The record, run by run,
   is in [docs/pilot-log.md](docs/pilot-log.md).
-- Jev's routing thresholds are still the starting values from TypeSafe's cookbooks, not yet refit on
-  ticks. The Review section of a note lists the borderline sources for exactly that reason.
+- **The prose step was rebuilt after the evaluation**; what changed and why is under
+  [Why judgment, not generation](#why-judgment-not-generation). On frozen inputs from past runs, I read
+  all six test cases as readable, and a fidelity check (a separate model comparing each draft with its
+  sources) passed five of them ([docs/design/pipeline-design.md](docs/design/pipeline-design.md)).
+- **Daily since 2026-09-24.** launchd runs it every morning against the real vault, over my seven
+  active lines. With the new prose step a four-line morning costs more than the final evaluation run
+  (also four lines, $0.297): $1.05 and $1.75 on the first two days, and it takes about 15 minutes. The independent Opus judge has not read these notes yet. On both daily
+  runs so far, arXiv keyword search answered HTTP 406, so `arxiv:` query lines returned nothing (new
+  arXiv listings still arrive through the firehose net), and some OpenAlex citation lookups failed.
+  The OpenAlex failure is fixed as of 2026-09-25; after a 406 that outlasts its retries, a run now
+  stops arXiv keyword search for the day instead of paying the retries on every line.
+- **Thresholds.** Jev's routing thresholds started from the values in TypeSafe's published examples
+  and were adjusted by hand during the evaluation. They have not been refit on ticks yet, so expect
+  borderline calls. Those land in each note's Review section, and your ticks there are what a refit
+  learns from.
 
 ## Quick start
 
 - Python 3.12 and [uv](https://docs.astral.sh/uv/).
 - A TypeSafe API key ([docs.typesafe.ai](https://docs.typesafe.ai)) and a DashScope API key
   (Alibaba Cloud Model Studio).
-- One file, `~/.config/jrp/env`, holding every environment variable (paths and keys); research lines
+- One file, `~/.config/jrp/env`, holding the environment variables a run needs (paths and keys); research lines
   and net budgets live in `config.toml`, questions in the repo's `questions/` directory.
   `scripts/launchd-jrp.sh` sources the env file before a scheduled run; for a manual run:
   `set -a; source ~/.config/jrp/env; set +a`.
@@ -87,11 +111,12 @@ export JRP_DAILY_RESEARCH_CONFIG="/path/to/config.toml" # your research lines
 ```
 
 `config.toml` names the lines. Each line is a `[tracks.<slug>]` table ("track" and "line" mean the
-same thing). A line enters the daily rotation only if it has a `[[tracks.<slug>.repos]]` entry; if
-that directory holds a `graph.jsonld` (a JSON-LD file whose `Concept` and `DefinedTerm` node names
-become the line's vocabulary for query writing and screening) the vocabulary is read from it, and
-otherwise the line's name is the only vocabulary. A line with `daily = true` runs on every tick beside
-the rotation and needs no repo.
+same thing). Lines were designed around research repositories: a line enters the rotation only if it points at
+one with a `[[tracks.<slug>.repos]]` entry and its `target_repo`, and the only file read from that
+repository is its `graph.jsonld`. If there is one, the names of its `Concept` and `DefinedTerm` nodes (schema.org types) become
+the line's vocabulary, which Jev's screening and the prose use; otherwise the line's name is the only
+vocabulary. A topic with no repository can run as a `daily = true` line, which runs every morning
+beside the rotation.
 
 ```toml
 [general]
@@ -104,7 +129,7 @@ target_repo = "~/projects/agent-knowledge-cycle"   # required for rotation; only
 
 [tracks.jev]
 name = "TypeSafe Jev"
-daily = true                                       # every tick, beside the rotated lines
+daily = true                                       # every morning, beside the rotated lines
 ```
 
 Write at least one open question per line (next section), then:
@@ -114,74 +139,74 @@ uv sync
 uv run jrp run                # harvest ticks, run the next lines, write notes
 ```
 
-A line with no open question is skipped and reported as such. Maintenance commands, once ticks
-exist: `jrp fit` proposes refit thresholds (it writes a proposal file, never applies it),
-`jrp export-cases` turns ticked claims into pydantic-evals cases, `jrp queries check --line <slug>`
-trial-fetches a line's authored queries, `jrp prose export|bench|read|gate` is the dev-time loop for
-the prose (frozen inputs, a blind reading file for the author, a fidelity gate for a judge;
-[AGENTS.md](AGENTS.md)), `jrp drift` replays recorded Jev
-inputs live and reports probability drift, and `jrp migrate --dry-run` shows how an older store would
-be upgraded. Every variable and the full `config.toml` are in
-[docs/configuration.md](docs/configuration.md).
+A line with no open question is skipped and reported as such. Once ticks exist, `jrp fit` proposes
+refit thresholds (it writes a proposal file and never applies it), and `jrp export-cases` turns ticked
+claims into pydantic-evals cases. `uv run jrp --help` lists the maintenance commands. Every variable
+and the full `config.toml` are in [docs/configuration.md](docs/configuration.md).
 
 ## Questions are the unit
 
 One file per line at `questions/<slug>.md` in the repository (or wherever `JRP_QUESTIONS_DIR`
-points). The pipeline is exactly as good as the questions.
+points). The questions set the ceiling on what a run can find. An abridged example, translated from the
+real `questions/jev.md` (which is in Japanese):
 
 ```markdown
-<!-- jrp:questions:akc -->
+<!-- jrp:questions:jev -->
 
-## What tells you a scaffold (a rule, a skill, a procedure) is ready to be retired?
-- slug: scaffold-retirement-signal
+## Where does Jev fail: broken calibration, judgments handed back to an LLM, expressiveness lost in framework integrations?
+- slug: jev-failure-modes
 - version: 1
 - status: open
 - opened: 2026-09-23
-- retire: close once products retire scaffolds natively and three practitioners report relying on that
-- brief: usage counts, ablations and held-out transfer are all used in practice; which one misses what?
-- method: product instrumentation
-- method: practitioner reports
-- evidence: reports that say what was counted and what was not
-- not: prompt engineering tips
+- retire: answered once TypeSafe publishes failure conditions per version and third parties reproduce them
+- brief: when the probabilities break (out of distribution, questions with no answer, question types); cases that moved a judgment from an LLM to Jev and then moved it back; what integrations such as pydantic-ai lose
+- method: reproduction experiments in public repos (calibration, ECE, agreement)
+- evidence: numbers, or code that reproduces the failure
+- not: posts that only share impressions of using Jev
 - canary: https://github.com/scienthoon/jev-ood-calibration
-- arxiv: scaffold retirement agent
-- github: agent skill lifecycle
-- hf: when to remove agent instructions
+- arxiv: jev system one
+- github: jev calibration
+- hf: judge model calibration
+- web: TypeSafe Jev calibration failure
 ```
 
-The parser reads every field; two of them are for you rather than for Jev. `slug` and `version`
-identify the question: change the wording, bump the version, or old judgments count as judgments of
-the new wording. `status` gates the run (`open` / `answered` / `dropped`) and `opened` is the date you
-opened it. `brief`, `method` and `evidence` go into the state Jev sees for every (source, question)
-pair. `not:` lines feed the hard gates with adjacent topics that would otherwise pass every day.
-`retire:` is prose for you, the rule you set in advance for closing the question.
+The parser reads every field. `slug` and `version` identify the question: change the wording, bump
+the version, or old judgments count as judgments of the new wording. `status` gates the run (`open` /
+`answered` / `dropped`). `brief`, `method` and `evidence` go into the state Jev sees for every
+(source, question) pair. `not:` lines feed the hard gates with adjacent topics that would otherwise
+pass every day. Two fields are for you rather than for Jev: `opened` is the date you opened the
+question, and `retire:` is the rule you set in advance for closing it.
 
 `canary:` lines name papers or repos this question must always keep. If no net brings one on a given
 day it is fetched by its URL and screened anyway, and a dropped canary shows up in the note's
 operations block as a sign that screening drifted.
 
 `arxiv:`, `github:`, `hf:` and `web:` lines are the keyword net's search queries for this question,
-one per line, in English. They are written together with the question and tried before a run relies
-on them: `uv run jrp queries check --line <slug>` sends each query once and prints the hit count and
-the newest titles, storing nothing. arXiv matches every word (`all:w1 AND all:w2`), so keep its
-queries to two to four words. A question without query lines sends no keyword query (the note's
-operations block says so); the other nets still run for it. The authoring procedure is in
-[AGENTS.md](AGENTS.md).
+one per line, in English except that a `web:` query may be in Japanese. You write them together with
+the question, or have an assistant draft them in your session, and try them before a run uses them:
+`uv run jrp queries check --line <slug>` sends each query once and prints the hit count and the newest
+titles, storing nothing. arXiv matches every word (`all:w1 AND all:w2`), so keep its queries to two
+to four words. A question without query lines sends no keyword query (the note's operations block
+says so); the other nets still run for it. The authoring procedure is in [AGENTS.md](AGENTS.md)
+(in Japanese, written for coding agents).
 
-No run writes to this file. Questions and their queries change when you change them.
+A run never edits this file. Questions and their queries change only when you change them.
 
 ## What a note looks like
 
 Headings and prose are Japanese; the layout is:
 
 ```
+# <line> — <date>
 ### <question>                 one section per question that got new evidence today
-今日の変化                      prose; [n] cites a claim; the paragraph marked 【推論】 is inference
+今日の変化                      prose; [n] cites a claim; the paragraph marked 推論 is inference
 証拠                            today's sources for this question
-- [ ] worth reading             one checkbox per question-day; a tick propagates to its claims
-## Review                       borderline pairs (confidence below 0.9); your tick feeds the next threshold proposal
-## 橋渡し                         bridged sources: found by the exploration net outside the vocabulary
+反証                            claims that count against the answer, if any
+- [ ] 読む価値があった            one checkbox per question-day; a tick propagates to its claims
+## Review                       borderline sources, at most 10, one checkbox each
+## 橋渡し                         sources Jev judged to tie the question to something outside the line's vocabulary
 > [!note]- Claims               folded list of every claim with its source and a checkbox
+## 未判定                         pairs whose Jev request failed
 ## 運用                          the operations block
 ```
 
@@ -190,43 +215,45 @@ Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `
 
 ## Source nets
 
-Keyword search alone converges (the 37% figure above). So code fixes which nets run, in what order,
-and how many requests each may make. No model writes a query: the keyword net sends the queries written into
-the question file, and the recommendation and citation nets are seeded by papers that Jev's
-screening kept. No model can add a net, skip one, or change the order.
+An agent left to choose its own searches converges (the 37% above). So code fixes which nets run, in
+what order, and how many requests each may make. No model writes a query at run time: the keyword net
+sends the queries written into the question file, and the recommendation and citation nets are seeded
+by papers that Jev's screening kept. No model can add a net, skip one, or change the order.
 
 | net | what it fetches | default budget (API requests per run) |
 |---|---|---|
 | firehose | new arXiv listings for fixed categories, plus Hugging Face daily papers; no query | 2 |
 | recommendation | Semantic Scholar recommendations seeded by ticked and kept papers, with random negatives | 1 |
 | citation | OpenAlex forward citations of papers already kept | 3 |
-| keyword | each question's authored queries, sent to arXiv, Hugging Face papers, GitHub and, with a key, Tavily web search | 12 |
-| exploration | neighbouring OpenAlex topics: one request of its own, and 20% of the keyword queries are aimed at those topics instead of the line's own | 1 |
+| keyword | each question's authored queries, sent to arXiv (one request), Hugging Face papers, GitHub and, with a key, Tavily web search | 10: the configured 12 minus a 20% share (2) set aside for exploration |
+| exploration | neighbouring OpenAlex topics of the papers already kept; nothing until the store holds OpenAlex papers | 1, from the 2 set aside (the other goes unused) |
 
 Every net works without source-API keys (the TypeSafe and DashScope keys are always needed), with one
 exception inside the keyword net: the Tavily web-search source is skipped when `TAVILY_API_KEY` is
-unset, and the note says so. Semantic Scholar, OpenAlex and GitHub
-have shared keyless quotas; optional keys raise them. Budgets, arXiv categories and the OpenAlex daily
+unset, and the note says so. Semantic Scholar, OpenAlex and GitHub have shared keyless quotas;
+optional keys raise them. Budgets, the exploration share, arXiv categories and the OpenAlex daily
 credit cap are set under `[nets]` in `config.toml`. The operations block reports acceptance per net
-and the number of distinct OpenAlex topics among kept papers; a falling topic count is the convergence
-alarm.
+and the number of distinct OpenAlex topics among kept papers; a falling topic count is the
+convergence alarm.
 
 ## Why judgment, not generation
 
 The design bet is that most of what an agent loop does with an LLM is judgment, and judgment can be
-asked as typed questions of a model that returns calibrated probabilities. Three measurements from
-the pilot shaped the current form:
+asked of a model that returns calibrated probabilities for a fixed set of answers. Three findings
+from the evaluation shaped the current form:
 
-- Without a question as the anchor, Jev's relevance judgments passed almost anything sharing a term
-  with the line: one line about meditation and non-self collected 162 claims about transformer
-  attention. Anchoring every judgment on (source, question) fixed this.
-- The first run, which treated every sentence as a claim without a question, asked Jev 20,573
-  questions for one line and produced a 283 KB note. Staged screening per question brought the same
-  line to a few thousand questions and a note under 12 KB.
-- Prose written from a bag of verbatim claims reads like a bag of claims. Writing per question, with
-  inference confined to one marked paragraph, moved the independent judge from 0 of 3 publishable
-  notes (run 6) to 1 of 3 (runs 8 and 11); the verdicts and their evidence are in
-  [docs/pilot-log.md](docs/pilot-log.md).
+- Without a question as the anchor, Jev's relevance judgments passed almost anything that shared a
+  term with the line: a line about meditation and non-self filled up with claims about transformer
+  attention. Anchoring every judgment on a (source, question) pair fixed this.
+- A run before screening was staged asked Jev 20,573 questions for one line and produced a 283 KB
+  note. Screening each source against the question first (a cheap on-topic check, then the full
+  screen), and cutting claims only from kept sources, brings a line to roughly 900 to 1,900 questions
+  and a note under 12 KB.
+- Prose is the hard part. The independent judge never rated more than 1 of 3 notes publishable
+  during the evaluation, and the usual failure was a paper's claim bent to fit the wording of the
+  question. So the prose step was rebuilt: a new prompt and the model qwen3.7-max, short source
+  excerpts beside the verbatim claims, a self-check pass, and Jev's check of each evidence paragraph
+  against its claims before the note is written.
 
 The design record, including every decision and the external evidence it rests on, is
 [docs/design/pipeline-design.md](docs/design/pipeline-design.md).
@@ -234,11 +261,15 @@ The design record, including every decision and the external evidence it rests o
 ## Observability, scheduling, development
 
 Traces are OpenTelemetry. With `OTEL_EXPORTER_OTLP_ENDPOINT` unset the SDK is never initialised and
-every span is a no-op. A Docker-free local viewer and the span names are in
+every span is a no-op. Scheduled runs send no traces: set the endpoint only on the command line of a
+run you are debugging. A Docker-free local viewer, that command line and the span names are in
 [docs/observability.md](docs/observability.md).
 
-Two launchd plists (daily run, weekly drift) live in [launchd/](launchd/README.md); edit the absolute
-paths for your machine before loading them.
+Two launchd plists live in [launchd/](launchd/README.md): `jrp run` every day at 05:00 and
+`jrp drift` (a live replay that reports whether Jev's probabilities have shifted) on Mondays at 05:30.
+Edit the absolute paths for your machine before loading them. If your vault is in iCloud Drive, the
+wrapper copies the notes through `<JRP_STORE_DIR>/vault-stage/`, because macOS lets launchd's bash
+open iCloud files but not the uv-managed Python.
 
 ```bash
 .claude/verify.sh     # format, lint, types, bandit, deptry, tests; offline, no keys
@@ -249,3 +280,30 @@ uv run pytest -q      # replays committed cassettes; live recording is opt-in (d
 
 - [TypeSafe Jev](https://docs.typesafe.ai) and the [Pydantic AI `typesafe:` model](https://pydantic.dev/docs/ai/models/typesafe/)
 - [Qwen on DashScope](https://www.alibabacloud.com/help/en/model-studio/models)
+
+## More from the author
+
+Each of my experiments with Jev is written up as an article, in English on Dev.to and in Japanese on
+Zenn:
+
+- [How Close to Opus Does Jev, a Model That Writes No Text, Get at Skill Selection in 0.3 Seconds?](https://dev.to/shimo4228/how-close-to-opus-does-jev-a-model-that-writes-no-text-get-at-skill-selection-in-03-seconds-1nfj)
+  ([Japanese](https://zenn.dev/shimo4228/articles/jev-vs-opus-skill-selection)). Jev and Claude Opus
+  pick skills for the same 150 situations. Jev agrees with Opus about half as often as Opus agrees
+  with itself, at about 1/560th of the cost.
+- [What Does It Take to Reproduce Jev's Decisions Locally?](https://dev.to/shimo4228/what-does-it-take-to-reproduce-jevs-decisions-locally-3i0n)
+  ([Japanese](https://zenn.dev/shimo4228/articles/local-decision-model-conditions)). Four local
+  models replay the same 150 selections, and all four fail, each for a different reason.
+- [I Added Jev's Skill Router to Claude Code and Turned Back Just Before Rewriting the Skill Listing](https://dev.to/shimo4228/i-added-jevs-skill-router-to-claude-code-and-turned-back-just-before-rewriting-the-skill-listing-34in)
+  ([Japanese](https://zenn.dev/shimo4228/articles/jev-retrofit-limits)), with its code,
+  [jev-skill-router](https://github.com/shimo4228/jev-skill-router). A Claude Code hook that asks Jev
+  which installed skill fits each prompt. Running it showed it is unlikely to help a strong model.
+
+The lines this pipeline watches are my own long-running projects. Among them:
+[Agent Knowledge Cycle](https://github.com/shimo4228/agent-knowledge-cycle), a loop for keeping an
+agent aligned with its operator as both change;
+[Agent Attribution Practice](https://github.com/shimo4228/agent-attribution-practice), decision
+records on who is accountable when an agent fails; and
+[Authorship Strategy](https://github.com/shimo4228/authorship-strategy), on how an author stays
+visible when readers meet ideas through LLMs. All of them, and new experiments as they appear, start
+at [github.com/shimo4228](https://github.com/shimo4228). All articles: [Dev.to](https://dev.to/shimo4228)
+(English) and [Zenn](https://zenn.dev/shimo4228) (Japanese).
