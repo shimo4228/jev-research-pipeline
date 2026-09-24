@@ -22,6 +22,7 @@ often. The OpenAlex credit cap is a daily budget (keyless: 1,000 credits, $0.10,
 midnight UTC), counted from the response headers.
 """
 
+import asyncio
 import random
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
@@ -270,6 +271,10 @@ class DayBudget:
     """A net ("citation") or one source within a net ("keyword/arxiv") that is done today."""
     reported: set[str] = field(default_factory=set[str])
     """Notes already written once, so a cap is not reported per net per line."""
+    arxiv_probe: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    """One line at a time asks arXiv keyword search. Lines run concurrently, and a 406 is only
+    known after the adapter's resends; without the lock every line pays them before the
+    first one can quiet the source."""
 
     def for_day(self, run_date: str) -> "DayBudget":
         """Reset at the day boundary; the quotas are daily."""
@@ -361,6 +366,17 @@ def _record_failure(
         # search for every line).
         budget.quiet.add(_source_key(request))
         outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
+    elif (
+        _source_key(request) == ARXIV_KEYWORD
+        and failure.reason == "http_status"
+        and failure.detail.startswith("406 ")
+    ):
+        # A 406 that outlasted the adapter's resends: since 2026-09-24 export.arxiv.org's
+        # edge refuses Python clients (curl gets 200 for the same bytes), so every later line
+        # would pay the resends for nothing. Search waits for tomorrow; the arXiv listings
+        # still arrive through the firehose.
+        budget.quiet.add(ARXIV_KEYWORD)
+        outcome.notes.append(f"{ARXIV_KEYWORD}: 406 が続いたため本日は打ち切り")
 
 
 async def _sendable(
@@ -421,9 +437,17 @@ async def fetch_nets(
         request = await _sendable(planned, client, env=env, budget=budget, outcome=outcome)
         if request is None:
             continue
-        out = await collect(
-            request.adapter, client, partition, line, request.query, now=now, env=env
-        )
+        if _source_key(request) == ARXIV_KEYWORD:
+            async with budget.arxiv_probe:
+                if ARXIV_KEYWORD in budget.quiet:  # another line's 406 settled it meanwhile
+                    continue
+                out = await collect(
+                    request.adapter, client, partition, line, request.query, now=now, env=env
+                )
+        else:
+            out = await collect(
+                request.adapter, client, partition, line, request.query, now=now, env=env
+            )
         if out.failure is not None:
             _record_failure(request, out.failure, budget, outcome)
             continue

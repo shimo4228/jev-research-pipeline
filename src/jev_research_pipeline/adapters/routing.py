@@ -8,6 +8,10 @@ queries answer 200 to anyone, which is why it looked intermittent). The differen
 below the request line and headers and was not isolated further. Requests to such a host
 go through urllib in a worker thread; the adapter, its pacing and the cassettes are
 unchanged (tests inject their own client and never reach this transport).
+
+Since 2026-09-24 the edge refuses urllib too (406, never reaching the origin) while curl
+gets 200 for the same bytes; nets stops arXiv keyword search for the day after the first
+such 406 rather than working around the edge (measured 2026-09-25).
 """
 
 import asyncio

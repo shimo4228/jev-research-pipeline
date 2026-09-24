@@ -1,13 +1,15 @@
 """Discovery nets: a code-fixed order, per-net budgets, an exploration share, and the
 meters that say which net is earning its keep."""
 
+import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx2
 import pytest
 
-from jev_research_pipeline.adapters import firehose, hf_papers, openalex, semantic_scholar
+from jev_research_pipeline.adapters import arxiv, firehose, hf_papers, openalex, semantic_scholar
 from jev_research_pipeline.model import Claim, SourceItem, Unit
 from jev_research_pipeline.pipeline import meters, nets
 from jev_research_pipeline.store import GraphStore
@@ -275,6 +277,42 @@ async def test_a_rate_limited_lookup_quiets_the_citation_net(
     outcome = await _fetch(cassette, _openalex_api, requests, tmp_path)
     assert outcome.sources == []  # the second paper is not asked for once OpenAlex said 429
     assert "citation/openalex: rate limit のため本日は打ち切り" in outcome.notes
+
+
+async def test_an_arxiv_keyword_406_quiets_arxiv_search_for_the_day(
+    cassette: ClientFactory, tmp_path: Path
+):
+    # 2026-09-24 and 09-25: export.arxiv.org's edge answered 406 to every keyword query from
+    # Python clients (curl got 200 for the same bytes), and each line paid the resends again.
+    # Lines run at the same time, so the second line must wait for the first one's answer.
+    async def refused(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(406, text="")
+
+    client = cassette(refused)
+    adapter = replace(arxiv.adapter(), min_interval_s=0.0, retry_waits=(0.0, 0.0))
+    day = nets.DayBudget()
+
+    async def one_line(name: str) -> nets.NetOutcome:
+        return await nets.fetch_nets(
+            [nets.NetRequest("keyword", adapter, "agent memory")],
+            client,
+            GraphStore(tmp_path / name).line("akc"),
+            b.line(),
+            now=b.T0,
+            env={},
+            config=nets.NetConfig(),
+            day=day,
+        )
+
+    first, second = await asyncio.gather(one_line("a"), one_line("b"))
+    assert "keyword/arxiv" in day.quiet
+    assert [first.notes, second.notes].count(
+        [
+            "keyword/arxiv: fetch 失敗 (http_status 406 not_acceptable:)",
+            "keyword/arxiv: 406 が続いたため本日は打ち切り",
+        ]
+    ) == 1
+    assert [] in (first.notes, second.notes)  # the other line sent nothing
 
 
 # --- meters -------------------------------------------------------------------------------

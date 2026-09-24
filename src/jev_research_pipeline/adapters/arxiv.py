@@ -23,7 +23,8 @@ ARXIV_RETRY: Final = frozenset({406})
 """export.arxiv.org's edge answers 406 in bursts to a client it has scored (measured
 2026-09-23: the same request 406 from httpx2 and 200 from curl in the same minute, and
 200 from httpx2 again minutes later; not header order, query encoding, HTTP version or
-the query text). Undocumented, so it is waited out rather than worked around."""
+the query text). Undocumented, so it is waited out rather than worked around. A 406 that
+outlasts the resends stops keyword search for the day (nets._record_failure)."""
 ARXIV_RETRY_WAITS: Final = (10.0, 20.0)
 
 
