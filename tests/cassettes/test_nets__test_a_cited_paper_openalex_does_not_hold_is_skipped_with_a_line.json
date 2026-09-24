@@ -1,0 +1,7 @@
+{
+ "GET https://api.openalex.org/works/doi:10.48550/arXiv.2609.99999?select=id": {
+  "status": 404,
+  "content_type": "text/plain; charset=utf-8",
+  "body": "<title>404 Not Found</title>"
+ }
+}

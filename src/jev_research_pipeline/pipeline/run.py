@@ -521,7 +521,7 @@ class LineRun:
         return None
 
     def _cited_works(self) -> list[str]:
-        """Papers this line already accepted, as OpenAlex `cites:` filter values."""
+        """Papers this line already accepted, as OpenAlex knows them (nets.openalex_work)."""
         urls: list[str] = []
         for question in self.questions:
             for claim_id in reversed(question.evidence):

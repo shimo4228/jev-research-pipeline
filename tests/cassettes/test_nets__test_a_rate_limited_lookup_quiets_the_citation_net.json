@@ -1,0 +1,7 @@
+{
+ "GET https://api.openalex.org/works/doi:10.48550/arXiv.2609.00429?select=id": {
+  "status": 429,
+  "content_type": "application/json",
+  "body": "{\"message\":\"Rate limit exceeded\"}"
+ }
+}

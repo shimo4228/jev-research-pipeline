@@ -1,7 +1,8 @@
 """Citation and exploration nets: OpenAlex forward citations, and neighbouring topics.
 
 - Citations: `works?filter=cites:<work id>` — who cited a paper this line already
-  accepted. Snowballing is what keyword search cannot do (packet "Discovery").
+  accepted. Snowballing is what keyword search cannot do (packet "Discovery"). The filter
+  takes only a work id, so a paper known by its DOI is looked up first (resolve_work).
 - Exploration: `works?filter=primary_topic.id:<topic>` for a topic *next to* the line's
   own (a sibling under the same subfield), which is where a bridge comes from.
 
@@ -17,9 +18,18 @@ from collections.abc import Mapping
 from typing import Final
 
 import httpx2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
+from .base import (
+    USER_AGENT,
+    Adapter,
+    FailureReason,
+    FetchFailure,
+    RawDraft,
+    http_status_detail,
+    iso_date,
+    one_line,
+)
 
 WORKS: Final = "https://api.openalex.org/works"
 TOPICS: Final = "https://api.openalex.org/topics"
@@ -28,6 +38,9 @@ PER_PAGE: Final = 100
 """The documented maximum (help/api/paging, 2026-09-18); 200 is refused."""
 SELECT: Final = "id,doi,ids,title,publication_date,primary_topic"
 CITES: Final = "cites:"
+DOI: Final = "doi:"
+"""A paper addressed by DOI (nets.openalex_work): the singleton lookup's namespace, which
+`cites:` does not accept."""
 TOPIC: Final = "primary_topic.id:"
 KEYLESS_DAILY_CREDITS: Final = 1000
 """What a keyless day buys. The config caps our own use below it."""
@@ -41,6 +54,13 @@ def topic_token(topic_id: str) -> str:
     return TOPIC + topic_id
 
 
+def _headers(env: Mapping[str, str]) -> dict[str, str]:
+    headers = {"User-Agent": USER_AGENT}
+    if key := env.get(API_KEY_ENV):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     params = {
         "filter": query,
@@ -48,10 +68,42 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
         "per_page": str(PER_PAGE),
         "select": SELECT,
     }
-    headers = {"User-Agent": USER_AGENT}
-    if key := env.get(API_KEY_ENV):
-        headers["Authorization"] = f"Bearer {key}"
-    return httpx2.Request("GET", WORKS, params=params, headers=headers)
+    return httpx2.Request("GET", WORKS, params=params, headers=_headers(env))
+
+
+def lookup_request(work: str, env: Mapping[str, str]) -> httpx2.Request:
+    """The singleton `works/doi:<doi>`, id only."""
+    return httpx2.Request("GET", f"{WORKS}/{work}", params={"select": "id"}, headers=_headers(env))
+
+
+async def resolve_work(
+    client: httpx2.AsyncClient, work: str, *, env: Mapping[str, str]
+) -> str | FetchFailure | None:
+    """The OpenAlex work id (`W…`) of a `doi:` value, for the `cites:` filter, which takes
+    nothing else: `cites:doi:10.48550/arXiv.…` answered 400 "is not a valid OpenAlex ID" on
+    every line of the 2026-09-25 run. None when OpenAlex does not hold the work (404: a
+    days-old arXiv paper may not be indexed yet).
+
+    The lookup costs no credit (x-ratelimit-credits-used: 0, measured 2026-09-25) and is
+    not paced: the ceiling is 100 rps and a line looks up at most its citation budget. Like
+    Adapter.fetch, source-side trouble is returned as a FetchFailure, never raised."""
+
+    def fail(reason: FailureReason, detail: str) -> FetchFailure:
+        return FetchFailure(adapter="openalex", query=work, reason=reason, detail=detail)
+
+    try:
+        response = await client.send(lookup_request(work, env))
+    except httpx2.RequestError as e:
+        return fail("transport", type(e).__name__)
+    if response.status_code == 404:
+        return None
+    if response.status_code >= 400:
+        return fail("http_status", http_status_detail(response))
+    try:
+        found = _Work.model_validate_json(response.content).id
+    except ValidationError as e:
+        return fail("parse", type(e).__name__)
+    return found.rsplit("/", 1)[-1] if found else None
 
 
 def credits_used(response: httpx2.Response) -> int:

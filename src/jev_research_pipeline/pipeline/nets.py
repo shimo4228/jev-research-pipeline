@@ -25,7 +25,7 @@ midnight UTC), counted from the response headers.
 import random
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Final, cast
 
@@ -34,6 +34,7 @@ from pydantic import AwareDatetime, JsonValue
 
 from jev_research_pipeline.adapters import (
     Adapter,
+    FetchFailure,
     FetchOutcome,
     collect,
     firehose,
@@ -158,8 +159,10 @@ def paper_id(url: str) -> str | None:
 
 
 def openalex_work(url: str) -> str | None:
-    """The filter value for `cites:` — OpenAlex has no arXiv id filter, so an arXiv paper
-    is addressed through its DataCite DOI (10.48550, ~2022 onward)."""
+    """How OpenAlex knows a cited paper: its work id, or a `doi:` that fetch_nets resolves
+    to one before the `cites:` filter goes out (the filter takes only a work id). OpenAlex
+    has no arXiv id filter, so an arXiv paper goes through its DataCite DOI (10.48550,
+    ~2022 onward)."""
     if "openalex.org/" in url:
         return url.rsplit("/", 1)[-1]
     if "doi.org/" in url:
@@ -340,6 +343,50 @@ def _source_key(request: NetRequest) -> str:
     return f"{request.net}/{request.adapter.kind}"
 
 
+def _record_failure(
+    request: NetRequest, failure: FetchFailure, budget: DayBudget, outcome: NetOutcome
+) -> None:
+    """A failed request is a line in the operations section, never the end of the run."""
+    limited = "rate_limit" in failure.detail
+    if not (limited and _source_key(request) == ARXIV_KEYWORD):
+        # arXiv search at its daily limit is expected on a heavy day and waits for
+        # tomorrow (author decision 2026-09-23): the quiet line below says it.
+        outcome.notes.append(
+            f"{_source_key(request)}: fetch 失敗 ({failure.reason} {failure.detail})"
+        )
+    if limited:
+        # A shared pool answering 429 is a policy signal, not a transient error: that
+        # source is done for the day in this net, for every line. The net's other sources
+        # are other pools (scratch run 5: one arXiv 429 had silenced GitHub and HF keyword
+        # search for every line).
+        budget.quiet.add(_source_key(request))
+        outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
+
+
+async def _sendable(
+    request: NetRequest,
+    client: httpx2.AsyncClient,
+    *,
+    env: Mapping[str, str],
+    budget: DayBudget,
+    outcome: NetOutcome,
+) -> NetRequest | None:
+    """The request as it can go on the wire, or None when it cannot (the reason is an
+    operations line). Only a citation request on a DOI changes: `cites:` takes nothing but
+    an OpenAlex work id, so the DOI is looked up first (openalex.resolve_work)."""
+    work = request.query.removeprefix(openalex.CITES)
+    if request.net != "citation" or not work.startswith(openalex.DOI):
+        return request
+    found = await openalex.resolve_work(client, work, env=env)
+    if isinstance(found, FetchFailure):
+        _record_failure(request, found, budget, outcome)
+        return None
+    if found is None:
+        outcome.notes.append(f"{_source_key(request)}: {work} は OpenAlex 未収録のため省略")
+        return None
+    return replace(request, query=openalex.cites_token(found))
+
+
 def _capped(fresh: list[SourceItem], cap: int, outcome: NetOutcome) -> list[SourceItem]:
     """The firehose's share of a line-run, in feed order (NetConfig.firehose_max)."""
     room = max(cap - outcome.per_net.get("firehose", 0), 0)
@@ -368,28 +415,17 @@ async def fetch_nets(
     outcome = NetOutcome()
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     seen: set[str] = set()
-    for request in requests:
-        if _held_back(request, budget, config, outcome):
+    for planned in requests:
+        if _held_back(planned, budget, config, outcome):
+            continue
+        request = await _sendable(planned, client, env=env, budget=budget, outcome=outcome)
+        if request is None:
             continue
         out = await collect(
             request.adapter, client, partition, line, request.query, now=now, env=env
         )
         if out.failure is not None:
-            limited = "rate_limit" in out.failure.detail
-            if not (limited and _source_key(request) == ARXIV_KEYWORD):
-                # arXiv search at its daily limit is expected on a heavy day and waits for
-                # tomorrow (author decision 2026-09-23): the quiet line below says it.
-                outcome.notes.append(
-                    f"{request.net}/{request.adapter.kind}: fetch 失敗 "
-                    f"({out.failure.reason} {out.failure.detail})"
-                )
-            if limited:
-                # A shared pool answering 429 is a policy signal, not a transient error:
-                # that source is done for the day in this net, for every line. The net's
-                # other sources are other pools (scratch run 5: one arXiv 429 had silenced
-                # GitHub and HF keyword search for every line).
-                budget.quiet.add(_source_key(request))
-                outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
+            _record_failure(request, out.failure, budget, outcome)
             continue
         outcome.notes += _fetch_notes(request, out)
         if request.adapter.kind == "openalex" and not out.cached:

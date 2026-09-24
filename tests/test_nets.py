@@ -209,6 +209,65 @@ async def test_the_openalex_credit_cap_stops_the_citation_net(
     assert outcome.per_net["citation"] == 1
 
 
+CITED_DOI = "doi:10.48550/arXiv.2609.26217"
+"""A paper the jev line had accepted, as `openalex_work` addresses it (2026-09-25 run)."""
+
+
+async def _openalex_api(request: httpx2.Request) -> httpx2.Response:
+    """OpenAlex as measured live on 2026-09-25: the singleton `works/doi:<doi>` resolves a
+    DOI to its work (a DOI OpenAlex does not hold is a 404 page), and `cites:` takes only a
+    work id — anything else is a 400."""
+    if request.url.path == f"/works/{CITED_DOI}":
+        return httpx2.Response(200, json={"id": "https://openalex.org/W7214088086"})
+    if request.url.path == "/works/doi:10.48550/arXiv.2609.00429":
+        return httpx2.Response(429, json={"message": "Rate limit exceeded"})
+    if request.url.path.startswith("/works/"):
+        return httpx2.Response(404, text="<title>404 Not Found</title>")
+    value = request.url.params["filter"].removeprefix(openalex.CITES)
+    if not value.startswith("W"):
+        message = f"'{value}' is not a valid OpenAlex ID."
+        return httpx2.Response(
+            400, json={"error": "Invalid query parameters error.", "message": message}
+        )
+    return httpx2.Response(200, json=OPENALEX_WORKS, headers={"x-ratelimit-credits-used": "1"})
+
+
+def _citation(work: str) -> list[nets.NetRequest]:
+    return [nets.NetRequest("citation", openalex.citation_adapter(), openalex.cites_token(work))]
+
+
+async def test_a_cited_doi_is_resolved_to_a_work_id_before_the_cites_filter(
+    cassette: ClientFactory, cassette_path: Path, tmp_path: Path
+):
+    # 2026-09-25 05:00: `cites:doi:10.48550/arXiv.…` answered 400 on the akc, edge and jev
+    # lines, so the citation net never returned anything.
+    outcome = await _fetch(cassette, _openalex_api, _citation(CITED_DOI), tmp_path)
+    assert outcome.notes == []
+    assert outcome.per_net["citation"] == 1
+    sent = json.loads(cassette_path.read_text(encoding="utf-8"))
+    assert any("filter=cites%3AW7214088086" in key for key in sent)
+
+
+async def test_a_cited_paper_openalex_does_not_hold_is_skipped_with_a_line(
+    cassette: ClientFactory, cassette_path: Path, tmp_path: Path
+):
+    work = "doi:10.48550/arXiv.2609.99999"
+    outcome = await _fetch(cassette, _openalex_api, _citation(work), tmp_path)
+    assert outcome.sources == []
+    assert outcome.notes == [f"citation/openalex: {work} は OpenAlex 未収録のため省略"]
+    sent = json.loads(cassette_path.read_text(encoding="utf-8"))
+    assert not any("filter=" in key for key in sent)  # no cites request for it
+
+
+async def test_a_rate_limited_lookup_quiets_the_citation_net(
+    cassette: ClientFactory, tmp_path: Path
+):
+    requests = _citation("doi:10.48550/arXiv.2609.00429") + _citation(CITED_DOI)
+    outcome = await _fetch(cassette, _openalex_api, requests, tmp_path)
+    assert outcome.sources == []  # the second paper is not asked for once OpenAlex said 429
+    assert "citation/openalex: rate limit のため本日は打ち切り" in outcome.notes
+
+
 # --- meters -------------------------------------------------------------------------------
 
 

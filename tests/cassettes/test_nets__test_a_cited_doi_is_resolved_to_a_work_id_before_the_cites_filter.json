@@ -1,0 +1,12 @@
+{
+ "GET https://api.openalex.org/works/doi:10.48550/arXiv.2609.26217?select=id": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"id\":\"https://openalex.org/W7214088086\"}"
+ },
+ "GET https://api.openalex.org/works?filter=cites%3AW7214088086&per_page=100&select=id%2Cdoi%2Cids%2Ctitle%2Cpublication_date%2Cprimary_topic&sort=publication_date%3Adesc": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"results\":[{\"id\":\"https://openalex.org/W123\",\"doi\":\"https://doi.org/10.48550/arXiv.2609.00002\",\"title\":\"Citing Work\",\"publication_date\":\"2026-09-20\",\"primary_topic\":{\"id\":\"T10017\",\"display_name\":\"Agent memory\"}}]}"
+ }
+}

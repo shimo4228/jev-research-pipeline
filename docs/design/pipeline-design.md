@@ -188,7 +188,9 @@ Nets, in code-fixed order, all keyless:
 2. recommendations — Semantic Scholar `POST /recommendations/v1/papers` with positives =
    ⭕ + accepted claims' papers, negatives = ❌ + random negatives.
 3. forward citations — OpenAlex `filter=cites:` on accepted papers (1 credit/call,
-   1000/day keyless).
+   1000/day keyless). The filter takes only a work id (`W…`); a paper known by DOI is
+   resolved first with the free singleton `works/doi:<doi>` (measured 2026-09-25: a
+   `cites:doi:…` filter is a 400).
 4. keyword (existing) — demoted to fourth.
 5. exploration budget — fixed share of the per-line budget seeded from neighbouring
    OpenAlex topics; new Jev Noul `bridges_line` (connects the line's question to a
