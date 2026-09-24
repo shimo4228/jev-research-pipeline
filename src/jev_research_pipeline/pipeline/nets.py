@@ -2,18 +2,18 @@
 
     firehose → recommendation → citation → keyword → exploration
 
-Keyword search alone is exploitation and converges — one Opus explorer hit 37% single
-theme in 30 days, and keyword-only recall is measured under 20% against citation
+Keyword search alone is exploitation and converges — one Opus explorer put 88 of its 238
+past topics (37%) on a single theme, and keyword-only recall is measured under 20% against citation
 traversal's 80%+. So the keyword net is demoted to fourth and three code-owned nets run
 before it, each with its own per-run request budget from config.toml. The model never
 chooses where to search; it only screens what comes back.
 
 - firehose: today's arXiv announcements in fixed categories + HF daily papers. No query.
-- recommendation: Semantic Scholar, positives = the author's ⭕ and the papers behind
-  accepted claims, negatives = ❌ plus seeded random negatives (Scholar Inbox's recipe
+- recommendation: Semantic Scholar, positives = the author's `[x]` ticks and the papers
+  behind accepted claims, negatives = `[-]` ticks plus seeded random negatives (Scholar Inbox's recipe
   against collapse). Best-effort: the keyless pool answers 429 and the net goes quiet.
 - citation: OpenAlex forward citations of papers this line already accepted.
-- keyword: the Qwen queries scored per question (the original net).
+- keyword: each question's authored queries (`arxiv:` / `github:` / `hf:` / `web:` lines).
 - exploration: a fixed share of the run spent on a topic *next to* the line's own, so
   bridges_line has something outside the vocabulary to find.
 

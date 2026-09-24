@@ -13,12 +13,14 @@ brew install --cask otel-desktop-viewer
 otel-desktop-viewer                           # UI at http://localhost:8000, OTLP on 4318
 ```
 
-Add three lines to `~/.config/jrp/env`:
+Put the endpoint only on the command line of the run you are debugging, never in
+`~/.config/jrp/env`: scheduled runs send no traces, and when nothing listens at 05:00 the export
+retries fill `~/Library/Logs/jrp-run.log` and slow the run (2026-09-25). Start the viewer first:
 
 ```bash
-export OTEL_SERVICE_NAME="jev-research-pipeline"
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
-export OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
+set -a; source ~/.config/jrp/env; set +a
+OTEL_SERVICE_NAME=jev-research-pipeline OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf uv run jrp run
 ```
 
 Any OTLP backend works; only the standard `OTEL_*` variables are read.

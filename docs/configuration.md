@@ -65,7 +65,7 @@ arxiv_keyword_max = 1              # arXiv API searches per line per run (429 av
 
 A line enters the daily rotation only when it has a `[[tracks.<slug>.repos]]` entry. If that directory
 holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of its `Concept` and
-`DefinedTerm` nodes become the line's vocabulary for query writing and screening) the vocabulary is
+`DefinedTerm` nodes become the line's vocabulary for screening and the prose) the vocabulary is
 read from it; otherwise the line's `name` is the only vocabulary. A line with `daily = true` runs on
 every tick and needs no repo.
 

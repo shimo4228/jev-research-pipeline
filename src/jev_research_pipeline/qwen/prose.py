@@ -1,4 +1,4 @@
-"""Qwen site 2: Japanese prose for one open question (qwen3.7-max), and the rendering
+"""The Qwen site: Japanese prose for one open question (qwen3.7-max), and the rendering
 ladder that maps onto Report.rendering (decision 8, rubric-eval row):
 
     write → rubric_report accept → "prose"
@@ -178,7 +178,7 @@ def user_prompt(
     draft: str | None = None,
 ) -> str:
     """`sources` (title / excerpt / url per source) and `claim_sources` (the 1-based source
-    of each claim) are the thicker material the prose bench tries; a run sends neither."""
+    of each claim) are the thicker material the prose bench tuned; a run sends both (pipeline.run)."""
     payload: dict[str, object] = {
         "claims": [
             {"n": i, "text": text}
