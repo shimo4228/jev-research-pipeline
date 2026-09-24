@@ -65,6 +65,23 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 現行の本文プロンプトの候補は `bench/prose/prompts/v7.md` + `check6.md`（著者の読みと足切りを
 難所セットと holdout で通した版）。
 
+## trace を見る（OTel）
+
+本番（launchd）の run は trace を送らない。`~/.config/jrp/env` の `OTEL_EXPORTER_OTLP_ENDPOINT`
+はコメントアウトしてあり、endpoint が無ければ SDK は初期化されない（`telemetry.py`）。
+endpoint を env に戻さない — 05:00 に受け側が起動していないと、送信失敗の retry と Traceback が
+`~/Library/Logs/jrp-run.log` を埋め、run も延びる（2026-09-25 に実際に起きた）。
+
+trace を見たいときは、デバッグする run にだけ endpoint を足す。受け側はローカルの
+`otel-desktop-viewer`（入れ方は `telemetry.py` の docstring）を先に起動しておく:
+
+```bash
+set -a; source ~/.config/jrp/env; set +a
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run jrp run ...
+```
+
+実 vault / 実 store に書く run になる場合は下の「触ってはいけないもの」に従う。
+
 ## 触ってはいけないもの
 
 - `~/MyAI_Lab/daily-research/config.toml` は旧 pipeline と共有で gitignore（git で戻せない）。
