@@ -20,7 +20,7 @@ from jev_research_pipeline.store import GraphStore
 
 from . import builders as b
 from .conftest import ClientFactory
-from .fakes import ARXIV_ATOM, GITHUB_SEARCH, HF_SEARCH, TAVILY_SEARCH, fake_json
+from .fakes import GITHUB_SEARCH, HF_SEARCH, OPENALEX_ARXIV_SEARCH, TAVILY_SEARCH, fake_json
 
 NO_ENV: dict[str, str] = {}
 QUERY = "agent memory"
@@ -33,41 +33,87 @@ def _ok(outcome: FetchOutcome) -> tuple[SourceItem, ...]:
     return outcome.sources
 
 
-# --- arXiv ------------------------------------------------------------------------------
+# --- arXiv (keyword search through OpenAlex) -------------------------------------------
 
 
-async def test_arxiv_parses_atom(cassette: ClientFactory):
-    client = cassette(fake_json(ARXIV_ATOM, content_type="application/atom+xml"))
+async def test_arxiv_search_parses_openalex_works(cassette: ClientFactory):
+    client = cassette(fake_json(OPENALEX_ARXIV_SEARCH))
     out = await arxiv.adapter().fetch(client, b.line(), "narrow questions", now=b.T0, env=NO_ENV)
     first, second = _ok(out)
-    assert first.url == "https://arxiv.org/abs/2609.01234v1"
+    # the firehose's form (no version), so the same paper from both nets is one node
+    assert first.url == "https://arxiv.org/abs/2609.01234"
     assert first.title == "Narrow Questions Beat Broad Prompts"  # whitespace collapsed
     assert (
         first.text == "We decompose judgment into narrow questions. Fitted weights raise accuracy."
     )
     assert first.published_at == date(2026, 9, 20)
     assert second.title == "Agent Memory Layers"
+    assert out.skipped == 1  # the work with no abstract
+    assert out.credits == arxiv.SEARCH_CREDITS  # a replayed cassette keeps no headers
 
 
-def test_arxiv_request_shape():
+def test_arxiv_search_request_shape():
     req = arxiv.adapter().build_request("narrow questions", NO_ENV)
-    assert req.url.host == "export.arxiv.org"
-    assert req.url.params["search_query"] == "all:narrow AND all:questions"
-    assert req.url.params["sortBy"] == "submittedDate"
+    assert req.url.host == "api.openalex.org"
+    assert req.url.path == "/works"
+    assert req.url.params["search"] == "narrow questions"
+    assert req.url.params["filter"] == "primary_location.source.id:S4306400194"
+    assert req.url.params["sort"] == "publication_date:desc"
+    assert req.url.params["per_page"] == "20"
+    assert "abstract_inverted_index" in req.url.params["select"]
+    assert "authorization" not in req.headers
+    keyed = arxiv.adapter().build_request("narrow questions", {"OPENALEX_API_KEY": "k"})
+    assert keyed.headers["authorization"] == "Bearer k"
+    assert "k" not in keyed.url.params.values()  # the key stays out of the URL
 
 
-async def test_arxiv_malformed_xml_is_a_parse_failure(cassette: ClientFactory):
-    client = cassette(fake_json("<feed><entry>", content_type="application/atom+xml"))
+@pytest.mark.parametrize(
+    ("doi", "url"),
+    [
+        ("https://doi.org/10.48550/arxiv.2609.27287", "https://arxiv.org/abs/2609.27287"),
+        ("https://doi.org/10.48550/arXiv.2609.27287", "https://arxiv.org/abs/2609.27287"),
+        ("https://doi.org/10.1234/journal.5", ""),
+        (None, ""),
+    ],
+)
+def test_arxiv_url_comes_from_the_datacite_doi(doi: str | None, url: str):
+    assert arxiv.abs_url(doi) == url
+
+
+def test_the_inverted_abstract_is_put_back_in_order():
+    index = {"agents": [1, 4], "Tool": [0], "call": [2], "and": [3]}
+    assert arxiv.abstract(index) == "Tool agents call and agents"
+    assert arxiv.abstract(None) == ""
+
+
+async def test_arxiv_search_reads_the_credit_header():
+    async def upstream(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200, json=OPENALEX_ARXIV_SEARCH, headers={"x-ratelimit-credits-used": "12"}
+        )
+
+    out = await arxiv.adapter().fetch(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(upstream)),
+        b.line(),
+        QUERY,
+        now=b.T0,
+        env=NO_ENV,
+    )
+    assert out.credits == 12
+
+
+async def test_arxiv_search_wrong_shape_is_a_parse_failure(cassette: ClientFactory):
+    client = cassette(fake_json({"results": "not a list"}))
     out = await arxiv.adapter().fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
     assert out.sources == ()
     assert out.failure is not None and out.failure.reason == "parse"
 
 
-async def test_arxiv_rejects_xml_entity_expansion(cassette: ClientFactory):
-    bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><feed>&a;</feed>'
-    client = cassette(fake_json(bomb, content_type="application/atom+xml"))
-    out = await arxiv.adapter().fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
-    assert out.failure is not None and out.failure.reason == "parse"
+async def test_a_source_that_is_not_openalex_spends_no_credit(cassette: ClientFactory):
+    out = await hf_papers.adapter().fetch(
+        cassette(fake_json(HF_SEARCH)), b.line(), QUERY, now=b.T0, env=NO_ENV
+    )
+    assert out.credits == 0
 
 
 # --- HF papers --------------------------------------------------------------------------
@@ -162,8 +208,8 @@ def test_adapter_kinds_cover_line_adapters():
 
 
 def test_pacing_intervals_follow_published_limits():
-    # arXiv ToU: 1 request / 3 s. GitHub search unauthenticated: 10/min. HF search: 50 / 5 min.
-    assert arxiv.adapter().min_interval_s == 3.0
+    # OpenAlex: 100 rps. GitHub search unauthenticated: 10/min. HF search: 50 / 5 min.
+    assert arxiv.adapter().min_interval_s == 0.5
     assert github.adapter().min_interval_s == 6.0
     assert hf_papers.adapter().min_interval_s == 6.0
 
@@ -178,9 +224,7 @@ async def test_pacing_holds_across_adapter_instances():
 
     async def record(request: httpx2.Request) -> httpx2.Response:
         sent.append(time.monotonic())
-        return httpx2.Response(
-            200, text=ARXIV_ATOM, headers={"content-type": "application/atom+xml"}
-        )
+        return httpx2.Response(200, json=OPENALEX_ARXIV_SEARCH)
 
     http = httpx2.AsyncClient(transport=httpx2.MockTransport(record))
     for _ in range(2):
@@ -270,17 +314,7 @@ async def test_one_bad_result_is_skipped_not_fatal(cassette: ClientFactory):
     assert out.skipped == 2
 
 
-# --- first live run: arXiv 406 and GitHub 403 --------------------------------------------
-
-
-def test_arxiv_sends_an_explicit_accept_and_contact_user_agent():
-    # 2026-09-22 live: 406 from the edge in front of export.arxiv.org on the default
-    # httpx2 headers (Accept: */*, User-Agent: python-httpx2/...). Verified 2026-09-23:
-    # an explicit atom Accept + a descriptive UA gets 200.
-    headers = arxiv.adapter().build_request(QUERY, NO_ENV).headers
-    assert headers["accept"] == "application/atom+xml"
-    assert headers["user-agent"].startswith("jev-research-pipeline/")
-    assert "mailto:" in headers["user-agent"]
+# --- first live run: GitHub 403 ------------------------------------------------------
 
 
 def test_github_sends_a_descriptive_user_agent():
@@ -335,7 +369,7 @@ async def test_http_error_detail_explains_itself(
 async def test_adapter_refuses_a_query_with_no_searchable_text(cassette: ClientFactory, junk: str):
     # Deterministic guard behind the model-side validation (2026-09-23 live: arXiv 406).
     out = await arxiv.adapter().fetch(
-        cassette(fake_json(ARXIV_ATOM, content_type="application/atom+xml")),
+        cassette(fake_json(OPENALEX_ARXIV_SEARCH)),
         b.line(),
         junk,
         now=b.T0,

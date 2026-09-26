@@ -349,13 +349,31 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
 
 - arXiv firehose = `rss.arxiv.org/rss/<cat>+<cat>` (full abstracts, `arxiv:announce_type`
   new/cross/replace, description prefixed "arXiv:<id>vN Announce Type:", empty at weekends).
-  `export.arxiv.org/api/query` stays the keyword net; ToU is one request per 3 s and the
-  406 is an undocumented CDN rule, not policy.
+  When the listing overflows `firehose_max` (~541 new items on 2026-09-26 against a cap of
+  300; the prefilter then rejects ~97% of arXiv items), what is kept is ranked by BM25
+  (bm25s, no stemmer) of title + abstract against the line's English query text — the open
+  questions' `arxiv:` / `hf:` / `github:` lines and the line vocabulary; `web:` lines,
+  headings and briefs are Japanese and would match nothing. Ties and an empty query keep
+  feed order; HF daily keeps its place ahead.
+- **arXiv API no longer used (as-of 2026-09-26).** `export.arxiv.org` answers 406 to every
+  Python client (httpx2 and urllib) since 2026-09-24 while curl gets 200, even for a query
+  no cache held; other projects report the same 406 since 2026-09-13. The author decided
+  against a client workaround (it would be bot-detection evasion). `arxiv:` keyword queries
+  go to OpenAlex `works?search=<words>&filter=primary_location.source.id:S4306400194`
+  (newest first, 20 per query, ~3 days behind the announcement, 10 credits each, same daily
+  cap as the citation net); the SourceItem keeps kind `arxiv` and the firehose's URL form
+  `https://arxiv.org/abs/<id>` from the `10.48550/arxiv.<id>` DOI, text = the reconstructed
+  `abstract_inverted_index`. An arXiv canary is the free singleton
+  `works/doi:10.48550/arXiv.<id>` (404 = not indexed yet, one operations line). Removed with
+  it: the urllib host routing, the 406 resends, the per-line `arxiv_keyword_max` cap and the
+  406 quiet branch. Review-when: export.arxiv.org answers 200 to httpx2 again, or arXiv names
+  a sanctioned client path.
 - HF daily papers = `huggingface.co/api/daily_papers?date=&limit=` — live, keyless,
   undocumented; only `date` and `limit` verified, so the field set needs a golden test.
 - Semantic Scholar keyless is a globally shared pool: a single cold request answered 429
   (measured). Plan for a key or treat the net as best-effort with a hard give-up.
 - OpenAlex: `mailto=` no longer buys a polite pool; keyless = 1,000 credits = $0.10/day,
+  with a key 10,000 = $1/day (measured 2026-09-26; our default cap 400 keyless, 4,000 keyed),
   a filtered list is 1 credit, a `search=` is 10, singleton lookups are free, reset at
   midnight UTC. `per_page` max is 100. There is no arXiv id filter — an arXiv paper is
   addressed through its DataCite DOI (10.48550, ~2022 onward), and the preprint and the
@@ -431,9 +449,9 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - condition 1 relaxed: a tick (3 rotated lines + daily) ≤ 10 min (author, 2026-09-23 15:00).
 - prose (qwen3.8-max) thinks again (`JRP_PROSE_THINKING=always`), timeout 300 → 900 s (≈ 1.8x the slowest draft seen, 496 s under contention; a draft past ~7 min breaks the 10-min tick anyway): blind A/B on 7 question-days, thinking won 6/7 and had no fidelity flag (docs/pilot-log.md). The structured-output site stays without thinking.
 - FLASH site model qwen3.8-flash → deepseek-v4.1-flash (qwen3.8-flash free quota spent), output mode NativeOutput strict → PromptedOutput (deepseek answers 400 "response_format type is unavailable" to json_schema, though its docs list it; measured 2026-09-23). Prose (qwen3.8-max) is free text and was never schema-bound.
-- keyword/arxiv 429: an informational line, not a failure line (arXiv search waits for the next day).
+- keyword/arxiv 429: an informational line, not a failure line (arXiv search waits for the next day). Superseded 2026-09-26: `arxiv:` search is OpenAlex now, and a 429 there is a failure line plus a quiet line for the whole OpenAlex pool, like any other source.
 - daily tracks (`daily = true`, e.g. jev) run on every tick beside the 3 rotated lines; the lines of a tick run side by side under one shared Jev rate window.
-- arXiv export goes through urllib (httpx2 alone gets 406 on queries arXiv's cache does not hold); canaries are probed by URL every run (GitHub README / arXiv id / page), one operations line each.
+- arXiv export went through urllib (httpx2 alone got 406) until 2026-09-26, when the arXiv API was dropped altogether ("Discovery endpoints"); canaries are probed by URL every run (GitHub README / arXiv paper via OpenAlex / page), one operations line each.
 
 ### Authored queries (author decision 2026-09-23)
 
@@ -451,8 +469,8 @@ deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carr
 - Checked before a run depends on them: `jrp queries check --line <slug>` sends each once and
   prints hit count and newest titles; nothing is stored, no model is called.
 - At run time they bypass Qwen and Jev query_selection. Each adapter's list is rotated by the
-  line's run count (earlier Reports), because the keyword budget and arXiv's one-search-a-line
-  cap cut from the front; not by the day ordinal, which repeats the same start when a rotated
+  line's run count (earlier Reports), because the keyword budget (and, until 2026-09-26,
+  arXiv's one-search-a-line cap) cuts from the front; not by the day ordinal, which repeats the same start when a rotated
   line's interval shares a factor with the list's length (code review).
 - Questions themselves stay author-maintained, updated when the author notices (same day's
   decision; external sweep: every living-review / PIR / KIT practice keeps a human owner).

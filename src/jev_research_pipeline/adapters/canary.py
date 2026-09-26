@@ -7,7 +7,10 @@ every other fetch.
 - github.com/<owner>/<repo>  → its README through the GitHub API (a description of ~100
                                characters is too little to judge evidence by; search also
                                leaves forks out, and one canary is a fork)
-- arxiv.org/abs/<id>         → arXiv API `id_list=<id>`
+- arxiv.org/abs/<id>         → the OpenAlex singleton `works/doi:10.48550/arXiv.<id>`
+                               with its abstract (free; export.arxiv.org refuses Python
+                               clients since 2026-09-24, adapters.arxiv). A 404 is a
+                               paper OpenAlex has not indexed yet (~3 days behind arXiv)
 - any other https page       → the page itself, tags stripped
 """
 
@@ -23,9 +26,8 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline.model import Line, SourceItem
 
-from .arxiv import ENDPOINT as ARXIV_ENDPOINT
-from .arxiv import HEADERS as ARXIV_HEADERS
 from .arxiv import adapter as arxiv_adapter
+from .arxiv import paper_parse, paper_request
 from .base import USER_AGENT, Adapter, RawDraft, one_line
 from .github import adapter as github_adapter
 from .github import build_request as github_request
@@ -49,10 +51,6 @@ def readme_parse(repo: str, url: str, body: str) -> list[RawDraft]:
     """The README as plain text: markup and HTML stripped, the first PAGE_CHARS kept."""
     text = one_line(html.unescape(_TAG.sub(" ", _MD.sub(" ", body))))[:PAGE_CHARS]
     return [RawDraft(url=url, title=repo, text=text, published_at=None)]
-
-
-def _arxiv_id(query: str, _env: Mapping[str, str]) -> httpx2.Request:
-    return httpx2.Request("GET", ARXIV_ENDPOINT, params={"id_list": query}, headers=ARXIV_HEADERS)
 
 
 def _page(query: str, _env: Mapping[str, str]) -> httpx2.Request:
@@ -82,7 +80,14 @@ def plan(url: str) -> tuple[Adapter, str] | None:
         )
         return adapter, repo
     if m := _ARXIV.match(url):
-        return replace(arxiv_adapter(), build_request=_arxiv_id, query_kind="token"), m.group(1)
+        adapter = replace(
+            arxiv_adapter(),
+            build_request=paper_request,
+            parse=paper_parse,
+            query_kind="token",
+            credit_cost=0,
+        )
+        return adapter, m.group(1)
     if url.startswith("https://"):
         adapter = Adapter(
             kind="web_search",
@@ -109,6 +114,12 @@ async def fetch(
         return "https でない URL"
     adapter, query = planned
     out = await adapter.fetch(client, line, query, now=now, env=env)
+    if (
+        adapter.kind == "arxiv"
+        and out.failure is not None
+        and out.failure.detail.startswith("404 ")
+    ):
+        return "OpenAlex 未収録 (索引待ち)"
     if out.failure is not None:
         return f"{out.failure.reason} {out.failure.detail}"[:120]
     return out.sources[0] if out.sources else "取得結果なし"

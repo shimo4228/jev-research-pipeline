@@ -19,8 +19,10 @@
    HF papers / GitHub を検索して、実際の論文・repo が使っている語を拾う。store にこの問いで
    Keep された source があれば、そのタイトルの語も使う
 3. **アダプタごとに書く**（原則英語、1 行 1 クエリ、1 アダプタにつき 1–2 本）:
-   - `- arxiv:` 2–4 語。全語 AND（`all:w1 AND all:w2`）なので語を足すほど狭まる。引用符・
-     ブール演算子は書かない
+   - `- arxiv:` 2–4 語。OpenAlex の全文検索（`search=`、arXiv の source に絞る）にそのまま渡る。
+     題名・抄録・本文が対象で、語は AND で結ばれ（語を足すほど狭まる）、stemming と stopword
+     除去がかかる。結果は新しい順に 20 件で、OpenAlex の索引は arXiv の告知から約 3 日遅れる。
+     1 回 10 credit（OpenAlex の 1 日の枠を引用の網と共有）。引用符・ブール演算子は書かない
    - `- github:` 短いキーワード。`topic:x` などの GitHub 修飾子は使える
    - `- hf:` 自然な英語の句（HF papers の検索）
    - `- web:` Tavily の Web 検索（`TAVILY_API_KEY` が要る。無料枠は月 1,000 回、basic 1 回 1 クレジット）。

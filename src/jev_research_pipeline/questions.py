@@ -36,8 +36,10 @@ Search queries are written into the same block, one line per query, keyed by ada
 They are authored when the question is (by the author, or by Claude in the author's
 session — never at run time), trial-fetched with `jrp queries check`, and rewritten when
 the question changes. A question runs on exactly its query lines; one without them sends
-no keyword query (the note says so) while the other nets still run. arXiv ANDs every word
-(`all:w1 AND all:w2`), so its queries stay two to four words.
+no keyword query (the note says so) while the other nets still run. An `arxiv:` query goes
+to OpenAlex search restricted to arXiv (adapters.arxiv), which ANDs every word over title,
+abstract and full text (help.openalex.org/api/searching, 2026-09-26), so its queries stay
+two to four words.
 """
 
 import re

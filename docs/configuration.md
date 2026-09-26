@@ -30,7 +30,7 @@ uv run jrp run
 | `JRP_DRIFT_LIVE` | no | `1` lets `jrp drift` call Jev live |
 | `GITHUB_TOKEN` | no | raises GitHub search from 10 to 30 requests per minute (a fine-grained token with no permissions is enough) |
 | `SEMANTIC_SCHOLAR_API_KEY` | no | recommendation net; without it the shared keyless quota may return 429 for the day |
-| `OPENALEX_API_KEY` | no | raises the citation net's daily cap from $0.10 to $1 of credits |
+| `OPENALEX_API_KEY` | no | raises OpenAlex's daily budget from 1,000 credits ($0.10) to 10,000 ($1), and the default `openalex_daily_credits` cap from 400 to 4,000. The citation and exploration nets and the `arxiv:` keyword search all spend it |
 | `HF_TOKEN` | no | raises the Hugging Face daily papers rate limit |
 | `TAVILY_API_KEY` | no | web-search source inside the keyword net; unset, that source is skipped and the note says so |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | enables OpenTelemetry export; see [observability.md](observability.md) |
@@ -60,10 +60,20 @@ keyword = 12
 exploration = 1
 exploration_share = 0.2            # share of the keyword budget spent on neighbouring topics
 arxiv_categories = ["cs.AI", "cs.CL", "cs.LG", "cs.HC"]
-openalex_daily_credits = 400       # keyless OpenAlex allows 1,000 credits ($0.10) a day
+openalex_daily_credits = 400       # our own daily cap; default 400 keyless, 4000 with OPENALEX_API_KEY
 firehose_max = 300                 # sources taken from the firehose per line per run
-arxiv_keyword_max = 1              # arXiv API searches per line per run (429 avoidance)
 ```
+
+`openalex_daily_credits` counts every OpenAlex request across the day's lines: a citation or
+exploration list costs 1 credit, an `arxiv:` keyword search 10 (it is an OpenAlex `search=`
+restricted to the arXiv source; arXiv's own API refuses Python clients since 2026-09-24). Leave
+it out to get the default for whether `OPENALEX_API_KEY` is set.
+
+When the arXiv listing holds more than `firehose_max` new papers, the ones kept are ranked by
+BM25 against the line's English query text — the open questions' `arxiv:` / `hf:` / `github:`
+lines plus the line vocabulary — and the note says `firehose: 関連度順に上位 N 件 (M 件を省略)`.
+Hugging Face daily papers keep their place ahead of it. With no query text the cut is in feed
+order. `arxiv_keyword_max` is no longer read; a config that still has it loads unchanged.
 
 A line enters the daily rotation only when it has a `[[tracks.<slug>.repos]]` entry. If that directory
 holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of its `Concept` and

@@ -87,8 +87,8 @@ output type and the raw probability distributions are stored with the decision.
   about 15 minutes. The independent Opus judge has not read these notes yet. On both daily
   runs so far, arXiv keyword search answered HTTP 406, so `arxiv:` query lines returned nothing (new
   arXiv listings still arrive through the firehose net), and some OpenAlex citation lookups failed.
-  The OpenAlex failure is fixed as of 2026-09-25; after a 406 that outlasts its retries, a run now
-  stops arXiv keyword search for the day instead of paying the retries on every line.
+  The OpenAlex failure is fixed as of 2026-09-25. arXiv's own API still refuses Python clients, so
+  since 2026-09-26 `arxiv:` queries go to OpenAlex's search, limited to arXiv papers, instead.
 - **The prose model is now GPT-5.6 Sol on a Codex subscription** (2026-09-24), in place of
   qwen3.7-max on DashScope. The prompt was tuned and read on qwen3.7-max and has not been re-read on
   GPT-5.6 Sol yet. Qwen is still one environment variable away
@@ -197,8 +197,8 @@ operations block as a sign that screening drifted.
 one per line, in English except that a `web:` query may be in Japanese. You write them together with
 the question, or have an assistant draft them in your session, and try them before a run uses them:
 `uv run jrp queries check --line <slug>` sends each query once and prints the hit count and the newest
-titles, storing nothing. arXiv matches every word (`all:w1 AND all:w2`), so keep its queries to two
-to four words. A question without query lines sends no keyword query (the note's operations block
+titles, storing nothing. An `arxiv:` query is sent to OpenAlex's search, limited to arXiv papers,
+which requires every word to match, so keep its queries to two to four words. A question without query lines sends no keyword query (the note's operations block
 says so); the other nets still run for it. The authoring procedure is in [AGENTS.md](AGENTS.md)
 (in Japanese, written for coding agents).
 
@@ -234,10 +234,10 @@ by papers that Jev's screening kept. No model can add a net, skip one, or change
 
 | net | what it fetches | default budget (API requests per run) |
 |---|---|---|
-| firehose | new arXiv listings for fixed categories, plus Hugging Face daily papers; no query | 2 |
+| firehose | new arXiv listings for fixed categories, plus Hugging Face daily papers; no query. When the arXiv listing is longer than the cap (300), the papers closest to the line's queries are kept | 2 |
 | recommendation | Semantic Scholar recommendations seeded by ticked and kept papers, with random negatives | 1 |
 | citation | OpenAlex forward citations of papers already kept | 3 |
-| keyword | each question's authored queries, sent to arXiv (one request), Hugging Face papers, GitHub and, with a key, Tavily web search | 10: the configured 12 minus a 20% share (2) set aside for exploration |
+| keyword | each question's authored queries, sent to arXiv (through OpenAlex's search), Hugging Face papers, GitHub and, with a key, Tavily web search | 10: the configured 12 minus a 20% share (2) set aside for exploration |
 | exploration | neighbouring OpenAlex topics of the papers already kept; nothing until the store holds OpenAlex papers | 1, from the 2 set aside (the other goes unused) |
 
 Every net works without source-API keys (Jev's TypeSafe key and the writing model's login or key are

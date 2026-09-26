@@ -1,22 +1,27 @@
 """Discovery nets: a code-fixed order, per-net budgets, an exploration share, and the
 meters that say which net is earning its keep."""
 
-import asyncio
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import httpx2
 import pytest
 
 from jev_research_pipeline.adapters import arxiv, firehose, hf_papers, openalex, semantic_scholar
+from jev_research_pipeline.adapters.base import credits_used
 from jev_research_pipeline.model import Claim, SourceItem, Unit
 from jev_research_pipeline.pipeline import meters, nets
 from jev_research_pipeline.store import GraphStore
 
 from . import builders as b
 from .conftest import ClientFactory
-from .fakes import ARXIV_RSS, E2E_ABSTRACT, OPENALEX_WORKS, S2_RECOMMENDATIONS
+from .fakes import (
+    ARXIV_RSS,
+    E2E_ABSTRACT,
+    OPENALEX_ARXIV_SEARCH,
+    OPENALEX_WORKS,
+    S2_RECOMMENDATIONS,
+)
 
 KEYWORD = [(hf_papers.adapter(), "agent memory")] * 6
 
@@ -89,6 +94,22 @@ def test_missing_config_falls_back_to_the_defaults(tmp_path: Path):
     assert nets.load_nets(tmp_path / "nothing.toml").budgets == nets.DEFAULT_BUDGETS
 
 
+def test_a_config_that_still_has_arxiv_keyword_max_loads(tmp_path: Path):
+    # the cap arXiv's own rate limit asked for; arXiv search now goes through OpenAlex
+    config = tmp_path / "config.toml"
+    config.write_text("[nets]\narxiv_keyword_max = 1\nkeyword = 6\n", encoding="utf-8")
+    loaded = nets.load_nets(config)
+    assert loaded.budget("keyword") == 6
+    assert not hasattr(loaded, "arxiv_keyword_max")
+
+
+def test_the_openalex_cap_defaults_by_whether_there_is_a_key():
+    assert nets.NetConfig().credit_cap({}) == nets.DEFAULT_CREDIT_CAP == 400
+    assert nets.NetConfig().credit_cap({"OPENALEX_API_KEY": "k"}) == nets.KEYED_CREDIT_CAP == 4000
+    # a configured cap wins either way
+    assert nets.NetConfig(openalex_daily_credits=50).credit_cap({"OPENALEX_API_KEY": "k"}) == 50
+
+
 @pytest.mark.parametrize(
     ("url", "paper", "work"),
     [
@@ -153,7 +174,8 @@ def test_recommendations_fall_back_to_the_arxiv_url():
 
 def test_openalex_reads_credits_and_topics():
     response = httpx2.Response(200, json=OPENALEX_WORKS, headers={"x-ratelimit-credits-used": "1"})
-    assert openalex.credits_used(response) == 1
+    assert credits_used(response) == 1
+    assert credits_used(httpx2.Response(200)) is None
     body = json.dumps(OPENALEX_WORKS)
     assert openalex.topics_of(body) == ["T10017"]
     (draft,) = openalex.parse(body)
@@ -279,40 +301,154 @@ async def test_a_rate_limited_lookup_quiets_the_citation_net(
     assert "citation/openalex: rate limit のため本日は打ち切り" in outcome.notes
 
 
-async def test_an_arxiv_keyword_406_quiets_arxiv_search_for_the_day(
+async def _openalex_everything(request: httpx2.Request) -> httpx2.Response:
+    """OpenAlex answering both a `search=` (arXiv keyword) and a filtered list (citation)."""
+    if "search" in request.url.params:
+        return httpx2.Response(200, json=OPENALEX_ARXIV_SEARCH)
+    return httpx2.Response(200, json=OPENALEX_WORKS)
+
+
+def _arxiv_search(query: str = "agent memory") -> nets.NetRequest:
+    return nets.NetRequest("keyword", arxiv.adapter(), query)
+
+
+async def test_an_arxiv_search_spends_ten_credits_of_the_openalex_day(
     cassette: ClientFactory, tmp_path: Path
 ):
-    # 2026-09-24 and 09-25: export.arxiv.org's edge answered 406 to every keyword query from
-    # Python clients (curl got 200 for the same bytes), and each line paid the resends again.
-    # Lines run at the same time, so the second line must wait for the first one's answer.
-    async def refused(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(406, text="")
+    # measured 2026-09-26: a `search=` costs 10 credits, a filtered list 1 (the replayed
+    # cassette has no headers, so the adapters' declared costs are what is counted)
+    requests = [_arxiv_search(), *_citation("W1")]
+    outcome = await nets.fetch_nets(
+        requests,
+        cassette(_openalex_everything),
+        GraphStore(tmp_path).line("akc"),
+        b.line(),
+        now=b.T0,
+        env={},
+        config=nets.NetConfig(),
+    )
+    assert outcome.openalex_credits == 11
+    assert outcome.per_net == {"keyword": 2, "citation": 1}
 
-    client = cassette(refused)
-    adapter = replace(arxiv.adapter(), min_interval_s=0.0, retry_waits=(0.0, 0.0))
+
+async def test_the_openalex_credit_cap_holds_back_arxiv_search_too(
+    cassette: ClientFactory, tmp_path: Path
+):
     day = nets.DayBudget()
+    outcome = await nets.fetch_nets(
+        [_arxiv_search("agent memory"), _arxiv_search("agent recall"), *_citation("W1")],
+        cassette(_openalex_everything),
+        GraphStore(tmp_path).line("akc"),
+        b.line(),
+        now=b.T0,
+        env={},
+        config=nets.NetConfig(openalex_daily_credits=10),
+        day=day,
+    )
+    assert day.spent == 10  # the first search; the second and the citation list wait
+    assert outcome.notes == [
+        "keyword/arxiv: 検証落ちで 1 件 skip",  # the work with no abstract
+        "openalex: 1 日の credit 上限に達したため以降を省略",  # once, not per request
+    ]
+    assert "citation" not in outcome.per_net
 
-    async def one_line(name: str) -> nets.NetOutcome:
-        return await nets.fetch_nets(
-            [nets.NetRequest("keyword", adapter, "agent memory")],
-            client,
-            GraphStore(tmp_path / name).line("akc"),
-            b.line(),
-            now=b.T0,
-            env={},
-            config=nets.NetConfig(),
-            day=day,
-        )
 
-    first, second = await asyncio.gather(one_line("a"), one_line("b"))
-    assert "keyword/arxiv" in day.quiet
-    assert [first.notes, second.notes].count(
-        [
-            "keyword/arxiv: fetch 失敗 (http_status 406 not_acceptable:)",
-            "keyword/arxiv: 406 が続いたため本日は打ち切り",
+async def test_a_rate_limited_arxiv_search_quiets_the_whole_openalex_pool(
+    cassette: ClientFactory, cassette_path: Path, tmp_path: Path
+):
+    # citation, exploration and arXiv keyword search are one OpenAlex budget
+    async def limited(request: httpx2.Request) -> httpx2.Response:
+        if "search" in request.url.params:
+            return httpx2.Response(429, json={"message": "Rate limit exceeded"})
+        return httpx2.Response(200, json=OPENALEX_WORKS)
+
+    outcome = await _fetch(cassette, limited, [_arxiv_search(), *_citation("W1")], tmp_path)
+    assert "keyword/arxiv: rate limit のため本日は打ち切り" in outcome.notes
+    assert outcome.per_net == {}
+    sent = json.loads(cassette_path.read_text(encoding="utf-8"))
+    assert not any("filter=cites" in key for key in sent)
+
+
+# --- the firehose cap: by relevance to the line, not by feed order ------------------------
+
+
+def _listed(title: str, text: str, n: int) -> SourceItem:
+    return SourceItem.new(
+        line=b.LINE_IRI,
+        adapter="arxiv",
+        net="firehose",
+        url=f"https://arxiv.org/abs/2609.{n:05d}",
+        title=title,
+        text=text,
+        fetched_at=b.T0,
+    )
+
+
+LISTING = [
+    _listed("Protein folding at scale", "Diffusion models fold proteins.", 1),
+    _listed("Galaxy surveys", "We count galaxies in deep fields.", 2),
+    _listed("Verifying agent tool calls", "Agents check their tool calls before acting.", 3),
+    _listed("Crop yield forecasting", "Satellite images predict harvests.", 4),
+    _listed("Agent memory benchmarks", "A benchmark for long-term memory in agents.", 5),
+]
+
+
+def test_the_listing_is_ranked_by_bm25_and_ties_keep_feed_order():
+    ranked = nets.ranked(LISTING, "agent verification tool calls memory")
+    assert ranked is not None
+    assert [s.title for s in ranked[:2]] == [
+        "Verifying agent tool calls",
+        "Agent memory benchmarks",
+    ]
+    # the three that match nothing tie at zero and stay in feed order
+    assert [s.title for s in ranked[2:]] == [
+        "Protein folding at scale",
+        "Galaxy surveys",
+        "Crop yield forecasting",
+    ]
+    assert nets.ranked(LISTING, "the of and") is None  # stopwords only: nothing to rank by
+    assert nets.ranked(LISTING, "") is None
+
+
+def test_an_overflowing_listing_keeps_the_most_relevant():
+    outcome = nets.NetOutcome()
+    kept = nets._capped(  # pyright: ignore[reportPrivateUsage]
+        list(LISTING), 2, outcome, query="agent tool calls memory"
+    )
+    assert [s.title for s in kept] == ["Verifying agent tool calls", "Agent memory benchmarks"]
+    assert outcome.notes == ["firehose: 関連度順に上位 2 件 (3 件を省略)"]
+
+
+def test_without_query_text_the_cap_keeps_feed_order():
+    outcome = nets.NetOutcome()
+    kept = nets._capped(list(LISTING), 2, outcome)  # pyright: ignore[reportPrivateUsage]
+    assert kept == LISTING[:2]
+    assert outcome.notes == ["firehose: 上限 2 件のため 3 件を省略"]
+
+
+async def test_hf_daily_is_cut_in_its_own_order_even_with_query_text(
+    cassette: ClientFactory, tmp_path: Path
+):
+    # HF daily is already curated and goes first; only the arXiv listing is ranked
+    async def daily(request: httpx2.Request) -> httpx2.Response:
+        papers = [
+            {"paper": {"id": "2609.00004", "title": "Galaxy surveys", "summary": E2E_ABSTRACT}},
+            {"paper": {"id": "2609.00005", "title": "Narrow typed questions", "summary": "x y"}},
         ]
-    ) == 1
-    assert [] in (first.notes, second.notes)  # the other line sent nothing
+        return httpx2.Response(200, json=papers)
+
+    outcome = await nets.fetch_nets(
+        [nets.NetRequest("firehose", firehose.hf_adapter(), "2026-09-22")],
+        cassette(daily),
+        GraphStore(tmp_path).line("akc"),
+        b.line(),
+        now=b.T0,
+        env={},
+        config=nets.NetConfig(firehose_max=1),
+        firehose_query="narrow typed questions",
+    )
+    assert [s.title for s in outcome.sources] == ["Galaxy surveys"]
+    assert outcome.notes == ["firehose: 上限 1 件のため 1 件を省略"]
 
 
 # --- meters -------------------------------------------------------------------------------

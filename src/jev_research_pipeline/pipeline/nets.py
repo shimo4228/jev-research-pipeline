@@ -8,21 +8,27 @@ traversal's 80%+. So the keyword net is demoted to fourth and three code-owned n
 before it, each with its own per-run request budget from config.toml. The model never
 chooses where to search; it only screens what comes back.
 
-- firehose: today's arXiv announcements in fixed categories + HF daily papers. No query.
+- firehose: today's arXiv announcements in fixed categories + HF daily papers. No query;
+  when the arXiv listing overflows the cap, what is kept is ranked by BM25 against the
+  line's own English query text (authored `arxiv:` / `hf:` / `github:` lines + the line
+  vocabulary), not cut in feed order (~541 items on 2026-09-26, cap 300, and the
+  prefilter rejects ~97% of arXiv items).
 - recommendation: Semantic Scholar, positives = the author's `[x]` ticks and the papers
   behind accepted claims, negatives = `[-]` ticks plus seeded random negatives (Scholar Inbox's recipe
   against collapse). Best-effort: the keyless pool answers 429 and the net goes quiet.
 - citation: OpenAlex forward citations of papers this line already accepted.
 - keyword: each question's authored queries (`arxiv:` / `github:` / `hf:` / `web:` lines).
+  `arxiv:` goes to OpenAlex search restricted to the arXiv source (adapters.arxiv): arXiv's
+  own API refuses Python clients since 2026-09-24.
 - exploration: a fixed share of the run spent on a topic *next to* the line's own, so
   bridges_line has something outside the vocabulary to find.
 
 Budgets are request counts, not result counts: a net that is cheap to ask is asked more
-often. The OpenAlex credit cap is a daily budget (keyless: 1,000 credits, $0.10, reset at
-midnight UTC), counted from the response headers.
+often. The OpenAlex credit cap is a daily budget (keyless: 1,000 credits, $0.10; with a
+key 10,000 and $1; reset at midnight UTC), counted from the response headers — a citation
+or exploration list costs 1 credit, an arXiv keyword search 10.
 """
 
-import asyncio
 import random
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
@@ -30,6 +36,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Final, cast
 
+import bm25s  # pyright: ignore[reportMissingTypeStubs]
 import httpx2
 from pydantic import AwareDatetime, JsonValue
 
@@ -64,18 +71,18 @@ adapters left two lines with no source on topic at all; the firehose is broad by
 so the targeted net carries the question-specific sources."""
 DEFAULT_EXPLORATION_SHARE: Final = 0.2
 DEFAULT_CREDIT_CAP: Final = 400
-"""Requests we allow ourselves against OpenAlex per day; keyless buys 1,000 credits."""
+"""OpenAlex credits we allow ourselves per day without a key; keyless buys 1,000."""
+KEYED_CREDIT_CAP: Final = 4000
+"""The same with OPENALEX_API_KEY set; a key buys 10,000 (measured 2026-09-26)."""
+OPENALEX: Final = "openalex"
+"""DayBudget.quiet key of the OpenAlex pool itself: citation, exploration and arXiv keyword
+search all draw on it, so a 429 on one of them is a 429 for all."""
 RANDOM_NEGATIVES: Final = 5
 """Seeded random negatives, so the recommender has something to move away from even
 before the author has ticked a ❌ (Scholar Inbox: random negatives prevent collapse)."""
 
 
 DEFAULT_FIREHOSE_MAX: Final = 300
-DEFAULT_ARXIV_KEYWORD_MAX: Final = 1
-"""export.arxiv.org answered 429 and refused connections to paced, one-at-a-time requests
-after a day of pilot runs (scratch runs 5-6, 2026-09-23): the API's own budget is lower
-than its per-request ToU suggests. A rate limit is a policy signal, not something to retry
-through; HF paper search also returns arXiv papers."""
 
 
 @dataclass(frozen=True)
@@ -83,19 +90,26 @@ class NetConfig:
     budgets: Mapping[DiscoveryNet, int] = field(default_factory=lambda: dict(DEFAULT_BUDGETS))
     exploration_share: float = DEFAULT_EXPLORATION_SHARE
     categories: tuple[str, ...] = firehose.DEFAULT_CATEGORIES
-    openalex_daily_credits: int = DEFAULT_CREDIT_CAP
+    openalex_daily_credits: int | None = None
+    """None = the default for the environment (credit_cap)."""
     firehose_max: int = DEFAULT_FIREHOSE_MAX
-    """Firehose sources kept per line-run, in feed order (the first pilot took 836)."""
-    arxiv_keyword_max: int = DEFAULT_ARXIV_KEYWORD_MAX
-    """arXiv API keyword searches per line-run. Per line, not per day: lines run side by
-    side, and a shared daily count would hand the slots out in scheduling order."""
+    """Firehose sources kept per line-run (the first pilot took 836); the arXiv listing is
+    ranked by relevance before the cut (fetch_nets)."""
 
     def budget(self, net: DiscoveryNet) -> int:
         return int(self.budgets.get(net, DEFAULT_BUDGETS.get(net, 0)))
 
+    def credit_cap(self, env: Mapping[str, str]) -> int:
+        """The configured cap, or the default for whether OPENALEX_API_KEY is set."""
+        if self.openalex_daily_credits is not None:
+            return self.openalex_daily_credits
+        return KEYED_CREDIT_CAP if env.get(openalex.API_KEY_ENV) else DEFAULT_CREDIT_CAP
+
 
 def load_nets(config: Path) -> NetConfig:
-    """`[nets]` of the daily-research config.toml; every key optional."""
+    """`[nets]` of the daily-research config.toml; every key optional. A key this version
+    no longer reads (`arxiv_keyword_max`, the cap arXiv's own rate limit asked for) is
+    ignored, so an older config still loads."""
     try:
         raw = tomllib.loads(config.read_text(encoding="utf-8")).get("nets", {})
     except (OSError, tomllib.TOMLDecodeError):
@@ -112,13 +126,9 @@ def load_nets(config: Path) -> NetConfig:
         if isinstance(raw_categories, list)
         else firehose.DEFAULT_CATEGORIES
     )
-    credits = data.get("openalex_daily_credits", DEFAULT_CREDIT_CAP)
+    credits = data.get("openalex_daily_credits")
     firehose_max = data.get("firehose_max", DEFAULT_FIREHOSE_MAX)
-    arxiv_max = data.get("arxiv_keyword_max", DEFAULT_ARXIV_KEYWORD_MAX)
     return NetConfig(
-        arxiv_keyword_max=max(0, arxiv_max)
-        if isinstance(arxiv_max, int)
-        else DEFAULT_ARXIV_KEYWORD_MAX,
         firehose_max=max(0, firehose_max)
         if isinstance(firehose_max, int)
         else DEFAULT_FIREHOSE_MAX,
@@ -127,7 +137,7 @@ def load_nets(config: Path) -> NetConfig:
         if isinstance(share, int | float)
         else DEFAULT_EXPLORATION_SHARE,
         categories=categories,
-        openalex_daily_credits=int(credits) if isinstance(credits, int) else DEFAULT_CREDIT_CAP,
+        openalex_daily_credits=max(0, credits) if isinstance(credits, int) else None,
     )
 
 
@@ -268,13 +278,10 @@ class DayBudget:
     date: str = ""
     spent: int = 0
     quiet: set[str] = field(default_factory=set[str])
-    """A net ("citation") or one source within a net ("keyword/arxiv") that is done today."""
+    """A net ("citation"), one source within a net ("keyword/github") or the OpenAlex pool
+    (OPENALEX) that is done today."""
     reported: set[str] = field(default_factory=set[str])
     """Notes already written once, so a cap is not reported per net per line."""
-    arxiv_probe: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
-    """One line at a time asks arXiv keyword search. Lines run concurrently, and a 406 is only
-    known after the adapter's resends; without the lock every line pays them before the
-    first one can quiet the source."""
 
     def for_day(self, run_date: str) -> "DayBudget":
         """Reset at the day boundary; the quotas are daily."""
@@ -290,58 +297,36 @@ class NetOutcome:
     per_net: dict[DiscoveryNet, int] = field(default_factory=dict[DiscoveryNet, int])
     topics: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
-    arxiv_keyword: int = 0
-    """arXiv keyword searches this line-run sent (NetConfig.arxiv_keyword_max)."""
-    arxiv_capped: bool = False
 
 
 def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
-    """Operations lines of one successful fetch: resends and dropped results."""
-    where = f"{request.net}/{request.adapter.kind}"
-    notes: list[str] = []
-    if out.retried:
-        notes.append(f"{where}: {out.retried} 回待って再送 (406 の波)")
+    """Operations lines of one successful fetch: dropped results."""
     if out.skipped:
-        notes.append(f"{where}: 検証落ちで {out.skipped} 件 skip")
-    return notes
+        return [f"{_source_key(request)}: 検証落ちで {out.skipped} 件 skip"]
+    return []
 
 
 def _held_back(
-    request: NetRequest, budget: DayBudget, config: NetConfig, outcome: NetOutcome
+    request: NetRequest,
+    budget: DayBudget,
+    outcome: NetOutcome,
+    *,
+    cap: int,
 ) -> bool:
-    """Whether today's quotas keep this request from going out (quiet source or net, the
-    arXiv keyword cap, the OpenAlex credit cap). Each cap is reported once a day."""
+    """Whether today's quotas keep this request from going out (quiet source, net or
+    OpenAlex pool, the OpenAlex credit cap). The cap is reported once a day."""
     if request.net in budget.quiet or _source_key(request) in budget.quiet:
         return True
-    if not _arxiv_room(request, budget, config, outcome):
+    if not request.adapter.credit_cost:
+        return False
+    if OPENALEX in budget.quiet:
         return True
-    if request.adapter.kind == "openalex" and budget.spent >= config.openalex_daily_credits:
+    if budget.spent >= cap:
         if "openalex_cap" not in budget.reported:
             budget.reported.add("openalex_cap")
             outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
-        budget.quiet.add(request.net)
         return True
     return False
-
-
-def _arxiv_room(
-    request: NetRequest, budget: DayBudget, config: NetConfig, outcome: NetOutcome
-) -> bool:
-    """Whether an arXiv keyword search may go out today; counts it if so."""
-    if request.net != "keyword" or request.adapter.kind != "arxiv":
-        return True
-    if outcome.arxiv_keyword >= config.arxiv_keyword_max:
-        if not outcome.arxiv_capped:
-            outcome.arxiv_capped = True
-            outcome.notes.append(
-                f"keyword/arxiv: 1 ライン {config.arxiv_keyword_max} 件の上限のため以降を省略"
-            )
-        return False
-    outcome.arxiv_keyword += 1
-    return True
-
-
-ARXIV_KEYWORD: Final = "keyword/arxiv"
 
 
 def _source_key(request: NetRequest) -> str:
@@ -352,31 +337,16 @@ def _record_failure(
     request: NetRequest, failure: FetchFailure, budget: DayBudget, outcome: NetOutcome
 ) -> None:
     """A failed request is a line in the operations section, never the end of the run."""
-    limited = "rate_limit" in failure.detail
-    if not (limited and _source_key(request) == ARXIV_KEYWORD):
-        # arXiv search at its daily limit is expected on a heavy day and waits for
-        # tomorrow (author decision 2026-09-23): the quiet line below says it.
-        outcome.notes.append(
-            f"{_source_key(request)}: fetch 失敗 ({failure.reason} {failure.detail})"
-        )
-    if limited:
+    outcome.notes.append(f"{_source_key(request)}: fetch 失敗 ({failure.reason} {failure.detail})")
+    if "rate_limit" in failure.detail:
         # A shared pool answering 429 is a policy signal, not a transient error: that
         # source is done for the day in this net, for every line. The net's other sources
         # are other pools (scratch run 5: one arXiv 429 had silenced GitHub and HF keyword
-        # search for every line).
+        # search for every line) — except OpenAlex, which is one pool behind three nets.
         budget.quiet.add(_source_key(request))
+        if request.adapter.credit_cost:
+            budget.quiet.add(OPENALEX)
         outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
-    elif (
-        _source_key(request) == ARXIV_KEYWORD
-        and failure.reason == "http_status"
-        and failure.detail.startswith("406 ")
-    ):
-        # A 406 that outlasted the adapter's resends: since 2026-09-24 export.arxiv.org's
-        # edge refuses Python clients (curl gets 200 for the same bytes), so every later line
-        # would pay the resends for nothing. Search waits for tomorrow; the arXiv listings
-        # still arrive through the firehose.
-        budget.quiet.add(ARXIV_KEYWORD)
-        outcome.notes.append(f"{ARXIV_KEYWORD}: 406 が続いたため本日は打ち切り")
 
 
 async def _sendable(
@@ -403,11 +373,48 @@ async def _sendable(
     return replace(request, query=openalex.cites_token(found))
 
 
-def _capped(fresh: list[SourceItem], cap: int, outcome: NetOutcome) -> list[SourceItem]:
-    """The firehose's share of a line-run, in feed order (NetConfig.firehose_max)."""
+def _tokens(texts: Sequence[str]) -> list[list[str]]:
+    """Lower-cased words of two or more characters, English stopwords out (bm25s's own
+    tokenizer, no stemmer: deterministic and dependency-free)."""
+    tokenized = bm25s.tokenize(  # pyright: ignore[reportUnknownMemberType]
+        list(texts), stopwords="en", return_ids=False, show_progress=False
+    )
+    return cast("list[list[str]]", tokenized)
+
+
+def ranked(items: Sequence[SourceItem], query: str) -> list[SourceItem] | None:
+    """`items` by BM25 of title + text against `query`, best first; ties keep their order
+    (a stable sort). None when the query has no searchable word — the caller keeps the
+    feed order."""
+    (words,) = _tokens([query])
+    if not words or not items:
+        return None
+    index = bm25s.BM25()
+    index.index(  # pyright: ignore[reportUnknownMemberType]
+        _tokens([f"{s.title} {s.text}" for s in items]), show_progress=False
+    )
+    scores = cast(
+        "list[float]",
+        index.get_scores(words).tolist(),  # pyright: ignore[reportUnknownMemberType]
+    )
+    order = sorted(range(len(items)), key=lambda i: -scores[i])
+    return [items[i] for i in order]
+
+
+def _capped(
+    fresh: list[SourceItem], cap: int, outcome: NetOutcome, *, query: str = ""
+) -> list[SourceItem]:
+    """The firehose's share of a line-run (NetConfig.firehose_max). What overflows is cut
+    by relevance to `query` when there is one (ranked), in feed order when not."""
     room = max(cap - outcome.per_net.get("firehose", 0), 0)
-    if len(fresh) > room:
-        outcome.notes.append(f"firehose: 上限 {cap} 件のため {len(fresh) - room} 件を省略")
+    if len(fresh) <= room:
+        return fresh
+    dropped = len(fresh) - room
+    by_relevance = ranked(fresh, query) if room else None
+    if by_relevance is not None:
+        outcome.notes.append(f"firehose: 関連度順に上位 {room} 件 ({dropped} 件を省略)")
+        return by_relevance[:room]
+    outcome.notes.append(f"firehose: 上限 {cap} 件のため {dropped} 件を省略")
     return fresh[:room]
 
 
@@ -422,44 +429,37 @@ async def fetch_nets(
     config: NetConfig,
     day: DayBudget | None = None,
     on_sources: Callable[[list[SourceItem]], None] | None = None,
+    firehose_query: str = "",
 ) -> NetOutcome:
     """Run the plan in order. A net that fails is a line in the operations section, never
     the end of the run: the next net still gets its turn. `day` carries the quotas that
     are shared across the rotation's lines; without one they are this call's alone.
     `on_sources` sees each request's new sources as soon as they are in, in plan order,
-    so the caller can start judging them while the later (paced) requests still wait."""
+    so the caller can start judging them while the later (paced) requests still wait.
+    `firehose_query` is the line's English query text the arXiv listing is ranked by when
+    it overflows the firehose cap (HF daily keeps its place ahead: it is curated)."""
     outcome = NetOutcome()
     budget = (day or DayBudget()).for_day(now.date().isoformat())
+    cap = config.credit_cap(env)
     seen: set[str] = set()
     for planned in requests:
-        if _held_back(planned, budget, config, outcome):
+        if _held_back(planned, budget, outcome, cap=cap):
             continue
         request = await _sendable(planned, client, env=env, budget=budget, outcome=outcome)
         if request is None:
             continue
-        if _source_key(request) == ARXIV_KEYWORD:
-            async with budget.arxiv_probe:
-                if ARXIV_KEYWORD in budget.quiet:  # another line's 406 settled it meanwhile
-                    continue
-                out = await collect(
-                    request.adapter, client, partition, line, request.query, now=now, env=env
-                )
-        else:
-            out = await collect(
-                request.adapter, client, partition, line, request.query, now=now, env=env
-            )
+        out = await collect(
+            request.adapter, client, partition, line, request.query, now=now, env=env
+        )
         if out.failure is not None:
             _record_failure(request, out.failure, budget, outcome)
             continue
         outcome.notes += _fetch_notes(request, out)
-        if request.adapter.kind == "openalex" and not out.cached:
-            # A filtered list costs one credit (measured 2026-09-23 from
-            # x-ratelimit-credits-used); the header itself is not visible here because
-            # collect() returns parsed sources, not the response.
-            budget.spent += 1
+        budget.spent += out.credits  # 0 when cached: collect() sent nothing
         fresh = [s for s in out.sources if s.id not in seen]
         if request.net == "firehose":
-            fresh = _capped(fresh, config.firehose_max, outcome)
+            query = firehose_query if request.adapter.kind == "arxiv" else ""
+            fresh = _capped(fresh, config.firehose_max, outcome, query=query)
         seen.update(s.id for s in fresh)
         outcome.sources += fresh
         if on_sources is not None and fresh:

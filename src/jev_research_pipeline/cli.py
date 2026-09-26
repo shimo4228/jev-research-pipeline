@@ -28,7 +28,6 @@ from pathlib import Path
 
 import httpx2
 
-from .adapters.routing import run_client
 from .generation import (
     MissingCredentials,
     ModelSpecError,
@@ -99,7 +98,7 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 async def _run(env: Mapping[str, str]) -> int:
     unanswered: list[str] = []
     try:
-        async with run_client(timeout=HTTP_TIMEOUT_S) as http:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
             outcomes = await run_pipeline(
                 env, now=datetime.now().astimezone(), http=http, unanswered=unanswered
             )
@@ -236,7 +235,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 sources=bool(args.sources),
                 check=Path(args.check).read_text(encoding="utf-8") if args.check else None,
             )
-            async with run_client(timeout=pb.PROSE_TIMEOUT_S) as http:
+            async with httpx2.AsyncClient(timeout=pb.PROSE_TIMEOUT_S) as http:
                 lines = await pb.run_bench(
                     bench,
                     variant,
@@ -275,7 +274,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
 
 async def _check_queries(env: Mapping[str, str], slug: str) -> int:
     try:
-        async with run_client(timeout=HTTP_TIMEOUT_S) as http:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
             lines = await check_queries(env, slug, http=http, now=datetime.now().astimezone())
     except NoQuestions as e:
         sys.stderr.write(f"{e}\n")

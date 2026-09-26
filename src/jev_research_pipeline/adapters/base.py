@@ -2,8 +2,9 @@
 
 A net is *how* a source was reached — firehose, recommendation, citation, keyword or
 exploration (packet "Discovery"). Keyword search alone converges, so the same source API
-can appear under two adapters: `arxiv` keyword search and `arxiv` new listings are one
-endpoint each, one `net` each, and every SourceItem records which net found it.
+can appear under two adapters: `arxiv` keyword search (OpenAlex restricted to the arXiv
+source) and `arxiv` new listings (arXiv's RSS) are one endpoint each, one `net` each, and
+every SourceItem records which net found it.
 
 An adapter = (build_request, parse, pacing, optional key). fetch() never raises for
 source-side trouble: a missing key, an HTTP error status, a request error (transport,
@@ -35,8 +36,11 @@ USER_AGENT: Final = (
     "jev-research-pipeline/0.1 (+https://github.com/shimo4228/jev-research-pipeline; "
     "mailto:shimo4228@gmail.com)"
 )
-"""Sent by every adapter. Default library UAs are refused by arXiv's edge (406, measured
-2026-09-22) and GitHub requires a valid UA; a contact address is arXiv's ToU etiquette."""
+"""Sent by every adapter. GitHub requires a valid UA, OpenAlex and arXiv's feeds ask for a
+contact address (ToU etiquette); default library UAs drew 406 from arXiv's edge
+(measured 2026-09-22)."""
+CREDITS_HEADER: Final = "x-ratelimit-credits-used"
+"""What one OpenAlex response cost (help.openalex.org, measured 2026-09-23)."""
 _MESSAGE_CHARS: Final = 200
 _JSON_BODY: Final = TypeAdapter(dict[str, JsonValue])
 
@@ -107,14 +111,24 @@ class FetchOutcome(Value):
     cached: bool = False
     skipped: int = 0
     """Results dropped individually for failing validation (empty text, non-http URL)."""
-    retried: int = 0
-    """Requests sent again after a status in Adapter.retry_status (see there)."""
+    credits: int = 0
+    """OpenAlex credits this fetch spent: the response's CREDITS_HEADER, or the adapter's
+    declared credit_cost when the header is absent (a replayed cassette keeps no headers).
+    0 for a cached fetch, a failure and every non-OpenAlex source."""
 
     @model_validator(mode="after")
     def _failure_has_no_sources(self) -> Self:
         if self.failure is not None and self.sources:
             raise ValueError("a failed fetch carries no sources")
         return self
+
+
+def credits_used(response: httpx2.Response) -> int | None:
+    """What this response cost from CREDITS_HEADER, or None when absent or unreadable."""
+    try:
+        return int(response.headers[CREDITS_HEADER])
+    except (KeyError, ValueError):
+        return None
 
 
 def one_line(text: str) -> str:
@@ -155,13 +169,13 @@ class Adapter:
     """Env var that must be set or the adapter is skipped (missing_key failure)."""
     net: DiscoveryNet = "keyword"
     """Which net this adapter is. Stored on every SourceItem it produces."""
-    retry_waits: tuple[float, ...] = ()
-    """Seconds to wait before each resend of a request answered with a status in
-    retry_status. Empty = no retry."""
-    retry_status: frozenset[int] = frozenset()
     one_connection: bool = False
     """At most one request of this kind in flight (arXiv ToU: one connection at a time;
     scratch run 5 got 429 with four lines' keyword queries overlapping)."""
+    credit_cost: int = 0
+    """OpenAlex credits one request costs when the response does not say (a filtered list
+    1, a `search=` 10 — measured 2026-09-23/26). Non-zero marks the request as spending the
+    shared OpenAlex daily budget (nets.DayBudget)."""
     query_kind: Literal["keyword", "token"] = "keyword"
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
@@ -187,19 +201,6 @@ class Adapter:
                     _LAST_REQUEST[self.kind] = time.monotonic()
         return await client.send(request)
 
-    async def _send(
-        self, client: httpx2.AsyncClient, query: str, env: Mapping[str, str]
-    ) -> tuple[httpx2.Response, int]:
-        """One paced request, resent after retry_waits while the status is in
-        retry_status. Returns the last response and how many resends it took."""
-        retried = 0
-        while True:
-            response = await self._paced(client, self.build_request(query, env))
-            if response.status_code not in self.retry_status or retried >= len(self.retry_waits):
-                return response, retried
-            await asyncio.sleep(self.retry_waits[retried])
-            retried += 1
-
     async def fetch(
         self,
         client: httpx2.AsyncClient,
@@ -217,13 +218,13 @@ class Adapter:
 
         if self.required_env is not None and not env.get(self.required_env):
             return fail("missing_key", self.required_env)
-        # A keyword query must be searchable text (arXiv answers 406 to `all:,`); a token
+        # A keyword query must be searchable text (arXiv answered 406 to `all:,`); a token
         # query is code-built, so only an empty one is a wiring mistake worth refusing.
         unusable = clean_query(query) is None if self.query_kind == "keyword" else not query
         if unusable:
             return fail("invalid_query", query[:80] or "empty")
         try:
-            response, retried = await self._send(client, query, env)
+            response = await self._paced(client, self.build_request(query, env))
         except httpx2.RequestError as e:
             return fail("transport", type(e).__name__)
         if response.status_code >= 400:
@@ -256,5 +257,11 @@ class Adapter:
             sources=tuple(sources),
             failure=None,
             skipped=len(raws) - len(sources),
-            retried=retried,
+            credits=self._credits(response),
         )
+
+    def _credits(self, response: httpx2.Response) -> int:
+        if not self.credit_cost:
+            return 0
+        used = credits_used(response)
+        return self.credit_cost if used is None else used

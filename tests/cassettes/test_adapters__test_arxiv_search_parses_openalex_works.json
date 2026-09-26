@@ -1,0 +1,7 @@
+{
+ "GET https://api.openalex.org/works?filter=primary_location.source.id%3AS4306400194&per_page=20&search=narrow+questions&select=id%2Cdoi%2Ctitle%2Cpublication_date%2Cabstract_inverted_index&sort=publication_date%3Adesc": {
+  "status": 200,
+  "content_type": "application/json",
+  "body": "{\"meta\":{\"count\":3},\"results\":[{\"id\":\"https://openalex.org/W4400000001\",\"doi\":\"https://doi.org/10.48550/arxiv.2609.01234\",\"title\":\"Narrow Questions Beat\\n  Broad Prompts\",\"publication_date\":\"2026-09-20\",\"abstract_inverted_index\":{\"We\":[0],\"decompose\":[1],\"judgment\":[2],\"into\":[3],\"narrow\":[4],\"questions.\":[5],\"Fitted\":[6],\"weights\":[7],\"raise\":[8],\"accuracy.\":[9]}},{\"id\":\"https://openalex.org/W4400000002\",\"doi\":\"https://doi.org/10.48550/arxiv.2609.05678\",\"title\":\"Agent Memory Layers\",\"publication_date\":\"2026-09-19\",\"abstract_inverted_index\":{\"Episode\":[0],\"logs\":[1],\"feed\":[2],\"a\":[3],\"knowledge\":[4],\"store.\":[5]}},{\"id\":\"https://openalex.org/W4400000003\",\"doi\":\"https://doi.org/10.48550/arxiv.2609.07777\",\"title\":\"No Abstract Yet\",\"publication_date\":\"2026-09-18\",\"abstract_inverted_index\":null}]}"
+ }
+}

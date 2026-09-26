@@ -9,9 +9,11 @@
 Credits, measured from the response headers (2026-09-23): keyless is 1,000 credits and
 $0.10 a day, a filtered list costs 1 credit, a `search=` costs 10, a singleton lookup is
 free, and the budget resets at midnight UTC. `mailto=` no longer buys a polite pool — the
-only identifier is an API key. credits_used() reads the headers so the operations section
-can report the day's spend, and a 429 means either the 100 rps ceiling or an exhausted
-budget: `x-ratelimit-remaining` tells them apart.
+only identifier is an API key: with one the day is 10,000 credits and $1 (measured
+2026-09-26 from `x-ratelimit-limit`). Adapter.fetch reads `x-ratelimit-credits-used` so
+the operations section can report the day's spend, and a 429 means either the 100 rps
+ceiling or an exhausted budget: `x-ratelimit-remaining` tells them apart. The arXiv
+keyword search (adapters.arxiv) is an OpenAlex `search=` and spends the same budget.
 """
 
 from collections.abc import Mapping
@@ -45,6 +47,8 @@ DOI: Final = "doi:"
 TOPIC: Final = "primary_topic.id:"
 KEYLESS_DAILY_CREDITS: Final = 1000
 """What a keyless day buys. The config caps our own use below it."""
+FILTER_CREDITS: Final = 1
+"""A filtered list (`filter=` without `search=`), measured 2026-09-23."""
 
 
 def cites_token(work_id: str) -> str:
@@ -55,11 +59,12 @@ def topic_token(topic_id: str) -> str:
     return TOPIC + topic_id
 
 
-def _headers(env: Mapping[str, str]) -> dict[str, str]:
-    headers = {"User-Agent": USER_AGENT}
+def headers(env: Mapping[str, str]) -> dict[str, str]:
+    """The contact UA, and the API key as a bearer token when there is one."""
+    out = {"User-Agent": USER_AGENT}
     if key := env.get(API_KEY_ENV):
-        headers["Authorization"] = f"Bearer {key}"
-    return headers
+        out["Authorization"] = f"Bearer {key}"
+    return out
 
 
 def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
@@ -69,7 +74,7 @@ def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
         "per_page": str(PER_PAGE),
         "select": SELECT,
     }
-    return httpx2.Request("GET", WORKS, params=params, headers=_headers(env))
+    return httpx2.Request("GET", WORKS, params=params, headers=headers(env))
 
 
 def lookup_request(work: str, env: Mapping[str, str]) -> httpx2.Request:
@@ -77,7 +82,7 @@ def lookup_request(work: str, env: Mapping[str, str]) -> httpx2.Request:
     `#` are legal in a DOI, and a control character would make httpx2 raise InvalidURL;
     existing `%` escapes are kept (OpenAlex decodes them — measured 2026-09-25)."""
     path = quote(work, safe=":/%")
-    return httpx2.Request("GET", f"{WORKS}/{path}", params={"select": "id"}, headers=_headers(env))
+    return httpx2.Request("GET", f"{WORKS}/{path}", params={"select": "id"}, headers=headers(env))
 
 
 async def resolve_work(
@@ -108,14 +113,6 @@ async def resolve_work(
     except ValidationError as e:
         return fail("parse", type(e).__name__)
     return found.rsplit("/", 1)[-1] if found else None
-
-
-def credits_used(response: httpx2.Response) -> int:
-    """What this response cost, from `x-ratelimit-credits-used` (0 when absent)."""
-    try:
-        return int(response.headers.get("x-ratelimit-credits-used", "0"))
-    except ValueError:
-        return 0
 
 
 def credits_remaining(response: httpx2.Response) -> int | None:
@@ -195,6 +192,7 @@ def citation_adapter() -> Adapter:
         min_interval_s=0.5,
         net="citation",
         query_kind="token",
+        credit_cost=FILTER_CREDITS,
     )
 
 
@@ -206,4 +204,5 @@ def exploration_adapter() -> Adapter:
         min_interval_s=0.5,
         net="exploration",
         query_kind="token",
+        credit_cost=FILTER_CREDITS,
     )

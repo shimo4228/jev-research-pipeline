@@ -23,7 +23,6 @@ import httpx2
 from defusedxml import ElementTree
 from pydantic import BaseModel, Field, TypeAdapter
 
-from .arxiv import ARXIV_RETRY, ARXIV_RETRY_WAITS
 from .base import USER_AGENT, Adapter, RawDraft, iso_date, one_line
 
 ARXIV_RSS: Final = "https://rss.arxiv.org/rss/"
@@ -112,8 +111,6 @@ def arxiv_adapter() -> Adapter:
         build_request=arxiv_request,
         parse=arxiv_parse,
         min_interval_s=3.0,  # arXiv ToU, one request every three seconds
-        retry_status=ARXIV_RETRY,
-        retry_waits=ARXIV_RETRY_WAITS,
         one_connection=True,
         net="firehose",
         query_kind="token",

@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 # extra brings typesafe-sdk, which no module of ours imports any more, and its injected
 # http_client is what the cassette layer depends on.
 dependencies = [
+    "bm25s>=0.3.11",
     "defusedxml>=0.7.1",
     "httpx2>=2.13.0",
     "opentelemetry-api==1.44.0",

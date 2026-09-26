@@ -1,9 +1,6 @@
 """The fixes the first scratch runs asked for (docs/pilot-log.md, 2026-09-23)."""
 
-import urllib.error
 from datetime import datetime
-from email.message import Message
-from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -11,7 +8,6 @@ import httpx2
 import pytest
 
 from jev_research_pipeline.adapters import Adapter, arxiv, canary, firehose, github, hf_papers
-from jev_research_pipeline.adapters.routing import HostRoutedTransport, UrllibTransport
 from jev_research_pipeline.pipeline import nets
 
 
@@ -63,10 +59,84 @@ def test_canary_urls_pick_their_fetch():
     )
     paper = canary.plan("https://arxiv.org/abs/2609.01234v2")
     assert paper is not None and paper[1] == "2609.01234"
-    assert paper[0].build_request(paper[1], {}).url.params["id_list"] == "2609.01234"
+    request = paper[0].build_request(paper[1], {})
+    assert request.url.host == "api.openalex.org"
+    assert request.url.path == "/works/doi:10.48550/arXiv.2609.01234"
+    assert "abstract_inverted_index" in request.url.params["select"]
+    assert paper[0].credit_cost == 0  # a singleton lookup is free
     page = canary.plan("https://pydantic.dev/docs/ai/models/typesafe/")
     assert page is not None and page[0].kind == "web_search"
     assert canary.plan("http://example.org/") is None
+
+
+async def test_an_arxiv_canary_openalex_has_not_indexed_is_a_line_not_a_crash():
+    from . import builders as b
+
+    async def not_yet(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404, text="<title>404 Not Found</title>")
+
+    got = await canary.fetch(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(not_yet)),
+        b.line(),
+        "https://arxiv.org/abs/2609.01234",
+        now=b.T0,
+        env={},
+    )
+    assert got == "OpenAlex 未収録 (索引待ち)"
+
+
+async def test_an_arxiv_canary_comes_back_with_its_abstract():
+    from . import builders as b
+    from .fakes import inverted
+
+    async def work(request: httpx2.Request) -> httpx2.Response:
+        body = {
+            "doi": "https://doi.org/10.48550/arxiv.2609.01234",
+            "title": "Narrow Questions",
+            "publication_date": "2026-09-20",
+            "abstract_inverted_index": inverted("Typed questions beat prompts."),
+        }
+        return httpx2.Response(200, json=body)
+
+    got = await canary.fetch(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(work)),
+        b.line(),
+        "https://arxiv.org/abs/2609.01234v2",
+        now=b.T0,
+        env={},
+    )
+    assert not isinstance(got, str)
+    assert got.url == "https://arxiv.org/abs/2609.01234"
+    assert got.text == "Typed questions beat prompts."
+
+
+def test_an_arxiv_canary_waits_only_on_the_openalex_pool():
+    from jev_research_pipeline.pipeline.run import (
+        _canary_quiet,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert _canary_quiet("arxiv", {nets.OPENALEX})
+    assert not _canary_quiet("arxiv", {"firehose/arxiv"})  # the RSS is another host
+    assert _canary_quiet("github", {"keyword/github"})
+
+
+def test_the_firehose_is_ranked_by_the_english_query_lines_and_the_vocabulary():
+    from jev_research_pipeline.pipeline.run import firehose_query
+
+    from . import builders as b
+
+    q = b.question()
+    queries = {
+        q.id: (
+            ("arxiv", "agent memory"),
+            ("github", "topic:llm-agents memory"),
+            ("web", "エージェント 記憶"),
+            ("hf_papers", "episodic recall"),
+        )
+    }
+    got = firehose_query([q], queries, ["knowledge cycle"])  # pyright: ignore[reportArgumentType]
+    assert got == "agent memory llm-agents memory episodic recall knowledge cycle"
+    assert firehose_query([q], {}, []) == ""
 
 
 def test_a_canary_page_is_its_title_and_its_text_without_tags():
@@ -77,59 +147,6 @@ def test_a_canary_page_is_its_title_and_its_text_without_tags():
     (draft,) = canary.page_parse("https://example.org/p", body)
     assert draft["title"] == "TypeSafe & Jev"
     assert draft["text"] == "TypeSafe & Jev Fields map to questions ."
-
-
-class _FakeResponse:
-    status = 200
-    headers = Message()
-
-    def __enter__(self) -> "_FakeResponse":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return b"<feed/>"
-
-
-async def test_urllib_transport_carries_status_and_body(monkeypatch: pytest.MonkeyPatch):
-    seen: list[str] = []
-
-    def urlopen(req: object, timeout: float) -> _FakeResponse:
-        seen.append(getattr(req, "full_url", ""))
-        return _FakeResponse()
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    client = httpx2.AsyncClient(transport=UrllibTransport(timeout=5))
-    r = await client.get("https://export.arxiv.org/api/query?search_query=all%3Ax")
-    assert r.status_code == 200 and r.text == "<feed/>"
-    assert seen == ["https://export.arxiv.org/api/query?search_query=all%3Ax"]
-
-
-async def test_urllib_transport_turns_http_errors_into_responses(monkeypatch: pytest.MonkeyPatch):
-    def urlopen(req: object, timeout: float) -> _FakeResponse:
-        raise urllib.error.HTTPError("u", 406, "Not Acceptable", Message(), BytesIO(b""))
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-    client = httpx2.AsyncClient(transport=UrllibTransport(timeout=5))
-    r = await client.get("https://export.arxiv.org/api/query")
-    assert r.status_code == 406
-
-
-async def test_only_the_listed_host_goes_around_httpx2(monkeypatch: pytest.MonkeyPatch):
-    def urlopen(req: object, timeout: float) -> _FakeResponse:
-        return _FakeResponse()
-
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
-
-    async def other(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(204)
-
-    transport = HostRoutedTransport(timeout=5, fallback=httpx2.MockTransport(other))
-    client = httpx2.AsyncClient(transport=transport)
-    assert (await client.get("https://export.arxiv.org/api/query")).status_code == 200
-    assert (await client.get("https://rss.arxiv.org/rss/cs.AI")).status_code == 204
 
 
 def test_a_folded_claim_names_the_citation_that_points_at_it_and_still_harvests():
@@ -145,13 +162,13 @@ def test_a_folded_claim_names_the_citation_that_points_at_it_and_still_harvests(
     assert harvest_text(line.replace("- [ ]", "- [x]", 1)) == {b.claim().id: "correct"}
 
 
-async def test_arxiv_never_has_two_requests_in_flight():
+async def test_the_arxiv_listing_never_has_two_requests_in_flight():
     """arXiv ToU: one connection at a time — a slow answer holds the next request back."""
     import asyncio
     from dataclasses import replace
 
     from . import builders as b
-    from .fakes import ARXIV_ATOM
+    from .fakes import ARXIV_RSS, E2E_ABSTRACT
 
     open_now = 0
     peak = 0
@@ -162,12 +179,12 @@ async def test_arxiv_never_has_two_requests_in_flight():
         peak = max(peak, open_now)
         await asyncio.sleep(0.05)
         open_now -= 1
-        return httpx2.Response(200, text=ARXIV_ATOM)
+        return httpx2.Response(200, text=ARXIV_RSS.format(abstract=E2E_ABSTRACT))
 
     client = httpx2.AsyncClient(transport=httpx2.MockTransport(slow))
-    adapter = replace(arxiv.adapter(), min_interval_s=0.0)
+    adapter = replace(firehose.arxiv_adapter(), min_interval_s=0.0)
     await asyncio.gather(
-        *(adapter.fetch(client, b.line(), f"agent memory {i}", now=b.T0, env={}) for i in range(3))
+        *(adapter.fetch(client, b.line(), f"cs.AI+cs.CL{i}", now=b.T0, env={}) for i in range(3))
     )
     assert peak == 1
 
@@ -178,8 +195,8 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
     from . import builders as b
 
     async def handler(request: httpx2.Request) -> httpx2.Response:
-        if request.url.host == "export.arxiv.org":
-            return httpx2.Response(429, text="Rate exceeded.")
+        if request.url.host == "api.openalex.org":
+            return httpx2.Response(429, json={"message": "Rate limit exceeded"})
         return httpx2.Response(
             200, json={"total_count": 0, "incomplete_results": False, "items": []}
         )
@@ -200,9 +217,8 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
         config=nets.NetConfig(),
     )
     assert "keyword/arxiv: rate limit のため本日は打ち切り" in out.notes
-    # arXiv search at its limit is an informational line, not a failure (author decision
-    # 2026-09-23), and the second arXiv query is not sent at all
-    assert not any("fetch 失敗" in n for n in out.notes)
+    # the second arXiv query is not sent at all (one failure line, not two)
+    assert sum("fetch 失敗" in n for n in out.notes) == 1
     assert not any("keyword/github" in n for n in out.notes)  # GitHub still ran
 
 

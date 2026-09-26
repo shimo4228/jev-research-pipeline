@@ -134,8 +134,8 @@ def authored_candidates(
     """The questions' authored query lines as candidates, and the operations lines.
 
     Each adapter's list starts one query later on every run of the line (`turn` = the
-    line's earlier runs, mod the list's length): the keyword budget and arXiv's
-    one-search-a-line cap cut the list from the front, and a fixed order would send the
+    line's earlier runs, mod the list's length): the keyword budget cuts the list from
+    the front, and a fixed order would send the
     first question's query every time and never the others. Counted in runs, not calendar
     days: a rotated line runs every few days, and a day ordinal would then land on the
     same start whenever that interval shares a factor with the list's length."""
@@ -159,6 +159,30 @@ def authored_candidates(
     notes = [f"query: 問いファイルの {len(out)} 件を使用"] if out else []
     notes += [f"query: 検索語にならない行を skip ({text})" for text in unusable]
     return out, notes
+
+
+FIREHOSE_QUERY_KINDS: Final[frozenset[AdapterKind]] = frozenset({"arxiv", "hf_papers", "github"})
+"""The authored query lines the firehose is ranked by: the English ones. `web:` lines may be
+Japanese (AGENTS.md), and headings and briefs are Japanese — neither would match an arXiv
+abstract."""
+
+
+def firehose_query(
+    questions: Sequence[Question],
+    queries: Mapping[str, AuthoredQueries],
+    vocabulary: Sequence[str],
+) -> str:
+    """The line's English query text for ranking the arXiv listing (nets.ranked): the open
+    questions' `arxiv:` / `hf:` / `github:` lines plus the line vocabulary. A GitHub
+    qualifier keeps only its value (`topic:agents` → `agents`)."""
+    lines = [
+        text
+        for q in questions
+        for kind, text in queries.get(q.id, ())
+        if kind in FIREHOSE_QUERY_KINDS
+    ]
+    words = [w.rsplit(":", 1)[-1] for text in lines for w in text.split()]
+    return " ".join([*words, *vocabulary])
 
 
 class StoredJev(JevClient):
@@ -551,6 +575,7 @@ class LineRun:
             config=self.nets,
             day=self.day,
             on_sources=on_sources,
+            firehose_query=firehose_query(self.questions, self.queries, self.ctx.vocabulary),
         )
         self.st.notes += outcome.notes
         self.st.per_net = outcome.per_net
@@ -688,7 +713,8 @@ class LineRun:
         answer is not stored and the source goes no further — it measures the screen, it
         does not feed the note. It goes through the run's own Jev client, so its questions
         count toward the cost cap as they are asked and a same-day re-run finds the answer
-        stored; an arXiv canary is not fetched once arXiv is rate-limited today."""
+        stored; a canary is not fetched once its source is rate-limited today (an arXiv
+        canary comes through OpenAlex, so OpenAlex's pool is what counts for it)."""
         wanted = [
             (q, url)
             for q in self.questions
@@ -698,9 +724,7 @@ class LineRun:
 
         async def one(question: Question, url: str) -> str:
             planned = canary.plan(url)
-            if planned is not None and any(
-                key.endswith(f"/{planned[0].kind}") for key in self.day.quiet
-            ):
+            if planned is not None and _canary_quiet(planned[0].kind, self.day.quiet):
                 return (
                     f"canary 未取得: {question.slug} / {url} ({planned[0].kind} は本日 rate limit)"
                 )
@@ -1260,6 +1284,12 @@ def _fitted(
         ops = [*lines, f"note 12 KB のため省略: Review {dropped} 件"]
         text = rendered(ops)
     return text, ops
+
+
+def _canary_quiet(kind: AdapterKind, quiet: Collection[str]) -> bool:
+    if kind == "arxiv":  # canary.plan fetches an arXiv paper from OpenAlex
+        return nets.OPENALEX in quiet
+    return any(key.endswith(f"/{kind}") for key in quiet)
 
 
 def canary_lines(

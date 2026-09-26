@@ -105,29 +105,48 @@ def fake_jev(
     return handle
 
 
-ARXIV_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
-  <title>arXiv Query</title>
-  <entry>
-    <id>http://arxiv.org/abs/2609.01234v1</id>
-    <published>2026-09-20T17:59:59Z</published>
-    <updated>2026-09-20T17:59:59Z</updated>
-    <title>Narrow Questions Beat
-  Broad Prompts</title>
-    <summary>  We decompose judgment into narrow questions.
-  Fitted weights raise accuracy.  </summary>
-    <link href="https://arxiv.org/abs/2609.01234v1" rel="alternate" type="text/html"/>
-    <link href="https://arxiv.org/pdf/2609.01234v1" rel="related" type="application/pdf" title="pdf"/>
-  </entry>
-  <entry>
-    <id>http://arxiv.org/abs/2609.05678v2</id>
-    <published>2026-09-19T10:00:00Z</published>
-    <title>Agent Memory Layers</title>
-    <summary>Episode logs feed a knowledge store.</summary>
-    <link href="https://arxiv.org/abs/2609.05678v2" rel="alternate" type="text/html"/>
-  </entry>
-</feed>
-"""
+def inverted(text: str) -> dict[str, list[int]]:
+    """An OpenAlex `abstract_inverted_index`: each word → the positions it stands at."""
+    index: dict[str, list[int]] = {}
+    for pos, word in enumerate(text.split()):
+        index.setdefault(word, []).append(pos)
+    return index
+
+
+def openalex_arxiv_search(first_abstract: str) -> dict[str, object]:
+    """`works?search=…&filter=primary_location.source.id:S4306400194`, in the shape
+    measured live on 2026-09-26 (DOI in the lower-case `arxiv` form OpenAlex answers)."""
+    return {
+        "meta": {"count": 3},
+        "results": [
+            {
+                "id": "https://openalex.org/W4400000001",
+                "doi": "https://doi.org/10.48550/arxiv.2609.01234",
+                "title": "Narrow Questions Beat\n  Broad Prompts",
+                "publication_date": "2026-09-20",
+                "abstract_inverted_index": inverted(first_abstract),
+            },
+            {
+                "id": "https://openalex.org/W4400000002",
+                "doi": "https://doi.org/10.48550/arxiv.2609.05678",
+                "title": "Agent Memory Layers",
+                "publication_date": "2026-09-19",
+                "abstract_inverted_index": inverted("Episode logs feed a knowledge store."),
+            },
+            {
+                "id": "https://openalex.org/W4400000003",
+                "doi": "https://doi.org/10.48550/arxiv.2609.07777",
+                "title": "No Abstract Yet",
+                "publication_date": "2026-09-18",
+                "abstract_inverted_index": None,
+            },
+        ],
+    }
+
+
+OPENALEX_ARXIV_SEARCH = openalex_arxiv_search(
+    "We decompose judgment into narrow questions. Fitted weights raise accuracy."
+)
 
 HF_SEARCH = [
     {
@@ -363,14 +382,14 @@ S2_RECOMMENDATIONS = {
 }
 
 
-def _keyword_response(host: str | None) -> httpx2.Response:
+def _keyword_response(request: httpx2.Request, host: str | None) -> httpx2.Response:
     """The original keyword net's upstreams (and the 404 for anything unexpected)."""
-    if host == "export.arxiv.org":
-        atom = ARXIV_ATOM.replace(
-            "We decompose judgment into narrow questions.\n  Fitted weights raise accuracy.",
-            E2E_ABSTRACT,
+    if host == "api.openalex.org" and "search" in request.url.params:
+        return httpx2.Response(
+            200,
+            json=openalex_arxiv_search(E2E_ABSTRACT),
+            headers={"x-ratelimit-credits-used": "10"},
         )
-        return httpx2.Response(200, text=atom, headers={"content-type": "application/atom+xml"})
     if host == "huggingface.co":
         return httpx2.Response(200, json=[])
     if host == "api.github.com":
@@ -390,7 +409,7 @@ def _discovery_response(request: httpx2.Request, host: str | None) -> httpx2.Res
         )
     if host == "api.semanticscholar.org":
         return httpx2.Response(200, json=S2_RECOMMENDATIONS)
-    if host == "api.openalex.org":
+    if host == "api.openalex.org" and "search" not in request.url.params:
         return httpx2.Response(
             200,
             json=OPENALEX_WORKS,
@@ -458,6 +477,6 @@ def fake_world() -> Handler:
             return await fake_qwen(content)(request)
         if host == "chatgpt.com":
             return await fake_codex("狭い型付き質問への分解で判定が安定する [1]。")(request)
-        return _keyword_response(host)
+        return _keyword_response(request, host)
 
     return handle
