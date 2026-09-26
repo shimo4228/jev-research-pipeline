@@ -66,9 +66,10 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 5. `uv run jrp prose gate --variant <name> --verdicts <dir>` — pass / fail の集計
 6. 難所セットで著者の読みと足切りの両方を通ったら、holdout から型の違う数件で 3〜5 を繰り返す
 
-現行の本文プロンプトの候補は `bench/prose/prompts/v7.md` + `check6.md`（qwen3.7-max で、著者の
-読みと足切りを難所セットと holdout で通した版）。本番のモデルは 2026-09-24 に
-`openai-codex:gpt-5.6-sol` に替わったが、この組はまだ GPT-5.6 Sol で読み直していない。
+本番の本文プロンプトは `bench/prose/prompts/v10.md` + `check6.md`（`generation/prose.py` の
+`INSTRUCTIONS` と同文）。GPT-6 Luna で、著者の読みと足切りを難所セット 3 件で通した版。holdout では
+まだ回していない。本番のモデルは `~/.config/jrp/env` の `JRP_PROSE_MODEL=openai-codex:gpt-6-luna`
+（コードの既定値は `gpt-5.6-sol` のまま）。
 
 ## trace を見る（OTel）
 

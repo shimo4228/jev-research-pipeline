@@ -531,6 +531,16 @@ author-calibrated-eval, the steps AGENTS.md):
   cases and 3 holdout cases as "very readable", "the inference is really useful"; the
   judge passed 5 of 6 cases in both orders (one holdout case generalized a table-QA result
   to all models in the inference paragraph; the run's own v0 prose failed that case too).
+- **v8-v10 on gpt-6-luna (2026-09-27).** The author found v7's notes hard to place ("which
+  paper or tool is this about?"): nothing asked for names, so the model wrote "one study".
+  Naming each study from its source title "alone made it much better". Dropping the
+  700-1,000 char target did not lengthen drafts (median 736 vs 808): the 1-2 studies and
+  1-2 numbers bound length, and without it the lead paragraph and scale numbers were
+  dropped, so v9 makes both mandatory. v10: a bold name line per study (not a `#` heading:
+  report sanitize escapes line-start `#` in model text), two studies by default, a third
+  only when it fills a paragraph, no one-line mentions. Author read the 3 hard dev cases
+  as "concise and clear"; the judge passed 3 of 3. Not yet run on holdout. Three studies a
+  day may be heavy to read; the author will tune that from production notes.
 Review-when: the author's reading of a new batch disagrees with the fidelity gate's
 direction, or production notes read as "eyes slide" again.
 
@@ -558,9 +568,9 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
 - **Cost**: a subscription is a flat plan, so its tokens are counted in the operations
   section but priced 0; the cost line says so and the cap then covers Jev alone. A
   per-token model with no entry in `PRICES` counts 0 and is flagged ("生成単価未設定").
-- **Not yet done**: the prompt (v7 + check6, "Prose bench") was tuned and read on
-  qwen3.7-max. It has not been re-read on gpt-5.6-sol; the bench's `--model` takes the same
-  spec, so the comparison runs on the same frozen cases.
+- **Production model (2026-09-27)**: `openai-codex:gpt-6-luna`, set in the env file
+  (`JRP_PROSE_MODEL`); the code default stays `gpt-5.6-sol` until its cassettes are
+  re-recorded. The prompt v10 + check6 was read on gpt-6-luna ("Prose bench").
 Review-when: the author's reading of GPT-5.6 Sol notes is worse than the qwen3.7-max
 baseline, the plan's usage limits cut a morning run short, or OpenAI's terms for
 subscription auth outside the Codex clients change.
