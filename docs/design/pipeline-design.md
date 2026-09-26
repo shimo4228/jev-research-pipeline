@@ -368,6 +368,12 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   it: the urllib host routing, the 406 resends, the per-line `arxiv_keyword_max` cap and the
   406 quiet branch. Review-when: export.arxiv.org answers 200 to httpx2 again, or arXiv names
   a sanctioned client path.
+- Every OpenAlex request (credit-spending lists, the DOI lookup before `cites:`, an arXiv
+  canary) is serialized across lines under one pool lock (`DayBudget.openalex`): quiet and
+  cap are checked, the request sent and its 429 or credits recorded with no other line in
+  between, so nothing reaches the pool after its 429 and parallel lines cannot overshoot the
+  cap together (a single search can still pass it by up to 9 credits). The pool is paced at
+  0.5 s anyway (security review, 2026-09-26).
 - HF daily papers = `huggingface.co/api/daily_papers?date=&limit=` — live, keyless,
   undocumented; only `date` and `limit` verified, so the field set needs a golden test.
 - Semantic Scholar keyless is a globally shared pool: a single cold request answered 429

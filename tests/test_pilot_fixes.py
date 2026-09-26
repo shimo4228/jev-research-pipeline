@@ -85,6 +85,55 @@ async def test_an_arxiv_canary_openalex_has_not_indexed_is_a_line_not_a_crash():
     assert got == "OpenAlex 未収録 (索引待ち)"
 
 
+async def test_an_arxiv_canary_429_quiets_openalex_for_the_rest_of_the_day():
+    # The canaries go out at once (asyncio.gather): the first 429 must stop the others,
+    # and the nets of every later line, from asking OpenAlex again today.
+    import asyncio
+
+    from jev_research_pipeline.pipeline.run import fetch_canary
+
+    from . import builders as b
+
+    sent: list[str] = []
+
+    async def limited(request: httpx2.Request) -> httpx2.Response:
+        sent.append(request.url.path)
+        return httpx2.Response(429, json={"message": "Rate limit exceeded"})
+
+    http = httpx2.AsyncClient(transport=httpx2.MockTransport(limited))
+    day = nets.DayBudget()
+    urls = [f"https://arxiv.org/abs/2609.0123{i}" for i in range(3)]
+    lines = await asyncio.gather(
+        *(fetch_canary(http, b.line(), url, label=url, day=day, now=b.T0, env={}) for url in urls)
+    )
+    assert len(sent) == 1
+    assert nets.OPENALEX in day.quiet
+    assert lines == [f"canary 未取得: {url} (arxiv は本日 rate limit)" for url in urls]
+
+
+async def test_a_canary_failure_that_is_not_a_rate_limit_is_a_failure_line():
+    from jev_research_pipeline.pipeline.run import fetch_canary
+
+    from . import builders as b
+
+    async def broken(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(500, text="boom")
+
+    day = nets.DayBudget()
+    url = "https://arxiv.org/abs/2609.01234"
+    got = await fetch_canary(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(broken)),
+        b.line(),
+        url,
+        label="q / " + url,
+        day=day,
+        now=b.T0,
+        env={},
+    )
+    assert got == f"canary 取得失敗: q / {url} (http_status 500 error: boom)"
+    assert day.quiet == set()
+
+
 async def test_an_arxiv_canary_comes_back_with_its_abstract():
     from . import builders as b
     from .fakes import inverted
@@ -105,7 +154,9 @@ async def test_an_arxiv_canary_comes_back_with_its_abstract():
         now=b.T0,
         env={},
     )
-    assert not isinstance(got, str)
+    from jev_research_pipeline.model import SourceItem
+
+    assert isinstance(got, SourceItem)
     assert got.url == "https://arxiv.org/abs/2609.01234"
     assert got.text == "Typed questions beat prompts."
 

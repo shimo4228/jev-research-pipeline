@@ -28,7 +28,7 @@ from jev_research_pipeline.model import Line, SourceItem
 
 from .arxiv import adapter as arxiv_adapter
 from .arxiv import paper_parse, paper_request
-from .base import USER_AGENT, Adapter, RawDraft, one_line
+from .base import USER_AGENT, Adapter, FetchFailure, RawDraft, one_line
 from .github import adapter as github_adapter
 from .github import build_request as github_request
 
@@ -107,8 +107,11 @@ async def fetch(
     *,
     now: AwareDatetime,
     env: Mapping[str, str],
-) -> SourceItem | str:
-    """The canary as a SourceItem, or a one-line reason it could not be fetched."""
+) -> SourceItem | FetchFailure | str:
+    """The canary as a SourceItem; the FetchFailure when the fetch failed, so the caller
+    can tell a rate limit (a policy signal for the whole pool) from any other failure; or
+    a one-line reason for everything else (not https, OpenAlex has not indexed it yet,
+    nothing came back)."""
     planned = plan(url)
     if planned is None:
         return "https でない URL"
@@ -121,5 +124,5 @@ async def fetch(
     ):
         return "OpenAlex 未収録 (索引待ち)"
     if out.failure is not None:
-        return f"{out.failure.reason} {out.failure.detail}"[:120]
+        return out.failure
     return out.sources[0] if out.sources else "取得結果なし"

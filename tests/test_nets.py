@@ -369,6 +369,39 @@ async def test_a_rate_limited_arxiv_search_quiets_the_whole_openalex_pool(
     assert not any("filter=cites" in key for key in sent)
 
 
+async def test_after_a_429_no_line_sends_openalex_anything_more(tmp_path: Path):
+    # Lines run side by side, each queued behind its own pace lock; a check made before
+    # that wait let a queued request out after another line's 429 had quieted the pool.
+    import asyncio
+
+    sent: list[str] = []
+
+    async def limited(request: httpx2.Request) -> httpx2.Response:
+        sent.append(str(request.url))
+        return httpx2.Response(429, json={"message": "Rate limit exceeded"})
+
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(limited))
+    day = nets.DayBudget()
+    requests = [_arxiv_search(), *_citation(CITED_DOI), *_citation("W1")]
+
+    async def one_line(name: str) -> nets.NetOutcome:
+        return await nets.fetch_nets(
+            requests,
+            client,
+            GraphStore(tmp_path / name).line("akc"),
+            b.line(),
+            now=b.T0,
+            env={},
+            config=nets.NetConfig(),
+            day=day,
+        )
+
+    first, second = await asyncio.gather(one_line("a"), one_line("b"))
+    assert len(sent) == 1  # the first 429, then nothing from either line
+    assert nets.OPENALEX in day.quiet
+    assert [first.notes, second.notes].count([]) == 1  # the other line sent nothing
+
+
 # --- the firehose cap: by relevance to the line, not by feed order ------------------------
 
 
@@ -408,6 +441,17 @@ def test_the_listing_is_ranked_by_bm25_and_ties_keep_feed_order():
     ]
     assert nets.ranked(LISTING, "the of and") is None  # stopwords only: nothing to rank by
     assert nets.ranked(LISTING, "") is None
+
+
+def test_a_listing_with_no_word_left_after_stopwords_keeps_feed_order():
+    # bm25s raised ValueError (max() of an empty vocabulary) indexing such a corpus, and
+    # the exception left fetch_nets and stopped the line
+    empty = [_listed("The", "and a of", 1), _listed("It is", "to be", 2), _listed("A", "x", 3)]
+    assert nets.ranked(empty, "agent memory") is None
+    outcome = nets.NetOutcome()
+    kept = nets._capped(empty, 2, outcome, query="agent memory")  # pyright: ignore[reportPrivateUsage]
+    assert kept == empty[:2]
+    assert outcome.notes == ["firehose: 上限 2 件のため 1 件を省略"]
 
 
 def test_an_overflowing_listing_keeps_the_most_relevant():

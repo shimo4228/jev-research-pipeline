@@ -29,6 +29,8 @@ key 10,000 and $1; reset at midnight UTC), counted from the response headers —
 or exploration list costs 1 credit, an arXiv keyword search 10.
 """
 
+import asyncio
+import functools
 import random
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
@@ -282,6 +284,13 @@ class DayBudget:
     (OPENALEX) that is done today."""
     reported: set[str] = field(default_factory=set[str])
     """Notes already written once, so a cap is not reported per net per line."""
+    openalex: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
+    """Held around every request to the OpenAlex pool — whatever spends credits, the DOI
+    lookup before a `cites:` list, an arXiv canary — from the quiet/cap check to the
+    recorded outcome. Lines run side by side and each source has its own pace lock, so
+    checked outside this lock a request queued behind a pace wait went out after another
+    line's 429 had quieted the pool. The pool is paced at 0.5 s anyway; serial loses
+    next to nothing."""
 
     def for_day(self, run_date: str) -> "DayBudget":
         """Reset at the day boundary; the quotas are daily."""
@@ -387,12 +396,13 @@ def ranked(items: Sequence[SourceItem], query: str) -> list[SourceItem] | None:
     (a stable sort). None when the query has no searchable word — the caller keeps the
     feed order."""
     (words,) = _tokens([query])
-    if not words or not items:
+    corpus = _tokens([f"{s.title} {s.text}" for s in items])
+    if not words or not any(corpus):
+        # bm25s cannot index a corpus with no token at all (ValueError from max() on an
+        # empty vocabulary): nothing to rank by, so the feed order stands
         return None
     index = bm25s.BM25()
-    index.index(  # pyright: ignore[reportUnknownMemberType]
-        _tokens([f"{s.title} {s.text}" for s in items]), show_progress=False
-    )
+    index.index(corpus, show_progress=False)  # pyright: ignore[reportUnknownMemberType]
     scores = cast(
         "list[float]",
         index.get_scores(words).tolist(),  # pyright: ignore[reportUnknownMemberType]
@@ -416,6 +426,34 @@ def _capped(
         return by_relevance[:room]
     outcome.notes.append(f"firehose: 上限 {cap} 件のため {dropped} 件を省略")
     return fresh[:room]
+
+
+async def _send(
+    planned: NetRequest,
+    client: httpx2.AsyncClient,
+    partition: Partition,
+    line: Line,
+    *,
+    now: AwareDatetime,
+    env: Mapping[str, str],
+    budget: DayBudget,
+    outcome: NetOutcome,
+    cap: int,
+) -> tuple[NetRequest, FetchOutcome] | None:
+    """Check, send, record: the quiet/cap check, the request, and the failure or the credits
+    it spent — for an OpenAlex request all under DayBudget.openalex, with nothing of another
+    line in between. None when nothing came of it (the reason is an operations line)."""
+    if _held_back(planned, budget, outcome, cap=cap):
+        return None
+    request = await _sendable(planned, client, env=env, budget=budget, outcome=outcome)
+    if request is None:
+        return None
+    out = await collect(request.adapter, client, partition, line, request.query, now=now, env=env)
+    if out.failure is not None:
+        _record_failure(request, out.failure, budget, outcome)
+        return None
+    budget.spent += out.credits  # 0 when cached: collect() sent nothing
+    return request, out
 
 
 async def fetch_nets(
@@ -442,20 +480,31 @@ async def fetch_nets(
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     cap = config.credit_cap(env)
     seen: set[str] = set()
+
+    send = functools.partial(
+        _send,
+        client=client,
+        partition=partition,
+        line=line,
+        now=now,
+        env=env,
+        budget=budget,
+        outcome=outcome,
+        cap=cap,
+    )
     for planned in requests:
         if _held_back(planned, budget, outcome, cap=cap):
+            continue  # settled without waiting for the pool
+        if planned.adapter.credit_cost:
+            async with budget.openalex:
+                # checked again inside: another line may have settled it meanwhile
+                sent = await send(planned)
+        else:
+            sent = await send(planned)
+        if sent is None:
             continue
-        request = await _sendable(planned, client, env=env, budget=budget, outcome=outcome)
-        if request is None:
-            continue
-        out = await collect(
-            request.adapter, client, partition, line, request.query, now=now, env=env
-        )
-        if out.failure is not None:
-            _record_failure(request, out.failure, budget, outcome)
-            continue
+        request, out = sent
         outcome.notes += _fetch_notes(request, out)
-        budget.spent += out.credits  # 0 when cached: collect() sent nothing
         fresh = [s for s in out.sources if s.id not in seen]
         if request.net == "firehose":
             query = firehose_query if request.adapter.kind == "arxiv" else ""

@@ -41,6 +41,7 @@ from pydantic import AwareDatetime, BaseModel
 
 from jev_research_pipeline.adapters import (
     Adapter,
+    FetchFailure,
     arxiv,
     canary,
     firehose,
@@ -81,6 +82,7 @@ from jev_research_pipeline.model import (
     GraphNodeType,
     Judgment,
     Label,
+    Line,
     Operations,
     QueryCandidate,
     Question,
@@ -723,14 +725,17 @@ class LineRun:
         ]
 
         async def one(question: Question, url: str) -> str:
-            planned = canary.plan(url)
-            if planned is not None and _canary_quiet(planned[0].kind, self.day.quiet):
-                return (
-                    f"canary 未取得: {question.slug} / {url} ({planned[0].kind} は本日 rate limit)"
-                )
-            got = await canary.fetch(self.http, self.ctx.line, url, now=self.now, env=self.env)
+            got = await fetch_canary(
+                self.http,
+                self.ctx.line,
+                url,
+                label=f"{question.slug} / {url}",
+                day=self.day,
+                now=self.now,
+                env=self.env,
+            )
             if isinstance(got, str):
-                return f"canary 取得失敗: {question.slug} / {url} ({got})"
+                return got
             state = question_screening.state(
                 self.ctx, got, question, self._evidence_texts(question)
             )
@@ -1290,6 +1295,42 @@ def _canary_quiet(kind: AdapterKind, quiet: Collection[str]) -> bool:
     if kind == "arxiv":  # canary.plan fetches an arXiv paper from OpenAlex
         return nets.OPENALEX in quiet
     return any(key.endswith(f"/{kind}") for key in quiet)
+
+
+async def fetch_canary(
+    http: httpx2.AsyncClient,
+    line: Line,
+    url: str,
+    *,
+    label: str,
+    day: nets.DayBudget,
+    now: AwareDatetime,
+    env: Mapping[str, str],
+) -> SourceItem | str:
+    """The canary, or its operations line. An arXiv canary is an OpenAlex request: it goes
+    under DayBudget.openalex like the nets' (checked, sent and recorded with no other line
+    in between), and its 429 quiets the pool for the day — the canaries go out all at once,
+    and every later line would otherwise keep asking the pool that said no."""
+    planned = canary.plan(url)
+    kind = planned[0].kind if planned is not None else None
+
+    async def attempt() -> SourceItem | str:
+        if kind is not None and _canary_quiet(kind, day.quiet):
+            return f"canary 未取得: {label} ({kind} は本日 rate limit)"
+        got = await canary.fetch(http, line, url, now=now, env=env)
+        if isinstance(got, FetchFailure):
+            if kind == "arxiv" and "rate_limit" in got.detail:
+                day.quiet.add(nets.OPENALEX)
+                return f"canary 未取得: {label} (arxiv は本日 rate limit)"
+            return f"canary 取得失敗: {label} ({f'{got.reason} {got.detail}'[:120]})"
+        if isinstance(got, str):
+            return f"canary 取得失敗: {label} ({got})"
+        return got
+
+    if kind == "arxiv":
+        async with day.openalex:
+            return await attempt()
+    return await attempt()
 
 
 def canary_lines(
