@@ -127,6 +127,30 @@ def test_fit_needs_enough_gold():
     assert fit_thresholds(DecisionLog.from_nodes(_world(5)), min_gold=10) == []
 
 
+def _all_correct(nodes: list[GraphNodeType]) -> list[GraphNodeType]:
+    return [
+        n.model_copy(update={"verdict": "correct"}) if isinstance(n, Label) else n for n in nodes
+    ]
+
+
+def test_fit_proposes_nothing_from_one_class_gold(tmp_path: Path):
+    """Every label so far is [x]. With no incorrect claim the best accuracy is "accept
+    everything", so a fit would only ever lower thresholds (rubric_claim relevant 0.5 → 0.1
+    on the live store). Nothing is proposed, and the reason is said, not left silent."""
+    skipped: list[str] = []
+    log = DecisionLog.from_nodes(_all_correct(_world(40)))
+    assert fit_thresholds(log, min_gold=10, skipped=skipped) == []
+    assert "claim_detection.bears_on: gold 40 件がすべて correct" in "\n".join(skipped)
+    path = write_proposal(tmp_path, [], day=date(2026, 9, 22), skipped=skipped)
+    assert json.loads(path.read_text(encoding="utf-8"))["skipped"] == skipped
+
+
+def test_fit_says_when_gold_is_too_few():
+    skipped: list[str] = []
+    assert fit_thresholds(DecisionLog.from_nodes(_world(5)), min_gold=10, skipped=skipped) == []
+    assert "claim_detection.bears_on: gold 5 件 < 10" in skipped
+
+
 def test_proposal_file_is_written_not_applied(tmp_path: Path):
     proposals = fit_thresholds(DecisionLog.from_nodes(_world(40)), min_gold=10)
     path = write_proposal(tmp_path, proposals, day=date(2026, 9, 22))

@@ -132,11 +132,16 @@ def _fit(env: Mapping[str, str]) -> int:
     for slug in _slugs(env):
         log = DecisionLog.from_partition(store.line(slug))
         trusted = trusted_axes(agreement(log.judgments, log.labels))
-        proposals = fit_thresholds(log, trusted=trusted)
+        skipped: list[str] = []
+        proposals = fit_thresholds(log, trusted=trusted, skipped=skipped)
         path = write_proposal(
-            store.root / "proposals" / slug, proposals, day=datetime.now().astimezone().date()
+            store.root / "proposals" / slug,
+            proposals,
+            day=datetime.now().astimezone().date(),
+            skipped=skipped,
         )
         sys.stdout.write(f"{slug}: {len(proposals)} proposals → {path}\n")
+        sys.stdout.write("".join(f"  提案なし {s}\n" for s in skipped))
     return 0
 
 

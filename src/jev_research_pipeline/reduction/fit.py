@@ -2,7 +2,9 @@
 
 Features = the raw answers in Judgments (Noul p_yes, Score expected position, Choice
 probability) — only each subject's current-bundle, latest judgment; target = gold Label
-(correct → the function should accept). MIN_GOLD counts distinct labeled claims.
+(correct → the function should accept). MIN_GOLD counts distinct labeled claims, and the
+gold must hold both verdicts: with only correct labels the most accurate cut is "accept
+everything", so a fit could only ever lower thresholds.
 Silver labels (decision 5): trusted rubric_claim axes label unlabeled claims at
 SILVER_WEIGHT, and feed only non-rubric thresholds (a rubric threshold is never refit on
 its own verdicts). novelty is not fitted: its accept means "not a duplicate", which a
@@ -153,25 +155,39 @@ def fit_thresholds(
     trusted: tuple[RubricAxis, ...] = (),
     min_gold: int = MIN_GOLD,
     min_gain: float = MIN_GAIN,
+    skipped: list[str] | None = None,
 ) -> list[Proposal]:
+    """`skipped` collects one line per threshold left unfitted for lack of gold, so the
+    caller can say why a function got no proposal (an empty list alone reads as "the
+    current thresholds are already best")."""
+    skipped = skipped if skipped is not None else []
     gold = log.gold()
     silver = _silver(log, trusted)
     proposals: list[Proposal] = []
     for spec, feature, current_thresholds, bundle_sha256 in SPECS:
         samples: list[tuple[float, bool, float]] = []
-        gold_claims: set[str] = set()
+        gold_claims: dict[str, Verdict] = {}
         silver_claims: set[str] = set()
         use_silver = spec.function != "rubric_claim"
         for j in log.current(spec.function, bundle_sha256):
             for claim_id in log.claims_of(j.subjects[0]):
                 if claim_id in gold:
                     samples.append((feature(j), gold[claim_id] == "correct", 1.0))
-                    gold_claims.add(claim_id)
+                    gold_claims[claim_id] = gold[claim_id]
                 elif use_silver and claim_id in silver:
                     samples.append((feature(j), silver[claim_id] == "correct", SILVER_WEIGHT))
                     silver_claims.add(claim_id)
         n_gold, n_silver = len(gold_claims), len(silver_claims)
+        name = f"{spec.function}.{spec.threshold}"
         if n_gold < min_gold:
+            skipped.append(f"{name}: gold {n_gold} 件 < {min_gold}")
+            continue
+        classes = sorted(set(gold_claims.values()))
+        if len(classes) < 2:  # empty only when a caller passes min_gold=0
+            only = classes[0] if classes else "なし"
+            skipped.append(
+                f"{name}: gold {n_gold} 件がすべて {only} — 両方の判定が揃うまで提案しない"
+            )
             continue
         current = threshold(current_thresholds, spec.threshold)
         acc_now = _accuracy(samples, current, spec.accept_if)
@@ -193,14 +209,18 @@ def fit_thresholds(
     return proposals
 
 
-def write_proposal(directory: Path, proposals: list[Proposal], *, day: date) -> Path:
-    """A reviewable diff proposal; the author applies it by editing the THRESHOLDS."""
+def write_proposal(
+    directory: Path, proposals: list[Proposal], *, day: date, skipped: list[str] | None = None
+) -> Path:
+    """A reviewable diff proposal; the author applies it by editing the THRESHOLDS.
+    `skipped` (fit_thresholds) is kept beside it: why the other thresholds got none."""
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"thresholds-{day.isoformat()}.json"
     body = {
         "applied": False,
         "date": day.isoformat(),
         "proposals": [p.model_dump() for p in proposals],
+        "skipped": skipped or [],
     }
     path.write_text(json.dumps(body, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return path
