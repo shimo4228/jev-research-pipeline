@@ -29,7 +29,9 @@ sequential one:
 """
 
 import asyncio
+import re
 import time
+import unicodedata
 from collections.abc import Awaitable, Callable, Collection, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -395,6 +397,53 @@ def _gist(text: str) -> str:
     cut = flat[:GIST_CHARS]
     space = cut.rfind(" ")
     return (cut[:space] if space > GIST_CHARS // 2 else cut).rstrip(" ,;:—-") + "…"
+
+
+_SITE_SUFFIX: Final = re.compile(r"\s[|\u2013\u2014-]\s(?:(?!\s[|\u2013\u2014-]\s).){1,80}$")
+"""A web page title's last " | Site" / " - Portal name" segment (a spaced bar, hyphen, en or
+em dash; a hyphen inside a word, as in "mijn-bsl", is not a separator)."""
+TITLE_KEY_MIN: Final = 30
+"""A web title keeps its suffix unless what is left has this many word characters: a short
+head ("Home - Example") is not a paper title, and two pages sharing it are not one paper."""
+
+
+def title_key(source: SourceItem) -> str:
+    """The same work under another URL gets the same key: NFKC, case-folded, words only. A
+    web page's site suffix is dropped when a paper-length head is left — Tavily returned
+    one paper from four repository portals as four titles differing only there
+    ("… Self-Pattern - Vrije Universiteit Amsterdam"). Unicode-aware, so a Japanese title
+    is not folded to the empty key."""
+    title = unicodedata.normalize("NFKC", source.title).casefold()
+    if source.adapter == "web_search":
+        head = _SITE_SUFFIX.sub("", title)
+        if len(re.sub(r"\W+", "", head)) >= TITLE_KEY_MIN:
+            title = head
+    return " ".join(re.findall(r"\w+", title))
+
+
+def same_title_merged(
+    sources: Sequence[SourceItem], passing: Mapping[str, list[int]]
+) -> tuple[list[SourceItem], dict[str, list[int]], int]:
+    """One source per title_key among those the prefilter passed, before triage and the
+    screen: the one with the longest text (the most to judge), carrying every question
+    any of its copies passed for. Returns the kept sources in their first copy's place, the
+    passing map for them, and how many copies were dropped.
+
+    Why: the same paper at different URLs (arXiv and HF papers; one paper on four
+    repository portals) was triaged and screened once per URL, and each copy could land in
+    the note (ans, 2026-09-26: five copies of one paper). Within a run only; the copies'
+    prefilter Decisions stay in the store."""
+    groups: dict[str, list[SourceItem]] = {}
+    for s in sources:
+        if s.id in passing:
+            groups.setdefault(title_key(s) or s.id, []).append(s)
+    kept: list[SourceItem] = []
+    hits: dict[str, list[int]] = {}
+    for copies in groups.values():
+        best = max(copies, key=lambda c: len(c.text))  # ties: the first copy
+        kept.append(best)
+        hits[best.id] = sorted({i for c in copies for i in passing[c.id]})
+    return kept, hits, sum(len(c) - 1 for c in groups.values())
 
 
 def _entry(source: SourceItem, gist: str = "") -> SourceEntry:
@@ -1165,8 +1214,11 @@ class LineRun:
         with self._stage("queries", questions=len(self.questions)):
             queries = await self._queries()
         sources, passing = await self._fetch_and_prefilter(queries)
+        candidates, passing, merged = same_title_merged(sources, passing)
+        if merged:
+            self.st.notes.append(f"同じタイトルの重複 {merged} 件を 1 件にまとめて判定")
         with self._stage("triage", sources=len(passing)):
-            safe = await self._safe_sources([s for s in sources if s.id in passing])
+            safe = await self._safe_sources(candidates)
         with self._stage("screen", sources=len(safe)):
             screened = await self._screen(safe, passing)
         with self._stage("claims"):

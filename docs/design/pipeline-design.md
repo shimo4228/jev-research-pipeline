@@ -619,6 +619,13 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   against three questions). The real config.toml is the author's; the proposed diff is in
   the G2 report. A probe of q-bio.NC on 2026-10-01 listed 12 new items, none on meditation:
   a narrow listing costs little but finds little too.
+- **One work, one judgment per run** (run.same_title_merged): after the prefilter and
+  before triage, sources with the same title_key (NFKC, case-folded words; a web title's
+  last " | Site" / " - Portal" segment dropped when a 30-character head is left) collapse
+  to the copy with the longest text, carrying every question any copy passed. Measured on
+  the stores' prefilter passes: ans 4 of 22 merged (one paper on four repository portals,
+  triaged five times on 2026-09-26; one review twice on 2026-09-30), aap 1 of 123 (arXiv +
+  HF papers), akc / jev / desire 0 of 109 / 264 / 20; no false merge among the 538.
 
 ### Non-goals (explicit)
 
