@@ -571,14 +571,28 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
 - **Production model (2026-09-27)**: `openai-codex:gpt-6-luna`, set in the env file
   (`JRP_PROSE_MODEL`); the code default stays `gpt-5.6-sol` until its cassettes are
   re-recorded. The prompt v10 + check6 was read on gpt-6-luna ("Prose bench").
+- **`claude-code` backend (author decision 2026-10-01)**: Claude on the author's Claude
+  subscription through `claude -p` (`generation/claude_code.py`, a pydantic-ai
+  `FunctionModel` around a subprocess). The prose bench writes its drafts with it, because
+  the Codex and DashScope quotas are too small for eval iteration; production can switch to
+  it with `JRP_PROSE_MODEL=claude-code:<model>` (production stays on gpt-6-luna for now).
+  This lifts the non-goal "Claude at runtime" for the prose site only, as a configured
+  writer the author picks, never as a loop or a judge at run time. Isolation: `--bare`
+  reads only ANTHROPIC_API_KEY (claude 2.1.285), so the call runs without it and instead
+  loads no settings, no MCP and no tools, replaces the system prompt, sends the prompt on
+  stdin, runs in a fresh temp dir (measured: 756 input tokens, no CLAUDE.md). A usage or
+  rate limit is its own error (`ClaudeUsageLimit`) so the bench stops the burst on it.
 Review-when: the author's reading of GPT-5.6 Sol notes is worse than the qwen3.7-max
 baseline, the plan's usage limits cut a morning run short, or OpenAI's terms for
-subscription auth outside the Codex clients change.
+subscription auth outside the Codex clients change; for claude-code, Claude Code's `-p`
+flags or its terms for subscription use in scripts change, or launchd cannot read its
+keychain login.
 
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
-graph.jsonld; automatic rule application; local decision model; Claude at runtime;
+graph.jsonld; automatic rule application; local decision model; Claude at runtime (except
+as the configured prose writer, "Prose model" 2026-10-01);
 LLM-as-judge with another LLM as the truth source.
 
 ## Libraries (verified as-of 2026-09-22)

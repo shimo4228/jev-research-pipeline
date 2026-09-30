@@ -257,6 +257,7 @@ variable, `JRP_PROSE_MODEL`, in the form `<backend>:<model>`:
 |---|---|---|---|
 | `openai-codex` (default) | `openai-codex:gpt-5.6-sol` | a ChatGPT plan that includes Codex, and `uv run jrp codex login` once | nothing per token; use counts against the plan's limits |
 | `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio, international endpoint) | per token; a model with no price on record is flagged |
+| `claude-code` | `claude-code:sonnet` | the Claude Code CLI signed in to a Claude plan (`claude -p`; `JRP_CLAUDE_BIN` if it is not on PATH) | nothing per token; use counts against the plan's limits |
 
 Both backends go through Pydantic AI (`OpenAICodexProvider`, `AlibabaProvider`), so any model either
 one serves can be named, and adding another backend is one branch in

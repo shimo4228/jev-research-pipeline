@@ -10,9 +10,12 @@ JRP_PROSE_MODEL names it as `<backend>:<model>` (design "Prose model"):
     dashscope:<model>          Qwen on Alibaba Cloud's DashScope intl endpoint (keys are
                                region-bound), DASHSCOPE_API_KEY. The prose bench tuned the
                                prompt on dashscope:qwen3.7-max (2026-09-23).
+    claude-code:<model>        Claude on the author's Claude subscription through `claude -p`
+                               (generation.claude_code): the prose bench's writer, and a
+                               production writer one env var away (author decision 2026-10-01).
 
-Both backends go through the run's one injected httpx2 client, so cassettes and OTel see
-them alike.
+The two HTTP backends go through the run's one injected httpx2 client, so cassettes and OTel
+see them alike; claude-code is a subprocess and sees neither.
 """
 
 from collections.abc import Mapping
@@ -30,10 +33,11 @@ from pydantic_ai.providers.openai_codex import OpenAICodexProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
+from .claude_code import CLAUDE_BIN_ENV, claude_bin, claude_code_model
 from .codex import CodexAuthFile, codex_auth_path
 
-type Backend = Literal["openai-codex", "dashscope"]
-BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope")
+type Backend = Literal["openai-codex", "dashscope", "claude-code"]
+BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope", "claude-code")
 
 PROSE_MODEL_ENV: Final = "JRP_PROSE_MODEL"
 DEFAULT_PROSE_MODEL: Final = "openai-codex:gpt-5.6-sol"
@@ -64,7 +68,7 @@ class ModelSpec:
     @property
     def subscription(self) -> bool:
         """A flat plan, not per-token billing: its tokens are counted but cost nothing."""
-        return self.backend == "openai-codex"
+        return self.backend in ("openai-codex", "claude-code")
 
 
 def parse_model(raw: str) -> ModelSpec:
@@ -72,7 +76,7 @@ def parse_model(raw: str) -> ModelSpec:
     error, not a fallback to some other model the author did not ask for."""
     backend, _, name = raw.strip().partition(":")
     match backend:
-        case "openai-codex" | "dashscope" if name.strip():
+        case "openai-codex" | "dashscope" | "claude-code" if name.strip():
             return ModelSpec(backend=backend, name=name.strip())
         case _:
             raise ModelSpecError(
@@ -96,6 +100,8 @@ class ProseAuth:
     """DashScope's key."""
     codex_auth: Path | None = None
     """The pipeline's own Codex login file (generation.codex)."""
+    claude_bin: Path | None = None
+    """The Claude Code CLI (generation.claude_code); its login is Claude Code's own."""
 
 
 def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAuth:
@@ -106,6 +112,13 @@ def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAu
         if not key:
             raise MissingCredentials(f"missing env: {DASHSCOPE_KEY_ENV} (for {spec})")
         return ProseAuth(spec=spec, api_key=key)
+    if spec.backend == "claude-code":
+        binary = claude_bin(env)
+        if binary is None:
+            raise MissingCredentials(
+                f"no Claude Code CLI (for {spec}): install it, or set {CLAUDE_BIN_ENV}"
+            )
+        return ProseAuth(spec=spec, claude_bin=binary)
     path = codex_auth_path(env)
     if not path.is_file():
         raise MissingCredentials(
@@ -153,8 +166,12 @@ class Writer:
 
     def __init__(self, auth: ProseAuth, http: httpx2.AsyncClient) -> None:
         self.spec = auth.spec
-        self._provider: OpenAICodexProvider | AlibabaProvider
-        if auth.spec.backend == "openai-codex":
+        self._provider: OpenAICodexProvider | AlibabaProvider | Path
+        if auth.spec.backend == "claude-code":
+            if auth.claude_bin is None:
+                raise MissingCredentials(f"no Claude Code CLI given (for {auth.spec})")
+            self._provider = auth.claude_bin
+        elif auth.spec.backend == "openai-codex":
             if auth.codex_auth is None:
                 raise MissingCredentials(f"no Codex login given (for {auth.spec})")
             self._provider = OpenAICodexProvider(
@@ -168,6 +185,8 @@ class Writer:
             )
 
     def model(self, *, thinking: bool) -> Model:
+        if isinstance(self._provider, Path):
+            return claude_code_model(self._provider, self.spec.name, thinking=thinking)
         if isinstance(self._provider, OpenAICodexProvider):
             return OpenAICodexModel(
                 self.spec.name, provider=self._provider, settings=_codex_settings(thinking=thinking)

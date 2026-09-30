@@ -157,6 +157,7 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 |---|---|---|---|
 | `openai-codex`（既定） | `openai-codex:gpt-5.6-sol` | Codex を含む ChatGPT のプランと、1 回の `uv run jrp codex login` | トークン単位では 0。プランの利用上限に数えられる |
 | `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio、国際版の endpoint） | トークン単位。単価の記録が無いモデルはそう表示される |
+| `claude-code` | `claude-code:sonnet` | Claude のプランでサインインした Claude Code CLI（`claude -p`。PATH に無ければ `JRP_CLAUDE_BIN`） | トークン単価なし。プランの利用上限を消費する |
 
 どちらの backend も Pydantic AI（`OpenAICodexProvider`、`AlibabaProvider`）を通るので、それぞれが提供するモデルなら名前で指定できます。backend を足すのは `src/jev_research_pipeline/generation/client.py` の分岐 1 つです。`JRP_PROSE_THINKING`（`always` / `rewrite` / `off`）は、backend ごとのスイッチ（DashScope の thinking、GPT-5.6 の reasoning effort）に対応します。
 
