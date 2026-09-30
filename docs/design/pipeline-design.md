@@ -626,6 +626,29 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   the stores' prefilter passes: ans 4 of 22 merged (one paper on four repository portals,
   triaged five times on 2026-09-26; one review twice on 2026-09-30), aap 1 of 123 (arXiv +
   HF papers), akc / jev / desire 0 of 109 / 264 / 20; no false merge among the 538.
+- **Tried and not kept: question-driven evidence wording** (relevance_triage v3 /
+  question_screening v3 drafts, never committed). Measured by re-asking stored states with
+  live Jev (state hashes checked against the stored judgments; ~$0.05 in all). Noise floor
+  with unchanged asks: 0/40 triage and 3/40 screening routes flipped on akc + jev.
+  (1) Triage `contains_evidence` also counting "an explicit formal model (its variables or
+  equations), or an argument developed step by step from stated premises": ans triage
+  accepts 5 → 12 of 20 prefilter passes (the Pattern Theory of Selflessness paper now
+  passes) — but jev flipped 3 of 20 triage decisions accept → reject (awesome-jev-prompts,
+  which had been a Keep; awesome-jev; jev-market-radar), with or without an added
+  "explainer" exclusion; widening the list of what counts moved borderline repositories
+  (v2 0.61–0.67) below the cut. (2) `evidence_strength`'s `measured` rung and field text
+  extended with the primary-source clause's shape (a formal model / derivation /
+  simulation / implementation when `question.evidence` asks for one; then also "the
+  original text that makes an argument"): ans's surviving pairs moved from `asserted`
+  0.92–0.98 to 0.76–0.90 and no route changed (0 Keep, 1 Review, as before); desire's
+  routes moved within the noise floor. Why it does not reach Keep: the web snippets Jev
+  sees are 190–1,500 characters of abstract or page text, and the ans sources are
+  conceptual models ("a heuristic model … six transformations") or reviews — `asserted` is
+  a fair reading of them. The screen's weights (overlap 0.5, evidence 0.3, novelty 0.2)
+  then cap a theory paper near 0.5 < keep 0.6. Whether theory counts as evidence for ans's
+  questions is the author's call (their `evidence:` lines), not a wording fix.
+  Review-when: the author rewrites ans's `evidence:` lines, or a line whose questions ask
+  for theory keeps showing on-topic sources dropped at `asserted`.
 
 ### Non-goals (explicit)
 
