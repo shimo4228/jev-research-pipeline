@@ -132,5 +132,7 @@ def test_one_node_per_text_line(tmp_path: Path):
 def test_remove_drops_nodes_by_id(tmp_path: Path):
     part = GraphStore(tmp_path).line("akc")
     part.put([b.claim(), b.unit()])
-    part.remove([b.claim().id, "https://shimo4228.github.io/shimo4228/jrp/claim/" + "0" * 32])
+    absent = "https://shimo4228.github.io/shimo4228/jrp/claim/" + "0" * 32
+    assert part.remove([b.claim().id, absent]) == 1  # only what was stored counts
     assert set(part.load()) == {b.unit().id}
+    assert part.remove([absent]) == 0

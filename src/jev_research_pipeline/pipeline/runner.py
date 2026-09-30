@@ -104,9 +104,11 @@ def harvest_line(store: GraphStore, vault: Path, slug: str, now: AwareDatetime) 
             skipped.append(f"{note.name}: {result.skipped}")
             continue
         part.put(result.labels)
-        part.remove(result.cleared)
+        # `cleared` lists every blank box of the note (a blank question-day expands to the
+        # day and all it cites), re-listed on every run; only the Labels actually dropped
+        # are a withdrawal worth reporting.
+        withdrawn += part.remove(result.cleared)
         labels += len(result.labels)
-        withdrawn += len(result.cleared)
     lines = [f"harvest: label {labels} 件 / 取り消し {withdrawn} 件"]
     return lines + [f"harvest skip: {s}" for s in skipped]
 

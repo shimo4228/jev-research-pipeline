@@ -1,12 +1,14 @@
 """Step 7: report markdown (decision 12), vault writer, harvester."""
 
+import json
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import Claim, Label, SourceItem, Unit
+from jev_research_pipeline.model import Claim, Label, QuestionLog, Report, SourceItem, Unit
+from jev_research_pipeline.pipeline.runner import harvest_line
 from jev_research_pipeline.report import (
     VAULT_ENV,
     ClaimEntry,
@@ -21,6 +23,7 @@ from jev_research_pipeline.report import (
     write_note,
 )
 from jev_research_pipeline.report.markdown import QuestionSection, SourceEntry
+from jev_research_pipeline.store import GraphStore
 
 from . import builders as b
 
@@ -366,3 +369,74 @@ def test_contradictions_get_their_own_block():
     body = text.split("---\n", 2)[2]
     assert body.index("証拠") < body.index("反証") < body.index("jrp:qday:")
     assert "- 逆の結果を報告している。" in body
+
+
+# --- harvest counts (daily-tool-hardening G3) ------------------------------------------------
+
+
+def _stored_report(day: date, claims: tuple[str, ...] = ()) -> Report:
+    return Report.new(
+        line=b.LINE_IRI,
+        run_date=day,
+        rendering="template",
+        prose=None,
+        claims=claims,
+        unjudged=(),
+        partial=False,
+        operations=b.report().operations,
+    )
+
+
+def _hand_note(vault: Path, day: date, report: Report, lines: list[str]) -> Path:
+    path = note_path(vault, "akc", day)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frontmatter = f"---\njrp_report: {json.dumps(report.id)}\n---\n"
+    path.write_text(frontmatter + "\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_harvest_counts_only_labels_it_really_removed(tmp_path: Path):
+    """The harvest line's 取り消し is the number of Labels dropped from the store. Every
+    note of the line is re-harvested each run and every blank box is a withdrawal
+    candidate, so counting candidates grew run after run (desire: 0→10→21→26) while
+    nothing was stored for them."""
+    vault, store = tmp_path / "vault", GraphStore(tmp_path / "store")
+    c1, c2 = (
+        _entry(url="https://arxiv.org/abs/1").claim,
+        _entry(url="https://arxiv.org/abs/2").claim,
+    )
+    day_a, day_b = date(2026, 9, 22), date(2026, 9, 23)
+    report_a, report_b = _stored_report(day_a, (c1.id, c2.id)), _stored_report(day_b)
+    log = QuestionLog.new(
+        question=b.question().id,
+        report=report_a.id,
+        run_date=day_a,
+        movement="new_evidence_same_answer",
+        text="今日の変化。",
+        claims=(c1.id, c2.id),
+        logged_at=b.T0,
+    )
+    store.line("akc").put([report_a, report_b, log])
+    qday = f"<!-- jrp:qday:{b.question().id}:{day_a.isoformat()} -->"
+    note_a = _hand_note(vault, day_a, report_a, [f"- [x] 読む価値があった {qday}"])
+    sources = [
+        SourceItem.new(
+            line=b.LINE_IRI,
+            adapter="arxiv",
+            url=f"https://arxiv.org/abs/s{i}",
+            title="t",
+            text="x",
+            fetched_at=b.T0,
+        ).id
+        for i in range(3)
+    ]
+    _hand_note(vault, day_b, report_b, [f"- [ ] t <!-- jrp:source:{s} -->" for s in sources])
+
+    for _ in range(2):  # a re-harvest of unchanged notes withdraws nothing
+        lines = harvest_line(store, vault, "akc", b.T0)
+        assert lines[0] == "harvest: label 3 件 / 取り消し 0 件", lines
+
+    note_a.write_text(note_a.read_text(encoding="utf-8").replace("- [x] ", "- [ ] "), "utf-8")
+    lines = harvest_line(store, vault, "akc", b.T0)
+    assert lines[0] == "harvest: label 0 件 / 取り消し 3 件", lines  # the log and its 2 claims
+    assert not [n for n in store.line("akc").load().values() if isinstance(n, Label)]

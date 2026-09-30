@@ -99,8 +99,9 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
         GraphStore(Path(env["JRP_STORE_DIR"])), Path(env["JRP_VAULT_DIR"]), "akc", b.T0
     )
     # One claim ticked; every other checkbox of the note (claims, sources, the
-    # question-day and what it cites) is blank, so its label is withdrawn.
-    assert lines[0].startswith("harvest: label 1 件 / 取り消し ")
+    # question-day and what it cites) is blank, but none of them had a Label yet, so
+    # nothing is withdrawn.
+    assert lines[0] == "harvest: label 1 件 / 取り消し 0 件"
     labels = [n for n in part.load().values() if isinstance(n, Label)]
     assert [(lb.subject, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
 

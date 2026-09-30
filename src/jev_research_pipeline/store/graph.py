@@ -60,13 +60,15 @@ class Partition:
         merged = self.load() | incoming
         self._write([merged[iri] for iri in sorted(merged)])
 
-    def remove(self, iris: Iterable[str]) -> None:
-        """Drop nodes by @id (absent ids are ignored). Used to withdraw Labels."""
-        drop = set(iris)
+    def remove(self, iris: Iterable[str]) -> int:
+        """Drop nodes by @id and return how many were stored (absent ids are ignored).
+        Used to withdraw Labels: a harvest asks to withdraw every blank box, most of which
+        never had a Label, so only the return value says what was really withdrawn."""
         current = self.load()
-        if not drop & set(current):
-            return
-        self._write([current[i] for i in sorted(current) if i not in drop])
+        drop = set(iris) & set(current)
+        if drop:
+            self._write([current[i] for i in sorted(current) if i not in drop])
+        return len(drop)
 
     def write_all(self, nodes: list[GraphNodeType]) -> None:
         """Replace the whole file with `nodes` (a migration's rewrite). Sorted by @id, like
