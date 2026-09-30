@@ -20,9 +20,12 @@ JRP_CLAUDE_BIN, else `claude` on PATH, else ~/.local/bin/claude (launchd's PATH 
 """
 
 import asyncio
+import contextlib
 import json
 import os
+import re
 import shutil
+import signal
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -53,6 +56,21 @@ class ClaudeCodeError(UnexpectedModelBehavior):
 class ClaudeUsageLimit(ClaudeCodeError):
     """The subscription's usage or rate limit. A policy signal, not a transient error: the
     prose bench stops its burst on it instead of retrying (harness rule debugging.md)."""
+
+
+def is_usage_limit(failure: str | None) -> bool:
+    """A ProseResult failure that came from ClaudeUsageLimit (write_prose keeps the name)."""
+    return bool(failure) and failure.startswith(f"{ClaudeUsageLimit.__name__}:")
+
+
+_SECRET_ENV: Final = re.compile(r"^ANTHROPIC_|_API_KEY$|_TOKEN$|^JRP_CODEX_AUTH$")
+
+
+def child_env(env: Mapping[str, str]) -> dict[str, str]:
+    """The CLI's environment without credentials. ANTHROPIC_API_KEY would switch it from the
+    subscription to per-token API billing the meter prices at 0; the other keys (TypeSafe,
+    DashScope, Tavily, GitHub) are not the CLI's to hold."""
+    return {k: v for k, v in env.items() if not _SECRET_ENV.search(k)}
 
 
 def claude_bin(env: Mapping[str, str]) -> Path | None:
@@ -156,16 +174,23 @@ async def run_claude(argv: list[str], prompt: str, *, timeout_s: float) -> tuple
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=os.environ.copy(),
+            env=child_env(os.environ),
+            start_new_session=True,  # its own process group: a kill reaches its children too
         )
         try:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(prompt.encode()), timeout=timeout_s
             )
-        except TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise ClaudeCodeError(f"claude timed out after {timeout_s:.0f} s") from None
+        except BaseException as e:
+            # a timeout, or the run being cancelled: never leave a CLI spending the plan
+            # (or running in a cwd about to be deleted) with nobody reading its answer
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+            await proc.communicate()  # reap it and close its pipes
+            if isinstance(e, TimeoutError):
+                raise ClaudeCodeError(f"claude timed out after {timeout_s:.0f} s") from None
+            raise
     return parse_result(stdout, stderr, proc.returncode or 0)
 
 

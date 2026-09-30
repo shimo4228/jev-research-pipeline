@@ -2,9 +2,11 @@
 through `claude -p`. A fake CLI (a shell script) records what it was given and answers, so
 every test is offline."""
 
+import asyncio
 import json
 import os
 import stat
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -20,10 +22,12 @@ from jev_research_pipeline.generation import (
     prose_auth,
     write_prose,
 )
-from jev_research_pipeline.generation.claude_code import ClaudeUsageLimit, parse_result
+from jev_research_pipeline.generation.claude_code import ClaudeUsageLimit, child_env, parse_result
+from jev_research_pipeline.pipeline import prose_bench as pb
 from jev_research_pipeline.pipeline.costs import generation_price
 
 from .test_prose import CTX, QUESTION
+from .test_prose_bench import _bench  # pyright: ignore[reportPrivateUsage]
 
 SONNET = parse_model("claude-code:sonnet")
 
@@ -170,3 +174,51 @@ async def test_a_hung_cli_is_killed_at_the_prose_timeout(tmp_path: Path):
         w.model(thinking=True), CTX, QUESTION, ["c"], feedback=None, meter=METER, timeout_s=0.3
     )
     assert result.prose is None and result.failure and "timed out" in result.failure
+
+
+def test_the_cli_gets_no_credentials_so_it_stays_on_the_subscription():
+    kept = ("HOME", "PATH", "JRP_STORE_DIR")
+    dropped = (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
+        "TYPESAFE_API_KEY",
+        "GITHUB_TOKEN",
+        "JRP_CODEX_AUTH",
+    )
+    env: dict[str, str] = dict.fromkeys(kept + dropped, "v")
+    assert child_env(env) == dict.fromkeys(kept, "v")
+
+
+async def test_a_cancelled_call_does_not_leave_the_cli_running(tmp_path: Path):
+    w = writer(fake_claude(tmp_path, ok("late"), sleep=30))
+    task = asyncio.create_task(write(w))
+    for _ in range(100):  # until the fake CLI has started
+        if (tmp_path / "cwd").exists():
+            break
+        await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    started = subprocess.run(
+        ["pgrep", "-f", f"{tmp_path}/claude"], capture_output=True, text=True, check=False
+    )
+    assert started.stdout.strip() == ""
+
+
+async def test_a_usage_limit_stops_the_bench_burst_and_saves_nothing(tmp_path: Path):
+    bench = _bench(tmp_path / "bench")
+    (case,) = pb.load_cases(bench, "all")
+    for i in range(3):  # three more cases, so there is a burst to stop
+        (bench / "cases" / f"x{i}.json").write_text(
+            case.model_copy(update={"id": f"x{i}"}).model_dump_json(), encoding="utf-8"
+        )
+    limit = {"subtype": "success", "is_error": True, "api_error_status": 429, "result": "limit"}
+    variant = pb.Variant(
+        name="cc", instructions="i", model="claude-code:sonnet", thinking=True, sources=False
+    )
+    lines = await pb.run_bench(
+        bench, variant, writer=writer(fake_claude(tmp_path, limit)), split="all", concurrency=1
+    )
+    assert lines[0].startswith("STOPPED: usage limit — 4 case(s) not drafted")
+    assert pb.load_drafts(bench, "cc") == {}
+    assert len((tmp_path / "argv").read_text().split("\0")) > 1  # it did call, once

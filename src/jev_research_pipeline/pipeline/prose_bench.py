@@ -36,6 +36,7 @@ from typing import Final, Literal
 from pydantic_ai.models import Model
 
 from jev_research_pipeline.generation import GenerationMeter, Writer
+from jev_research_pipeline.generation.claude_code import is_usage_limit
 from jev_research_pipeline.generation.prose import (
     INFERENCE_MARK,
     NO_DIRECT_EVIDENCE,
@@ -315,6 +316,16 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
         )
         seconds += checked.seconds
         prose = checked.prose or prose  # a failed check keeps the first draft
+        if is_usage_limit(checked.failure):
+            return Draft(
+                case=case.id,
+                variant=variant.name,
+                prose=None,
+                failure=checked.failure,
+                seconds=seconds,
+                chars=0,
+                gates=("生成失敗",),
+            )
     return Draft(
         case=case.id,
         variant=variant.name,
@@ -516,16 +527,31 @@ async def run_bench(
         c for c in load_cases(bench, split) if c.id not in done and (only is None or c.id in only)
     ]
     slots = asyncio.Semaphore(concurrency)
+    limited = asyncio.Event()
 
-    async def one(case: BenchCase) -> Draft:
+    async def one(case: BenchCase) -> Draft | None:
+        """None = not attempted, or stopped by a usage limit: nothing is saved, so the
+        next bench run drafts the case again instead of counting it done."""
         async with slots:
-            return await draft(case, variant, model, meter)
+            if limited.is_set():
+                return None
+            d = await draft(case, variant, model, meter)
+            if is_usage_limit(d.failure):
+                limited.set()  # a policy signal: stop the burst, do not retry
+                return None
+            return d
 
-    drafts = await asyncio.gather(*(one(c) for c in todo))
+    drafts = [d for d in await asyncio.gather(*(one(c) for c in todo)) if d is not None]
     for d in drafts:
         write_draft(bench, d)
     failed = [d for d in drafts if d.gates]
+    stopped = (
+        [f"STOPPED: usage limit — {len(todo) - len(drafts)} case(s) not drafted, run again later"]
+        if limited.is_set()
+        else []
+    )
     return [
+        *stopped,
         f"{variant.name}: {len(drafts)} drafted, {len(done)} already there",
         f"tokens in {meter.input_tokens} / out {meter.output_tokens}",
         *(f"gate: {d.case} {' / '.join(d.gates)}" for d in failed),
