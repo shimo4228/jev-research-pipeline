@@ -2,8 +2,8 @@
 
 Queries are written when a question is (questions module docstring), so the check runs at
 authoring time, by whoever wrote them: every query line of every open question goes to its
-adapter once, live, and the result is printed — hit count, and the newest few titles with
-their dates — so a query that finds nothing, or finds the wrong field, is rewritten before
+adapter once, live, and the result is printed — hit count, and the first few titles with
+their dates, in the adapter's own order (arXiv: most relevant first) — so a query that finds nothing, or finds the wrong field, is rewritten before
 the daily run depends on it. Nothing is stored and no model is called.
 """
 
@@ -38,7 +38,7 @@ async def check_queries(
         if not authored:
             out.append("  クエリ未設定 — 実行時はこの問いの keyword 検索を送らない")
         for kind, text in authored:
-            adapter = make_adapter(kind)
+            adapter = make_adapter(kind, today=now.date())
             needed = adapter.required_env
             if needed is not None and not env.get(needed):
                 out.append(f"  {kind}: {text} → {needed} 未設定のため未送信")

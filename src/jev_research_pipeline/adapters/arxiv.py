@@ -1,7 +1,8 @@
 """arXiv keyword search, through OpenAlex restricted to the arXiv source. As-of 2026-09-26.
 
-`works?search=<words>&filter=primary_location.source.id:S4306400194` — OpenAlex's full text
-search over the works whose primary location is arXiv, newest first. Why not arXiv's own
+`works?search=<words>&filter=primary_location.source.id:S4306400194,from_publication_date:<d>`
+— OpenAlex's full text search over the arXiv works of the last WINDOW_DAYS, most relevant
+first (see WINDOW_DAYS for why not newest first). Why not arXiv's own
 API: since 2026-09-24 export.arxiv.org answers 406 to every Python client (httpx2 and
 urllib) while curl gets 200 for the same bytes, even for a query no cache held; other
 projects report the same 406 since 2026-09-13. The author decided against a client
@@ -17,7 +18,9 @@ paper found by both nets is one node. The abstract comes as `abstract_inverted_i
 skipped, like any result with no text.
 """
 
+import functools
 from collections.abc import Mapping
+from datetime import date, timedelta
 from typing import Final
 from urllib.parse import quote
 
@@ -30,7 +33,23 @@ from .openalex import WORKS, headers
 SOURCE: Final = "S4306400194"
 """arXiv as an OpenAlex source."""
 MAX_RESULTS: Final = 20
+MIN_INTERVAL_S: Final = 0.5
 SEARCH_CREDITS: Final = 10
+WINDOW_DAYS: Final = 90
+"""The keyword search asks for the most relevant arXiv works published in the last 90 days.
+
+Newest first (until 2026-10-01) let the latest works that merely mention the words anywhere
+in their full text take all 20 places: the ans line's `arxiv:` queries brought 52 sources
+over its runs and the prefilter passed 0 of them. OpenAlex's relevance score combines text
+similarity with citation count (help.openalex.org/api/searching, 2026-10-01), so without a
+window it would favour old, cited works; the window keeps the search on recent work.
+Measured live 2026-10-01 on six ans / desire queries: a 30-day window matched 9-91 works
+and its top 20 was mostly the same off-topic set as newest first; 90 days matched 27-285 and
+brought the on-topic ones up (for `active inference meditation`, "Thoughtseeds as Latent
+Causes: A Dual-Process Computational Phenomenology of Focused-Attention Meditation" first,
+absent from newest first). Newest first reached back about a month anyway for 20 results.
+A work that stays in the top 20 comes back on the next runs; its Jev answers are stored,
+so the repeat costs the search, not the screen."""
 """A `search=` list, measured from x-ratelimit-credits-used (2026-09-23)."""
 SELECT: Final = "id,doi,title,publication_date,abstract_inverted_index"
 DOI_PREFIX: Final = "10.48550/arxiv."
@@ -74,11 +93,14 @@ def _draft(work: _Work) -> RawDraft:
     )
 
 
-def build_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
+def build_request(query: str, env: Mapping[str, str], *, today: date) -> httpx2.Request:
+    """The search as of `today` (the run's date): WINDOW_DAYS back, by relevance. The
+    `relevance_score` sort is only valid with a `search=` (help.openalex.org/api/sorting)."""
+    since = (today - timedelta(days=WINDOW_DAYS)).isoformat()
     params = {
         "search": query,
-        "filter": f"primary_location.source.id:{SOURCE}",
-        "sort": "publication_date:desc",
+        "filter": f"primary_location.source.id:{SOURCE},from_publication_date:{since}",
+        "sort": "relevance_score:desc",
         "per_page": str(MAX_RESULTS),
         "select": SELECT,
     }
@@ -100,11 +122,24 @@ def paper_parse(body: str) -> list[RawDraft]:
     return [_draft(_Work.model_validate_json(body))]
 
 
-def adapter() -> Adapter:
+def adapter(today: date) -> Adapter:
+    """The keyword search, windowed on `today` (the run's date, so a replay sends the same
+    URL)."""
     return Adapter(
         kind="arxiv",
-        build_request=build_request,
+        build_request=functools.partial(build_request, today=today),
         parse=parse,
-        min_interval_s=0.5,
+        min_interval_s=MIN_INTERVAL_S,
         credit_cost=SEARCH_CREDITS,
+    )
+
+
+def paper_adapter() -> Adapter:
+    """One paper by its arXiv id (the canary probe): the free singleton, no search."""
+    return Adapter(
+        kind="arxiv",
+        build_request=paper_request,
+        parse=paper_parse,
+        min_interval_s=MIN_INTERVAL_S,
+        query_kind="token",
     )

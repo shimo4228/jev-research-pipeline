@@ -360,7 +360,8 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   no cache held; other projects report the same 406 since 2026-09-13. The author decided
   against a client workaround (it would be bot-detection evasion). `arxiv:` keyword queries
   go to OpenAlex `works?search=<words>&filter=primary_location.source.id:S4306400194`
-  (newest first, 20 per query, ~3 days behind the announcement, 10 credits each, same daily
+  (most relevant of the last 90 days since 2026-10-01 — newest first before, see "Discovery gaps
+  on ans / desire"; 20 per query, ~3 days behind the announcement, 10 credits each, same daily
   cap as the citation net); the SourceItem keeps kind `arxiv` and the firehose's URL form
   `https://arxiv.org/abs/<id>` from the `10.48550/arxiv.<id>` DOI, text = the reconstructed
   `abstract_inverted_index`. An arXiv canary is the free singleton
@@ -473,7 +474,7 @@ deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carr
   author or by Claude in the author's session — authoring, not a run-time call, so "Claude
   calls = 0" and the non-goal "Claude at runtime" hold. Procedure: AGENTS.md.
 - Checked before a run depends on them: `jrp queries check --line <slug>` sends each once and
-  prints hit count and newest titles; nothing is stored, no model is called.
+  prints hit count and the first titles; nothing is stored, no model is called.
 - At run time they bypass Qwen and Jev query_selection. Each adapter's list is rotated by the
   line's run count (earlier Reports), because the keyword budget (and, until 2026-09-26,
   arXiv's one-search-a-line cap) cuts from the front; not by the day ordinal, which repeats the same start when a rotated
@@ -592,6 +593,26 @@ baseline, the plan's usage limits cut a morning run short, or OpenAI's terms for
 subscription auth outside the Codex clients change; for claude-code, Claude Code's `-p`
 flags or its terms for subscription use in scripts change, or launchd cannot read its
 keychain login.
+
+### Discovery gaps on ans / desire (2026-10-01, plan daily-tool-hardening G2)
+
+Diagnosis from the store (read-only, 2026-10-01). `ans` produced 0 claims on every run.
+Prefilter pass by net over its whole history: firehose arXiv 0/1070, firehose HF 0/96,
+keyword arXiv 0/52, keyword HF 0/77, keyword web 22/41. `desire` has had Keeps, all on its
+third question (the arXiv-heavy one); its first-person question never got a pair past triage.
+
+- **arXiv keyword search: most relevant of the last 90 days** (adapters.arxiv
+  WINDOW_DAYS). Newest first let the latest works that mention the words anywhere in their
+  full text take all 20 places. OpenAlex relevance mixes in citation count, so the window
+  is what keeps it recent. Measured live on six ans / desire queries: a 30-day window
+  matched 9–91 works and its top 20 was mostly newest-first's off-topic set again; 90 days
+  matched 27–285 works and ranked the on-topic ones first (e.g. "Thoughtseeds as Latent
+  Causes: A Dual-Process Computational Phenomenology of Focused-Attention Meditation" for
+  `active inference meditation`; "A New Theory of Value for Post-AGI Economics" for
+  `AI human flourishing`). Same 10 credits a search. A work that stays in the top 20 comes
+  back on later runs; its Jev answers are stored, so the repeat costs the search only.
+  Review-when: repeats crowd out new works for a line (its arXiv keyword sources are mostly
+  already-judged), or OpenAlex changes how `relevance_score` is computed.
 
 ### Non-goals (explicit)
 

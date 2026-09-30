@@ -197,9 +197,9 @@ operations block as a sign that screening drifted.
 `arxiv:`, `github:`, `hf:` and `web:` lines are the keyword net's search queries for this question,
 one per line, in English except that a `web:` query may be in Japanese. You write them together with
 the question, or have an assistant draft them in your session, and try them before a run uses them:
-`uv run jrp queries check --line <slug>` sends each query once and prints the hit count and the newest
-titles, storing nothing. An `arxiv:` query is sent to OpenAlex's search, limited to arXiv papers,
-which requires every word to match, so keep its queries to two to four words. A question without query lines sends no keyword query (the note's operations block
+`uv run jrp queries check --line <slug>` sends each query once and prints the hit count and the first
+titles, storing nothing. An `arxiv:` query is sent to OpenAlex's search, limited to arXiv papers of
+the last 90 days and ranked by relevance, which requires every word to match, so keep its queries to two to four words. A question without query lines sends no keyword query (the note's operations block
 says so); the other nets still run for it. The authoring procedure is in [AGENTS.md](AGENTS.md)
 (in Japanese, written for coding agents).
 

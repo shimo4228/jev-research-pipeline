@@ -33,6 +33,7 @@ import time
 from collections.abc import Awaitable, Callable, Collection, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from datetime import date
 from pathlib import Path
 from typing import Any, Final, override
 
@@ -116,10 +117,11 @@ GIST_CHARS: Final = 120
 """One evidence line shows this much of a source's text — enough to recognize it."""
 
 
-def make_adapter(kind: AdapterKind, *, pacing: bool = True) -> Adapter:
-    """`pacing=False` only for replayed runs (tests): no live request, no rate limit."""
+def make_adapter(kind: AdapterKind, *, today: date, pacing: bool = True) -> Adapter:
+    """`today` = the run's date (arXiv search is windowed on it, adapters.arxiv).
+    `pacing=False` only for replayed runs (tests): no live request, no rate limit."""
     adapter = {
-        "arxiv": arxiv.adapter,
+        "arxiv": lambda: arxiv.adapter(today),
         "hf_papers": hf_papers.adapter,
         "github": github.adapter,
         "web_search": web_search.adapter,
@@ -484,7 +486,7 @@ class LineRun:
         without them sends no keyword query and says so; the other nets still run for it."""
         available: list[AdapterKind] = []
         for kind in self.ctx.line.adapters:
-            needed = make_adapter(kind).required_env
+            needed = make_adapter(kind, today=self.now.date()).required_env
             if needed is not None and not self.env.get(needed):
                 self.st.notes.append(f"{kind}: key 未設定のため skip")
                 continue
@@ -570,7 +572,10 @@ class LineRun:
     ) -> list[SourceItem]:
         """Every net, in the code-fixed order, within its budget (packet "Discovery").
         `on_sources` sees each request's new sources as they arrive (nets.fetch_nets)."""
-        keyword = [(make_adapter(q.adapter, pacing=self.pacing), q.text) for q in queries]
+        keyword = [
+            (make_adapter(q.adapter, today=self.now.date(), pacing=self.pacing), q.text)
+            for q in queries
+        ]
         positives, negatives = self._positives_and_negatives()
         plan = nets.plan(
             self.nets,

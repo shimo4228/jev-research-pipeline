@@ -26,8 +26,7 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline.model import Line, SourceItem
 
-from .arxiv import adapter as arxiv_adapter
-from .arxiv import paper_parse, paper_request
+from .arxiv import paper_adapter
 from .base import USER_AGENT, Adapter, FetchFailure, RawDraft, one_line
 from .github import adapter as github_adapter
 from .github import build_request as github_request
@@ -80,14 +79,7 @@ def plan(url: str) -> tuple[Adapter, str] | None:
         )
         return adapter, repo
     if m := _ARXIV.match(url):
-        adapter = replace(
-            arxiv_adapter(),
-            build_request=paper_request,
-            parse=paper_parse,
-            query_kind="token",
-            credit_cost=0,
-        )
-        return adapter, m.group(1)
+        return paper_adapter(), m.group(1)
     if url.startswith("https://"):
         adapter = Adapter(
             kind="web_search",

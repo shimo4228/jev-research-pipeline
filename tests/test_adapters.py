@@ -38,7 +38,9 @@ def _ok(outcome: FetchOutcome) -> tuple[SourceItem, ...]:
 
 async def test_arxiv_search_parses_openalex_works(cassette: ClientFactory):
     client = cassette(fake_json(OPENALEX_ARXIV_SEARCH))
-    out = await arxiv.adapter().fetch(client, b.line(), "narrow questions", now=b.T0, env=NO_ENV)
+    out = await arxiv.adapter(b.T0.date()).fetch(
+        client, b.line(), "narrow questions", now=b.T0, env=NO_ENV
+    )
     first, second = _ok(out)
     # the firehose's form (no version), so the same paper from both nets is one node
     assert first.url == "https://arxiv.org/abs/2609.01234"
@@ -53,16 +55,19 @@ async def test_arxiv_search_parses_openalex_works(cassette: ClientFactory):
 
 
 def test_arxiv_search_request_shape():
-    req = arxiv.adapter().build_request("narrow questions", NO_ENV)
+    req = arxiv.adapter(b.T0.date()).build_request("narrow questions", NO_ENV)
     assert req.url.host == "api.openalex.org"
     assert req.url.path == "/works"
     assert req.url.params["search"] == "narrow questions"
-    assert req.url.params["filter"] == "primary_location.source.id:S4306400194"
-    assert req.url.params["sort"] == "publication_date:desc"
+    # the last 90 days before the run's date (2026-09-22), most relevant first
+    assert req.url.params["filter"] == (
+        "primary_location.source.id:S4306400194,from_publication_date:2026-06-24"
+    )
+    assert req.url.params["sort"] == "relevance_score:desc"
     assert req.url.params["per_page"] == "20"
     assert "abstract_inverted_index" in req.url.params["select"]
     assert "authorization" not in req.headers
-    keyed = arxiv.adapter().build_request("narrow questions", {"OPENALEX_API_KEY": "k"})
+    keyed = arxiv.adapter(b.T0.date()).build_request("narrow questions", {"OPENALEX_API_KEY": "k"})
     assert keyed.headers["authorization"] == "Bearer k"
     assert "k" not in keyed.url.params.values()  # the key stays out of the URL
 
@@ -92,7 +97,7 @@ async def test_arxiv_search_reads_the_credit_header():
             200, json=OPENALEX_ARXIV_SEARCH, headers={"x-ratelimit-credits-used": "12"}
         )
 
-    out = await arxiv.adapter().fetch(
+    out = await arxiv.adapter(b.T0.date()).fetch(
         httpx2.AsyncClient(transport=httpx2.MockTransport(upstream)),
         b.line(),
         QUERY,
@@ -104,7 +109,7 @@ async def test_arxiv_search_reads_the_credit_header():
 
 async def test_arxiv_search_wrong_shape_is_a_parse_failure(cassette: ClientFactory):
     client = cassette(fake_json({"results": "not a list"}))
-    out = await arxiv.adapter().fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
+    out = await arxiv.adapter(b.T0.date()).fetch(client, b.line(), QUERY, now=b.T0, env=NO_ENV)
     assert out.sources == ()
     assert out.failure is not None and out.failure.reason == "parse"
 
@@ -202,14 +207,19 @@ async def test_wrong_json_shape_is_a_parse_failure(cassette: ClientFactory):
 def test_adapter_kinds_cover_line_adapters():
     kinds = {
         a.kind
-        for a in (arxiv.adapter(), hf_papers.adapter(), github.adapter(), web_search.adapter())
+        for a in (
+            arxiv.adapter(b.T0.date()),
+            hf_papers.adapter(),
+            github.adapter(),
+            web_search.adapter(),
+        )
     }
     assert kinds == {"arxiv", "hf_papers", "github", "web_search"}
 
 
 def test_pacing_intervals_follow_published_limits():
     # OpenAlex: 100 rps. GitHub search unauthenticated: 10/min. HF search: 50 / 5 min.
-    assert arxiv.adapter().min_interval_s == 0.5
+    assert arxiv.adapter(b.T0.date()).min_interval_s == 0.5
     assert github.adapter().min_interval_s == 6.0
     assert hf_papers.adapter().min_interval_s == 6.0
 
@@ -228,7 +238,7 @@ async def test_pacing_holds_across_adapter_instances():
 
     http = httpx2.AsyncClient(transport=httpx2.MockTransport(record))
     for _ in range(2):
-        adapter = replace(arxiv.adapter(), min_interval_s=0.2)
+        adapter = replace(arxiv.adapter(b.T0.date()), min_interval_s=0.2)
         await adapter.fetch(http, b.line(), QUERY, now=b.T0, env=NO_ENV)
     assert sent[1] - sent[0] >= 0.2
 
@@ -368,7 +378,7 @@ async def test_http_error_detail_explains_itself(
 @pytest.mark.parametrize("junk", [",", "]", "   ", "--", "<|end|>"])
 async def test_adapter_refuses_a_query_with_no_searchable_text(cassette: ClientFactory, junk: str):
     # Deterministic guard behind the model-side validation (2026-09-23 live: arXiv 406).
-    out = await arxiv.adapter().fetch(
+    out = await arxiv.adapter(b.T0.date()).fetch(
         cassette(fake_json(OPENALEX_ARXIV_SEARCH)),
         b.line(),
         junk,

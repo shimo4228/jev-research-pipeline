@@ -1,6 +1,6 @@
 """The fixes the first scratch runs asked for (docs/pilot-log.md, 2026-09-23)."""
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,9 @@ import pytest
 
 from jev_research_pipeline.adapters import Adapter, arxiv, canary, firehose, github, hf_papers
 from jev_research_pipeline.pipeline import nets
+
+TODAY = date(2026, 9, 22)
+"""The run date the arXiv keyword search is windowed on (builders.T0's date)."""
 
 
 def test_hf_daily_asks_for_yesterday_in_utc():
@@ -19,10 +22,10 @@ def test_hf_daily_asks_for_yesterday_in_utc():
 
 def test_keyword_budget_goes_round_robin_across_adapters():
     queries = [
-        (arxiv.adapter(), "a1"),
-        (arxiv.adapter(), "a2"),
+        (arxiv.adapter(TODAY), "a1"),
+        (arxiv.adapter(TODAY), "a2"),
         (hf_papers.adapter(), "h1"),
-        (arxiv.adapter(), "a3"),
+        (arxiv.adapter(TODAY), "a3"),
         (github.adapter(), "g1"),
     ]
     plan = nets.plan(
@@ -253,8 +256,8 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
         )
 
     requests = [
-        nets.NetRequest("keyword", arxiv.adapter(), "agent memory"),
-        nets.NetRequest("keyword", arxiv.adapter(), "agent recall"),
+        nets.NetRequest("keyword", arxiv.adapter(TODAY), "agent memory"),
+        nets.NetRequest("keyword", arxiv.adapter(TODAY), "agent recall"),
         nets.NetRequest("keyword", github.adapter(), "agent memory"),
     ]
     requests = [nets.NetRequest(r.net, replace_interval(r.adapter), r.query) for r in requests]

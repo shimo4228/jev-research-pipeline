@@ -309,7 +309,7 @@ async def _openalex_everything(request: httpx2.Request) -> httpx2.Response:
 
 
 def _arxiv_search(query: str = "agent memory") -> nets.NetRequest:
-    return nets.NetRequest("keyword", arxiv.adapter(), query)
+    return nets.NetRequest("keyword", arxiv.adapter(b.T0.date()), query)
 
 
 async def test_an_arxiv_search_spends_ten_credits_of_the_openalex_day(
