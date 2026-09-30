@@ -36,9 +36,11 @@ from .generation import (
     prose_auth,
     prose_model_spec,
 )
+from .generation.claude_code import CLAUDE_BIN_ENV, claude_bin
 from .generation.codex import codex_auth_path, login
 from .generation.prose import INSTRUCTIONS
 from .pipeline import prose_bench as pb
+from .pipeline import prose_eval
 from .pipeline.concurrency import prose_concurrency
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
@@ -71,7 +73,9 @@ def parser() -> argparse.ArgumentParser:
     q.add_argument("action", choices=["check"])
     q.add_argument("--line", required=True, help="line slug (config.toml track)")
     pr = sub.add_parser("prose")
-    pr.add_argument("action", choices=["export", "bench", "read", "gate"])
+    pr.add_argument(
+        "action", choices=["export", "bench", "read", "gate", "judge", "comprehend", "scores"]
+    )
     pr.add_argument("--from", dest="roots", action="append", default=[], help="extra store root")
     pr.add_argument("--variant", help="bench: variant name (drafts/<name>/)")
     pr.add_argument("--prompt", help="bench: instructions file; omitted = the run's prompt")
@@ -83,7 +87,7 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--check", help="bench: self-check instructions file (second pass)")
     pr.add_argument("--cases", help="bench/read/gate: comma-separated case ids (default all)")
     pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
-    pr.add_argument("--variants", help="read: comma-separated variants to show side by side")
+    pr.add_argument("--variants", help="read/scores: comma-separated variants to show side by side")
     pr.add_argument("--out", help="read: the reading file to write")
     pr.add_argument("--verdicts", help="gate: summarize the judge's verdict dir instead")
     c = sub.add_parser("codex")
@@ -203,6 +207,29 @@ def _ids(raw: str | None) -> set[str] | None:
     return {x.strip() for x in raw.split(",") if x.strip()} if raw else None
 
 
+async def _prose_eval(
+    env: Mapping[str, str], args: argparse.Namespace, bench: Path
+) -> list[str] | None:
+    """`jrp prose judge|comprehend|scores`: the bench's claude -p judges (pipeline.prose_eval)."""
+    if args.action == "scores":
+        return prose_eval.scores_table(
+            bench, [v for v in str(args.variants).split(",") if v], only=_ids(args.cases)
+        )
+    binary = claude_bin(env)
+    if binary is None:
+        sys.stderr.write(f"no Claude Code CLI: install it, or set {CLAUDE_BIN_ENV}\n")
+        return None
+    ask = prose_eval.claude_ask(binary)
+    if args.action == "judge":
+        lines = await prose_eval.judge(
+            bench, str(args.variant), ask, concurrency=prose_concurrency(env)
+        )
+        return lines + pb.gate_summary(bench, str(args.variant))
+    return await prose_eval.comprehend(
+        bench, str(args.variant), ask, concurrency=prose_concurrency(env), only=_ids(args.cases)
+    )
+
+
 async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
     root = store_dir(env)
     bench = pb.bench_dir(root)
@@ -256,6 +283,11 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 sys.stderr.write("no case has a draft from every variant given\n")
                 return 1
             lines = [f"reading file → {out}, {n} cases (key: {out.with_suffix('.key.json')})"]
+        case "judge" | "comprehend" | "scores":
+            evaluated = await _prose_eval(env, args, bench)
+            if evaluated is None:
+                return 1
+            lines = evaluated
         case _:
             if args.verdicts:
                 lines = pb.gate_summary(bench, str(args.variant), Path(args.verdicts))

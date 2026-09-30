@@ -84,7 +84,14 @@ def claude_bin(env: Mapping[str, str]) -> Path | None:
     return fallback if fallback.is_file() else None
 
 
-def claude_argv(binary: Path, model: str, instructions: str, *, effort: str | None) -> list[str]:
+def claude_argv(
+    binary: Path,
+    model: str,
+    instructions: str,
+    *,
+    effort: str | None,
+    json_schema: dict[str, object] | None = None,
+) -> list[str]:
     argv = [
         str(binary),
         "-p",
@@ -103,6 +110,8 @@ def claude_argv(binary: Path, model: str, instructions: str, *, effort: str | No
     ]
     if effort:
         argv += ["--effort", effort]
+    if json_schema is not None:
+        argv += ["--json-schema", json.dumps(json_schema, ensure_ascii=False)]
     return argv
 
 
@@ -144,10 +153,22 @@ class _CliResult(BaseModel):
     subtype: str = ""
     api_error_status: int | None = None
     usage: _CliUsage = _CliUsage()
+    structured_output: object = None
+    """Set when the call passed --json-schema (measured 2026-10-01, claude 2.1.285)."""
 
 
 def parse_result(stdout: bytes, stderr: bytes, returncode: int) -> tuple[str, RequestUsage]:
     """The CLI's `--output-format json` result → (text, usage), or the error it reports."""
+    data = _checked(stdout, stderr, returncode)
+    u = data.usage
+    return data.result, RequestUsage(
+        # the prompt cache splits the input three ways; the meter wants all of it
+        input_tokens=u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens,
+        output_tokens=u.output_tokens,
+    )
+
+
+def _checked(stdout: bytes, stderr: bytes, returncode: int) -> _CliResult:
     try:
         data = _CliResult.model_validate(json.loads(stdout))
     except (ValueError, ValidationError):
@@ -158,15 +179,37 @@ def parse_result(stdout: bytes, stderr: bytes, returncode: int) -> tuple[str, Re
         if data.api_error_status == 429 or any(m in data.result.lower() for m in _LIMIT_MARKERS):
             raise ClaudeUsageLimit(message)
         raise ClaudeCodeError(message)
-    u = data.usage
-    return data.result, RequestUsage(
-        # the prompt cache splits the input three ways; the meter wants all of it
-        input_tokens=u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens,
-        output_tokens=u.output_tokens,
-    )
+    return data
 
 
 async def run_claude(argv: list[str], prompt: str, *, timeout_s: float) -> tuple[str, RequestUsage]:
+    stdout, stderr, returncode = await _call(argv, prompt, timeout_s=timeout_s)
+    return parse_result(stdout, stderr, returncode)
+
+
+async def ask_json[T: BaseModel](
+    binary: Path,
+    model: str,
+    instructions: str,
+    prompt: str,
+    output: type[T],
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+) -> T:
+    """One structured answer (the prose bench's judges): the same isolated call, with the
+    pydantic model's JSON schema as --json-schema, validated back into the model."""
+    argv = claude_argv(
+        binary, model, instructions, effort=None, json_schema=output.model_json_schema()
+    )
+    stdout, stderr, returncode = await _call(argv, prompt, timeout_s=timeout_s)
+    data = _checked(stdout, stderr, returncode)
+    try:
+        return output.model_validate(data.structured_output)
+    except ValidationError as e:
+        raise ClaudeCodeError(f"structured output does not fit {output.__name__}: {e}") from None
+
+
+async def _call(argv: list[str], prompt: str, *, timeout_s: float) -> tuple[bytes, bytes, int]:
     with tempfile.TemporaryDirectory(prefix="jrp-claude-") as cwd:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -191,7 +234,7 @@ async def run_claude(argv: list[str], prompt: str, *, timeout_s: float) -> tuple
             if isinstance(e, TimeoutError):
                 raise ClaudeCodeError(f"claude timed out after {timeout_s:.0f} s") from None
             raise
-    return parse_result(stdout, stderr, proc.returncode or 0)
+    return stdout, stderr, proc.returncode or 0
 
 
 def claude_code_model(binary: Path, model: str, *, thinking: bool) -> FunctionModel:
