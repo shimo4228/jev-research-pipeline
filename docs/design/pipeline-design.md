@@ -653,6 +653,21 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   `evidence:` lines), not a wording fix. Review-when: the author rewrites ans's `evidence:`
   lines, or a line whose questions ask for theory keeps showing on-topic sources dropped at
   `asserted`.
+- **Addendum 2026-10-01: ans's Keep yields no claim; the fix was tried and not kept.**
+  Scratch run 2 kept Thoughtseeds for ans q1, and claim_detection then rejected all 7 of
+  its sentences as `unrelated` (0.60–0.99): its `relation` text says "including sentences
+  about the paper's own setup", and for a question that asks what a model uses, the setup
+  is the answer. Two question-driven wordings were measured by re-asking stored states
+  (hashes checked). The sample was 40 recent claim_detection decisions each on akc and jev.
+  Noise floor (unchanged ask): 1 of 80 judged decisions flipped. (A) Exempt the setup
+  "when `question` asks what a model uses (variables, mechanism, formal model or
+  simulation setup)": ans 0 → 1 of 7 sentences accepted, but akc 4/40 and jev 9/40 flipped.
+  (B) The same, scoped to `question.evidence`, with the evidence lines added to the state:
+  ans 0 → 4 of 7, but akc 3/40 and jev 8/40 flipped (judged; both directions). jev's
+  claim decisions sit near the 0.5 cut, and any added clause moves them. Neither was kept
+  (the gate was the noise floor), and no scratch run followed. Review-when: claim_detection
+  is re-cut for another reason (the flip test can then carry this clause), or the author
+  accepts some movement on healthy lines in exchange for ans claims.
 
 ### Non-goals (explicit)
 
