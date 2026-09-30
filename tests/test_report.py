@@ -22,7 +22,7 @@ from jev_research_pipeline.report import (
     vault_dir,
     write_note,
 )
-from jev_research_pipeline.report.markdown import QuestionSection, SourceEntry
+from jev_research_pipeline.report.markdown import QuestionSection, SourceEntry, UnjudgedEntry
 from jev_research_pipeline.store import GraphStore
 
 from . import builders as b
@@ -77,7 +77,7 @@ def _render(
         claims=entries,
         review=review or [],
         bridges=[],
-        unjudged=["見出しだけの断片"],
+        unjudged=[UnjudgedEntry(function="claim_detection", text="見出しだけの断片")],
         operations=["Jev 質問数: 13", "claude_calls: 0"],
     )
 
@@ -369,6 +369,32 @@ def test_contradictions_get_their_own_block():
     body = text.split("---\n", 2)[2]
     assert body.index("証拠") < body.index("反証") < body.index("jrp:qday:")
     assert "- 逆の結果を報告している。" in body
+
+
+def test_unjudged_says_which_judgment_failed():
+    """未判定 lists source titles, claim texts and question titles side by side; each line
+    names the Jev function that failed, so a question title is not read as a claim."""
+    unjudged = [
+        UnjudgedEntry(function="question_screening", text="Narrow questions"),
+        UnjudgedEntry(function="novelty", text="Narrow questions beat one broad question."),
+        UnjudgedEntry(function="question_movement", text=b.question().title),
+    ]
+    text = render_report(
+        report=b.report(),
+        ctx=CTX,
+        sections=[],
+        claims=[],
+        review=[],
+        bridges=[],
+        unjudged=unjudged,
+        operations=[],
+    )
+    block = text.split("## 未判定\n", 1)[1].split("\n## ", 1)[0]
+    assert block.strip().splitlines() == [
+        "- [question_screening] Narrow questions",
+        "- [novelty] Narrow questions beat one broad question.",
+        f"- [question_movement] {b.question().title}",
+    ]
 
 
 # --- harvest counts (daily-tool-hardening G3) ------------------------------------------------

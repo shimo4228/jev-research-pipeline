@@ -106,6 +106,27 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     assert [(lb.subject, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
 
 
+async def test_a_failed_movement_check_is_listed_as_one(
+    cassette: ClientFactory, env: dict[str, str]
+):
+    """A question whose movement check failed shows up in 未判定 by its title — tagged, so
+    the author does not read it as a claim or a source."""
+    world = fake_world()
+
+    async def handle(request: httpx2.Request) -> httpx2.Response:
+        if (
+            request.url.host == "api.typesafe.ai"
+            and "movement" in json.loads(request.content)["questions"]
+        ):
+            return httpx2.Response(500, json={"error": {"message": "synthetic failure"}})
+        return await world(request)
+
+    (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(handle), pacing=False)
+    text = outcome.note.read_text(encoding="utf-8")
+    block = text.split("## 未判定\n", 1)[1].split("\n## ", 1)[0]
+    assert "- [question_movement] " in block, block
+
+
 async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env: dict[str, str]):
     http = cassette(fake_world())
     (first,) = await run_pipeline(env, now=b.T0, http=http, pacing=False)

@@ -99,6 +99,7 @@ from jev_research_pipeline.report import (
     ClaimEntry,
     QuestionSection,
     SourceEntry,
+    UnjudgedEntry,
     render_report,
     write_note,
 )
@@ -294,7 +295,8 @@ class _State:
     decisions: list[Decision] = field(default_factory=list[Decision])
     nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
     notes: list[str] = field(default_factory=list[str])
-    unjudged: dict[str, str] = field(default_factory=dict[str, str])
+    unjudged: dict[str, UnjudgedEntry] = field(default_factory=dict[str, UnjudgedEntry])
+    """Subject @id → what failed on it, for 未判定 (the function is shown with the label)."""
     units: dict[str, Unit] = field(default_factory=dict[str, Unit])
     similar: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     review: list[SourceEntry] = field(default_factory=list[SourceEntry])
@@ -455,7 +457,7 @@ class LineRun:
     def _decide(self, d: Decision, label: str) -> Decision:
         self.st.decisions.append(d)
         if d.outcome == "unjudged":
-            self.st.unjudged[d.subjects[0]] = label
+            self.st.unjudged[d.subjects[0]] = UnjudgedEntry(function=d.function, text=label)
         return d
 
     def _evidence_texts(self, question: Question) -> list[str]:
@@ -867,8 +869,6 @@ class LineRun:
             d = self._decide(novelty.decision(result), item.claim.text)
             if d.outcome == "accept":
                 kept.append(item)
-            elif d.outcome == "unjudged":
-                self.st.unjudged[item.claim.id] = item.claim.text
         return kept
 
     async def _supported(self, accepted: list[_Accepted]) -> list[_Accepted]:

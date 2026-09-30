@@ -18,6 +18,7 @@
     > [!note]- Claims                    folded: the wall of claims is not the reading surface
     > - [ ] <verbatim> — [source](url) <!-- jrp:claim:<claim @id> -->
     ## 未判定
+    - [<Jev function>] <source title | claim text | question title>
     ## 運用
 
 The machine-read lines are exactly the three `<!-- jrp:… -->` marks above; one checkbox
@@ -41,7 +42,7 @@ from typing import Final
 from urllib.parse import quote
 
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.model import Claim, Report
+from jev_research_pipeline.model import Claim, JevFunction, Report
 from jev_research_pipeline.model.jsonld import Value
 
 CATEGORY: Final = "jrp"
@@ -100,6 +101,15 @@ class SourceEntry(Value):
     title: str
     gist: str
     url: str
+
+
+class UnjudgedEntry(Value):
+    """One subject whose Jev request failed, with the function that failed. The 未判定 list
+    mixes source titles (screening), claim texts (novelty, support) and question titles
+    (movement); without the function a failed movement check reads like a claim."""
+
+    function: JevFunction
+    text: str
 
 
 class QuestionSection(Value):
@@ -207,7 +217,7 @@ def render_report(
     claims: list[ClaimEntry],
     review: list[SourceEntry],
     bridges: list[SourceEntry],
-    unjudged: list[str],
+    unjudged: list[UnjudgedEntry],
     operations: list[str],
     empty_day: str = "",
 ) -> str:
@@ -229,7 +239,7 @@ def render_report(
         "> [!note]- Claims\n",
         _bullets([f"> {claim_line(e)}" for e in claims]),
         "## 未判定\n",
-        _bullets([f"- {sanitize(u, one_line=True)}" for u in unjudged]),
+        _bullets([f"- [{u.function}] {sanitize(u.text, one_line=True)}" for u in unjudged]),
         "## 運用\n",
         "\n".join(f"- {sanitize(o, one_line=True)}" for o in operations) + "\n",
     ]
