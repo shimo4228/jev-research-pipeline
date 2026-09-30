@@ -12,12 +12,24 @@ import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "launchd-jrp.sh"
 
+# `jrp doctor` stand-in, the first lines of every fake uv: asserts it too sees the stage,
+# prints a check line, exits $DOCTOR_STATUS (a FAIL line with it when non-zero).
+DOCTOR = """
+if [[ " $* " == *" jrp doctor "* ]]; then
+  [[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || { echo "doctor saw the vault"; exit 8; }
+  echo "ok   env: fake doctor"
+  [[ "${DOCTOR_STATUS:-0}" == 0 ]] || echo "FAIL writer: claude-code:sonnet: not logged in"
+  exit "${DOCTOR_STATUS:-0}"
+fi
+"""
+
 # A stand-in for uv: asserts it was pointed at the stage, harvests (reads) a staged note,
 # rewrites one note and writes a new one — what `jrp run` does to the vault dir.
-FAKE_UV = """#!/usr/bin/env bash
+FAKE_UV = f"""#!/usr/bin/env bash
 set -euo pipefail
+{DOCTOR}
 notes="$JRP_VAULT_DIR/daily-research"
-[[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || { echo "vault not staged: $JRP_VAULT_DIR"; exit 9; }
+[[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || {{ echo "vault not staged: $JRP_VAULT_DIR"; exit 9; }}
 grep -q "[x]" "$notes/2026-09-23_jrp_akc.md"
 echo "rewritten" > "$notes/2026-09-24_jrp_akc.md"
 echo "new" > "$notes/2026-09-24_jrp_aap.md"
@@ -55,6 +67,7 @@ def test_run_stages_the_vault_and_copies_back_only_what_it_wrote(tmp_path: Path)
         ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
     )
     assert "--frozen jrp run" in out.stdout
+    assert out.stdout.index("ok   env: fake doctor") < out.stdout.index("--frozen jrp run")
     assert (vault / "2026-09-24_jrp_akc.md").read_text() == "rewritten\n"
     assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
     assert (vault / "2026-09-23_jrp_akc.md").read_text() == "- [x] ticked\n"  # untouched
@@ -75,7 +88,8 @@ def test_other_commands_do_not_stage(tmp_path: Path):
 
 # A hung run (2026-09-24: 80 min on an invisible TCC prompt): writes one note, then hangs in
 # a child process, the way uv's python sits under uv.
-HUNG_UV = """#!/usr/bin/env bash
+HUNG_UV = f"""#!/usr/bin/env bash
+{DOCTOR}
 echo "partial" > "$JRP_VAULT_DIR/daily-research/2026-09-24_jrp_akc.md"
 sleep 30 &
 echo $! > "$HUNG_PID"
@@ -158,3 +172,17 @@ def test_a_timeout_that_is_not_a_number_stops_before_python(tmp_path: Path):
     assert out.returncode != 0
     ((title, body),) = _messages(notified)
     assert title == "jrp run FAILED" and "JRP_RUN_TIMEOUT_S" in body
+
+
+def test_a_failing_doctor_is_notified_and_the_run_still_goes_ahead(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    env["DOCTOR_STATUS"] = "1"
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert "FAIL writer: claude-code:sonnet: not logged in" in out.stdout  # in the log
+    ((title, body),) = _messages(notified)
+    assert title == "jrp doctor FAILED"
+    assert "FAIL writer: claude-code:sonnet: not logged in" in body and "run goes ahead" in body
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the run did run

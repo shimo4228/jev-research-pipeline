@@ -30,3 +30,8 @@ through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going a
 its whole process group, the notes it wrote before the kill are copied back, and the message is
 `jrp run TIMED OUT` (exit 124). If the wrapper itself stops before Python starts (uv missing,
 `JRP_VAULT_DIR` unset, the staging copy failing), the message is `jrp run FAILED` with the reason.
+
+Before each `jrp run` the wrapper runs `jrp doctor` (limited to 120 s) and writes its lines to
+the log, so the morning log shows whether the launchd job could reach the writer's login — Claude
+Code's lives in the macOS keychain, which a launchd job may not be allowed to read. A failing
+doctor sends `jrp doctor FAILED` with its `FAIL` lines; the run still goes ahead.

@@ -148,6 +148,7 @@ Write at least one open question per line (next section), then:
 ```bash
 uv sync
 uv run jrp codex login        # once: sign in to ChatGPT in the browser for the default prose model
+uv run jrp doctor             # check env, config, questions, keys and the writer's login; writes nothing
 uv run jrp run                # harvest ticks, run the next lines, write notes
 ```
 

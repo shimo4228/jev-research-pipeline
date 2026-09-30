@@ -78,6 +78,7 @@ daily = true                                       # 輪番のラインと並ん
 ```bash
 uv sync
 uv run jrp codex login        # 1 回だけ。既定の本文モデルのため、ブラウザで ChatGPT にログインする
+uv run jrp doctor             # env・config・問い・key・書き手のログインを確かめる。何も書かない
 uv run jrp run                # 印を取り込み、次のラインを走らせ、ノートを書く
 ```
 

@@ -20,6 +20,9 @@
 # JRP_RUN_TIMEOUT_S (default 3600 s; a normal run takes ~15-20 min) is killed with its whole
 # process group — the notes it wrote so far are still copied back — and a wrapper that
 # fails before python starts (env, uv missing, staging) says so instead of exiting unseen.
+# Before `jrp run` it runs `jrp doctor` (pipeline/doctor.py) under the same watchdog and logs
+# its lines, so the log shows whether launchd could reach the writer's login (Claude Code's
+# sits in the keychain); a failing doctor is notified and the run still goes ahead.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ENV_FILE="${JRP_ENV_FILE:-${HOME}/.config/jrp/env}"
@@ -29,6 +32,9 @@ CMD="${1:-}"
 STARTED=0  # 1 once jrp is started: from then on python (or the watchdog) reports
 WHY=""
 MARK=""
+DOCTOR_OUT=""
+DOCTOR_TIMEOUT_S=120  # the doctor answers in seconds; a keychain prompt nobody sees never does
+TIMED_OUT=0
 
 notify() {  # notify <title> <body>: the log always, Slack when JRP_SLACK_NOTIFY=1
   echo "$1: $2" >&2
@@ -43,10 +49,39 @@ die() {  # die <why>: stop before jrp starts; on_exit notifies with the reason
   exit 1
 }
 
+# limited <seconds> <cmd...>: cmd as a job of its own process group (job control on for it),
+# so a kill reaches uv's python and whatever it started, not only uv. Past <seconds> the
+# group gets TERM, then KILL 10 s later. Sets TIMED_OUT; returns cmd's exit status.
+limited() {
+  local limit=$1 pid
+  shift
+  TIMED_OUT=0
+  set -m
+  "$@" </dev/null &
+  pid=$!
+  set +m
+  local deadline=$((SECONDS + limit))
+  while kill -0 "$pid" 2>/dev/null; do
+    if ((SECONDS >= deadline)); then
+      TIMED_OUT=1
+      kill -TERM -- "-$pid" 2>/dev/null
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 1
+      done
+      kill -KILL -- "-$pid" 2>/dev/null
+      break
+    fi
+    sleep 1
+  done
+  wait "$pid"
+}
+
 # shellcheck disable=SC2329  # called by the EXIT trap
 on_exit() {
   local status=$?
   if [[ -n "$MARK" ]]; then rm -f "$MARK"; fi
+  if [[ -n "$DOCTOR_OUT" ]]; then rm -f "$DOCTOR_OUT"; fi
   if ((status != 0 && STARTED == 0)); then
     notify "jrp ${CMD} FAILED" "launchd-jrp.sh stopped before jrp started: ${WHY:-exit ${status}, see the log}"
   fi
@@ -80,32 +115,27 @@ mkdir -p "$STAGE/$NOTES" "$VAULT/$NOTES" || die "cannot create ${STAGE}/${NOTES}
 rsync -a --include='*_jrp_*.md' --exclude='*' "$VAULT/$NOTES/" "$STAGE/$NOTES/" ||
   die "cannot stage the vault's notes (rsync)"
 
+# doctor: logged always, notified when it fails, never a reason to skip the run. It sees
+# the stage as its vault, like the run: python never touches the iCloud path.
+DOCTOR_OUT="$(mktemp "${TMPDIR:-/tmp}/jrp-doctor.XXXXXX")" || die "cannot create a temp file (mktemp)"
+set +e
+limited "$DOCTOR_TIMEOUT_S" env JRP_VAULT_DIR="$STAGE" "$UV" run --project "$REPO" --frozen jrp doctor >"$DOCTOR_OUT"
+doctor_status=$?
+set -e
+cat "$DOCTOR_OUT"
+if ((TIMED_OUT)); then
+  notify "jrp doctor FAILED" "no answer in ${DOCTOR_TIMEOUT_S} s and killed; the run goes ahead"
+elif ((doctor_status != 0)); then
+  failed_checks="$(grep '^FAIL' "$DOCTOR_OUT" | tr '\n' ';' || true)"
+  notify "jrp doctor FAILED" "${failed_checks:-exit ${doctor_status}, see the log} the run goes ahead"
+fi
+
 MARK="$(mktemp "${TMPDIR:-/tmp}/jrp-run-mark.XXXXXX")" || die "cannot create the run mark (mktemp)"
 STARTED=1
 set +e
-# Job control on for this one job: it gets its own process group, so the watchdog's kill
-# reaches uv's python (and anything it started) and not only uv.
-set -m
-JRP_VAULT_DIR="$STAGE" "$UV" run --project "$REPO" --frozen jrp "$@" </dev/null &
-pid=$!
-set +m
-timed_out=0
-deadline=$((SECONDS + TIMEOUT))
-while kill -0 "$pid" 2>/dev/null; do
-  if ((SECONDS >= deadline)); then
-    timed_out=1
-    kill -TERM -- "-$pid" 2>/dev/null
-    for _ in 1 2 3 4 5 6 7 8 9 10; do  # 10 s to exit on TERM, then KILL
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 1
-    done
-    kill -KILL -- "-$pid" 2>/dev/null
-    break
-  fi
-  sleep 1
-done
-wait "$pid"
+limited "$TIMEOUT" env JRP_VAULT_DIR="$STAGE" "$UV" run --project "$REPO" --frozen jrp "$@"
 status=$?
+timed_out=$TIMED_OUT
 set -e
 
 # stage -> vault: only the notes this run wrote (newer than the mark) — a killed run's too

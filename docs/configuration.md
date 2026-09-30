@@ -8,6 +8,15 @@ set -a; source ~/.config/jrp/env; set +a
 uv run jrp run
 ```
 
+`uv run jrp doctor` checks what a run needs without running one and prints one line per check
+(`ok` or `FAIL`), exiting non-zero on a failure: `JRP_VAULT_DIR` and `JRP_STORE_DIR` are set,
+`config.toml` loads and its lines resolve, the question files parse (a line without an open
+question is named, not failed), `TYPESAFE_API_KEY` is set, and the `JRP_PROSE_MODEL` writer is
+reachable — for `openai-codex:` the login file reads (it is never refreshed), for `dashscope:` the
+key is set, for `claude-code:` the CLI is found and `claude auth status` reports it logged in. It
+writes nothing, does not open the vault, and calls no API. The launchd wrapper runs it before
+every scheduled run (see [launchd/README.md](../launchd/README.md)).
+
 ## Variables
 
 | variable | required | purpose |

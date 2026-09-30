@@ -1,6 +1,8 @@
 """`jrp` — the pipeline's only entry point (launchd calls `jrp run` / `jrp drift`).
 
 jrp run            harvest, then the next lines in rotation (env: pipeline.runner)
+jrp doctor         check what a run needs (env, config, questions, keys, the writer's login)
+                   without running one; non-zero exit on a failure (pipeline.doctor)
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
@@ -43,6 +45,7 @@ from .pipeline import prose_bench as pb
 from .pipeline import prose_eval
 from .pipeline.concurrency import prose_concurrency
 from .pipeline.config import config_path, line_context, load_tracks, rotation_config
+from .pipeline.doctor import doctor
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
@@ -63,6 +66,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jrp")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("run")
+    sub.add_parser("doctor")
     sub.add_parser("fit")
     sub.add_parser("export-cases")
     d = sub.add_parser("drift")
@@ -122,6 +126,12 @@ async def _run(env: Mapping[str, str]) -> int:
     sys.stdout.write(f"{title}\n{body}\n")
     notify(title, body, env=env)
     return 0
+
+
+def _doctor(env: Mapping[str, str]) -> int:
+    checks = doctor(env)
+    sys.stdout.write("".join(f"{c.line()}\n" for c in checks))
+    return 0 if all(c.ok for c in checks) else 1
 
 
 def _migrate(env: Mapping[str, str], *, dry_run: bool) -> int:
@@ -184,14 +194,13 @@ def main(argv: list[str] | None = None) -> int:
         match args.command:
             case "run":
                 return asyncio.run(_run(env))  # run_pipeline prepares the store itself
-            case "fit":
+            case "fit" | "export-cases":
                 _prepared(env)
-                return _fit(env)
-            case "export-cases":
-                _prepared(env)
-                return _export(env)
+                return _fit(env) if args.command == "fit" else _export(env)
             case "migrate":
                 return _migrate(env, dry_run=bool(args.dry_run))
+            case "doctor":
+                return _doctor(env)
             case _:
                 return asyncio.run(_async_command(env, args))
     except StoreSchemaError as e:
