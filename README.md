@@ -312,7 +312,9 @@ Two launchd plists live in [launchd/](launchd/README.md): `jrp run` every day at
 `jrp drift` (a live replay that reports whether Jev's probabilities have shifted) on Mondays at 05:30.
 Edit the absolute paths for your machine before loading them. If your vault is in iCloud Drive, the
 wrapper copies the notes through `<JRP_STORE_DIR>/vault-stage/`, because macOS lets launchd's bash
-open iCloud files but not the uv-managed Python.
+open iCloud files but not the uv-managed Python. The wrapper kills a run that is still going after
+`JRP_RUN_TIMEOUT_S` (default one hour) and, like a failure before Python starts, reports it to Slack
+when `JRP_SLACK_NOTIFY=1`.
 
 ```bash
 .claude/verify.sh     # format, lint, types, bandit, deptry, tests; offline, no keys

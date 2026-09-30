@@ -23,3 +23,10 @@ consent prompt, and its path changes with each Python patch release). So for `jr
 wrapper copies the vault's `*_jrp_*.md` notes into `<JRP_STORE_DIR>/vault-stage/`, points
 `JRP_VAULT_DIR` there, and afterwards copies back only the notes the run wrote. A tick made
 during the run is harvested the next morning. Nothing in the vault is deleted.
+
+The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
+through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going after
+`JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) is killed with
+its whole process group, the notes it wrote before the kill are copied back, and the message is
+`jrp run TIMED OUT` (exit 124). If the wrapper itself stops before Python starts (uv missing,
+`JRP_VAULT_DIR` unset, the staging copy failing), the message is `jrp run FAILED` with the reason.

@@ -179,7 +179,7 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 
 トレースは OpenTelemetry です。`OTEL_EXPORTER_OTLP_ENDPOINT` が未設定なら SDK は初期化されず、span はすべて何もしません。定期実行はトレースを送りません。endpoint は、デバッグしている実行のコマンドラインにだけ付けてください。Docker の要らないローカルの viewer、そのコマンドライン、span の名前は [docs/observability.md](docs/observability.md)（英語）にあります。
 
-launchd の plist は [launchd/](launchd/README.md) に 2 つあります。`jrp run` を毎日 05:00 に、`jrp drift`（Jev の確率がずれていないかを、記録した入力を投げ直して確かめる）を毎週月曜 05:30 に走らせます。読み込む前に、絶対 path を自分の環境に合わせて直してください。vault が iCloud Drive にある場合、wrapper はノートを `<JRP_STORE_DIR>/vault-stage/` 経由でコピーします。macOS は、launchd の bash には iCloud のファイルを開かせますが、uv が管理する Python には開かせないからです。
+launchd の plist は [launchd/](launchd/README.md) に 2 つあります。`jrp run` を毎日 05:00 に、`jrp drift`（Jev の確率がずれていないかを、記録した入力を投げ直して確かめる）を毎週月曜 05:30 に走らせます。読み込む前に、絶対 path を自分の環境に合わせて直してください。vault が iCloud Drive にある場合、wrapper はノートを `<JRP_STORE_DIR>/vault-stage/` 経由でコピーします。macOS は、launchd の bash には iCloud のファイルを開かせますが、uv が管理する Python には開かせないからです。wrapper は、`JRP_RUN_TIMEOUT_S`（既定は 1 時間）を過ぎても終わらない実行を止めます。Python が起動する前に wrapper 自身が失敗したときと同じく、`JRP_SLACK_NOTIFY=1` なら Slack に知らせます。
 
 ```bash
 .claude/verify.sh     # format、lint、型、bandit、deptry、テスト。offline で key 不要

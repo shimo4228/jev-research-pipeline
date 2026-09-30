@@ -1,10 +1,14 @@
 """scripts/launchd-jrp.sh stages the vault for `jrp run`: python must never open the
-iCloud vault under launchd (TCC), so bash copies notes in and the run's notes back out."""
+iCloud vault under launchd (TCC), so bash copies notes in and the run's notes back out.
+It also reports what python cannot: a run that hangs (the watchdog) and a wrapper that
+fails before python starts."""
 
 import os
 import subprocess
 import time
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "launchd-jrp.sh"
 
@@ -67,3 +71,90 @@ def test_other_commands_do_not_stage(tmp_path: Path):
     )
     assert out.returncode == 9  # the fake saw the real vault dir: drift is passed through
     assert not stage.exists()
+
+
+# A hung run (2026-09-24: 80 min on an invisible TCC prompt): writes one note, then hangs in
+# a child process, the way uv's python sits under uv.
+HUNG_UV = """#!/usr/bin/env bash
+echo "partial" > "$JRP_VAULT_DIR/daily-research/2026-09-24_jrp_akc.md"
+sleep 30 &
+echo $! > "$HUNG_PID"
+wait
+"""
+
+# notify-slack.sh stand-in: one line per call, the title and the body, into $NOTIFIED.
+FAKE_NOTIFY = """#!/usr/bin/env bash
+printf '%s|%s\\n' "$1" "$2" >> "$NOTIFIED"
+"""
+
+
+def _with_notify(tmp_path: Path, env: dict[str, str]) -> Path:
+    script = tmp_path / ".claude" / "scripts" / "notify-slack.sh"  # HOME is tmp_path
+    script.parent.mkdir(parents=True)
+    script.write_text(FAKE_NOTIFY)
+    notified = tmp_path / "notified"
+    env |= {"JRP_SLACK_NOTIFY": "1", "NOTIFIED": str(notified)}
+    return notified
+
+
+def _messages(notified: Path) -> list[tuple[str, str]]:
+    lines = notified.read_text().splitlines() if notified.exists() else []
+    return [(title, body) for title, _, body in (ln.partition("|") for ln in lines)]
+
+
+def test_a_hung_run_is_killed_notified_and_its_notes_still_copied_back(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    notified = _with_notify(tmp_path, env)
+    env |= {"JRP_RUN_TIMEOUT_S": "1", "HUNG_PID": str(tmp_path / "hung.pid")}
+    started = time.monotonic()
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert time.monotonic() - started < 20  # not the 30 s the child would have slept
+    assert out.returncode == 124
+    assert (vault / "2026-09-24_jrp_akc.md").read_text() == "partial\n"
+    ((title, body),) = _messages(notified)
+    assert title == "jrp run TIMED OUT"
+    assert "1 s" in body and "1 note" in body
+    child = int((tmp_path / "hung.pid").read_text())
+    with pytest.raises(ProcessLookupError):  # the whole process group, not only uv
+        os.kill(child, 0)
+
+
+def test_a_run_within_the_timeout_is_not_notified_by_the_wrapper(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    assert _messages(notified) == []  # python sends the run's own message
+
+
+@pytest.mark.parametrize("slack", [True, False])
+def test_a_wrapper_that_fails_before_python_starts_is_notified(tmp_path: Path, slack: bool):
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    if not slack:
+        del env["JRP_SLACK_NOTIFY"]
+    env["JRP_UV"] = str(tmp_path / "no-such-uv")
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode != 0
+    assert "uv not found" in out.stderr  # the log says why either way
+    if slack:
+        ((title, body),) = _messages(notified)
+        assert title == "jrp run FAILED" and "uv not found" in body
+    else:
+        assert _messages(notified) == []
+
+
+def test_a_timeout_that_is_not_a_number_stops_before_python(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    env["JRP_RUN_TIMEOUT_S"] = "1h"
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode != 0
+    ((title, body),) = _messages(notified)
+    assert title == "jrp run FAILED" and "JRP_RUN_TIMEOUT_S" in body
