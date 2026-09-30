@@ -18,7 +18,7 @@ questions and writes one note per topic into your Obsidian vault, with a section
 that moved. Plain Python code runs the loop the same way every time. Jev, a judgment model from the
 API company TypeSafe, never writes text: it answers questions that have a fixed set of answers (yes or
 no, a score, one pick from a list) with probabilities, and here it decides whether each source helps
-answer a question. A general-purpose LLM writes only the prose: by default GPT-5.6 Sol through a
+answer a question. A general-purpose LLM writes only the prose: by default GPT-6 Luna through a
 ChatGPT/Codex subscription, or Qwen on Alibaba Cloud's DashScope, switched with one environment
 variable ([The writing model](#the-writing-model)). You close the loop by ticking checkboxes in the
 note, and the ticks steer the next run.
@@ -55,7 +55,7 @@ Each research topic is a *line*: one long-running topic with its own vocabulary.
    failed).
 5. Kept sources are cut into verbatim sentences, and Jev picks out the sentences that advance or
    contradict the question. A claim is a sentence, never a paraphrase, so citations always resolve.
-6. The writing model (GPT-5.6 Sol by default) writes one short section per question that got new
+6. The writing model (GPT-6 Luna by default) writes one short section per question that got new
    evidence today, from those claims and short excerpts of their sources, with one paragraph marked
    as inference. It checks its own draft once. Jev then scores the section on a rubric and checks each evidence paragraph against its
    claims; a failing draft is rewritten once, then falls back to a template.
@@ -256,14 +256,15 @@ variable, `JRP_PROSE_MODEL`, in the form `<backend>:<model>`:
 
 | backend | example | what it needs | in the note's cost line |
 |---|---|---|---|
-| `openai-codex` (default) | `openai-codex:gpt-5.6-sol` | a ChatGPT plan that includes Codex, and `uv run jrp codex login` once | nothing per token; use counts against the plan's limits |
+| `openai-codex` (default) | `openai-codex:gpt-6-luna` | a ChatGPT plan that includes Codex, and `uv run jrp codex login` once | nothing per token; use counts against the plan's limits |
 | `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio, international endpoint) | per token; a model with no price on record is flagged |
 | `claude-code` | `claude-code:sonnet` | the Claude Code CLI signed in to a Claude plan (`claude -p`; `JRP_CLAUDE_BIN` if it is not on PATH) | nothing per token; use counts against the plan's limits |
 
 Both backends go through Pydantic AI (`OpenAICodexProvider`, `AlibabaProvider`), so any model either
 one serves can be named, and adding another backend is one branch in
 `src/jev_research_pipeline/generation/client.py`. `JRP_PROSE_THINKING` (`always` / `rewrite` / `off`)
-maps to each backend's own switch: DashScope's thinking flag, or GPT-5.6's reasoning effort.
+maps to each backend's own switch: DashScope's thinking flag, or the Codex model's reasoning effort
+(for `gpt-6-luna` Pydantic AI 2.47 sends no reasoning setting, so the switch has no effect there).
 
 `jrp codex login` opens the same ChatGPT sign-in the Codex CLI uses and keeps the result in
 `~/.config/jrp/codex-auth.json` (owner-only; `JRP_CODEX_AUTH` moves it). Run it on the machine that
@@ -275,7 +276,8 @@ block shows the prose drafts failing with `CredentialsRefreshError` (with `JRP_S
 run's message says `jrp run DEGRADED` and `writer auth failed`), the grant was rejected: sign in
 again. How you use your subscription this way is governed by your agreement with OpenAI.
 
-The prose prompt was tuned and read on `dashscope:qwen3.7-max`. The prose bench (AGENTS.md) takes
+The current prose prompt was read on `openai-codex:gpt-6-luna` (three hard cases; not yet on the
+held-out set). The prose bench (AGENTS.md) takes
 `--model` in the same `<backend>:<model>` form, so both models can be compared on the same frozen
 inputs.
 
@@ -297,7 +299,7 @@ from the evaluation shaped the current form:
   question. So the prose step was rebuilt: a new prompt and the model qwen3.7-max, short source
   excerpts beside the verbatim claims, a self-check pass, and Jev's check of each evidence paragraph
   against its claims before the note is written. The checks do not depend on which model writes;
-  the default writer has since moved to GPT-5.6 Sol.
+  the default writer has since moved to GPT-5.6 Sol, then GPT-6 Luna.
 
 The design record, including every decision and the external evidence it rests on, is
 [docs/design/pipeline-design.md](docs/design/pipeline-design.md).

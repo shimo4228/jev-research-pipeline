@@ -55,7 +55,7 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 1. `uv run jrp prose export --from <store> ...` — 本文のある question-day を固定する（dev / holdout は id で決まる）
 2. `uv run jrp prose bench --variant <name> --prompt bench/prose/prompts/<file> --check bench/prose/prompts/check6.md --sources --model <backend>:<model> --cases <ids>`
    — 候補の草稿を作る。`--model` は `JRP_PROSE_MODEL` と同じ形（省略すると本番のモデル。既定は
-   `openai-codex:gpt-5.6-sol`、要 `uv run jrp codex login`）。`dashscope:qwen3.7-max` は DashScope の
+   `openai-codex:gpt-6-luna`、要 `uv run jrp codex login`）。`dashscope:qwen3.7-max` は DashScope の
    無料枠で回せる。サブスクリプションも利用上限を食うので、難所セットの数件に絞る
 3. `uv run jrp prose read --variants <a>,<b>,... --cases <ids> --out <scratchpad>/read.md`
    — 著者向けの blind 読み比べを作り、著者に送る。聞くのは「一番良いのはどれか・なぜか」か
@@ -69,7 +69,7 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 本番の本文プロンプトは `bench/prose/prompts/v10.md` + `check6.md`（`generation/prose.py` の
 `INSTRUCTIONS` と同文）。GPT-6 Luna で、著者の読みと足切りを難所セット 3 件で通した版。holdout では
 まだ回していない。本番のモデルは `~/.config/jrp/env` の `JRP_PROSE_MODEL=openai-codex:gpt-6-luna`
-（コードの既定値は `gpt-5.6-sol` のまま）。
+（コードの既定値も同じ）。
 
 ## trace を見る（OTel）
 

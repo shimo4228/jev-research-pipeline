@@ -2,7 +2,7 @@
 
 JRP_PROSE_MODEL names it as `<backend>:<model>` (design "Prose model"):
 
-    openai-codex:gpt-5.6-sol   the default (author decision 2026-09-24). The author's
+    openai-codex:gpt-6-luna    the default (author decisions 2026-09-24 / 09-27). The author's
                                ChatGPT/Codex subscription through pydantic-ai's
                                OpenAICodexProvider: no API key and no per-token price; use
                                counts against the plan's limits. The pipeline keeps a login
@@ -45,9 +45,10 @@ type Backend = Literal["openai-codex", "dashscope", "claude-code"]
 BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope", "claude-code")
 
 PROSE_MODEL_ENV: Final = "JRP_PROSE_MODEL"
-DEFAULT_PROSE_MODEL: Final = "openai-codex:gpt-5.6-sol"
-"""GPT-5.6 Sol on the author's Codex subscription. The prompt (v7 + check6) was tuned and
-read on qwen3.7-max; the bench has not been re-read on this model yet (design "Prose model")."""
+DEFAULT_PROSE_MODEL: Final = "openai-codex:gpt-6-luna"
+"""GPT-6 Luna on the author's Codex subscription: the production writer since 2026-09-27, and
+the model the prompt (v10 + check6) was read on, on the 3 hard bench cases (not yet on holdout;
+design "Prose bench"). Every test that pins it replays a synthetic cassette (tests/fakes.py)."""
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_KEY_ENV: Final = "DASHSCOPE_API_KEY"
@@ -169,7 +170,9 @@ and no request body would replay from a cassette."""
 
 
 def _codex_settings(*, thinking: bool) -> OpenAIResponsesModelSettings:
-    # GPT-5.6 reasons by default (at medium); thinking=False sends effort "none".
+    # The Codex models reason by default; thinking=False sends effort "none". pydantic-ai 2.47
+    # sends no `reasoning` for a model its profile does not know (gpt-6-luna): there neither
+    # setting reaches the wire (tests/test_codex.py pins it).
     return OpenAIResponsesModelSettings(
         thinking=thinking, openai_prompt_cache_key=CODEX_PROMPT_CACHE_KEY
     )

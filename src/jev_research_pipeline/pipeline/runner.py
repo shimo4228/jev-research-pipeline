@@ -5,7 +5,7 @@ Environment (nothing is guessed):
     JRP_STORE_DIR          pipeline store root (default ./var/store)
     TYPESAFE_API_KEY       Jev key (required)
     JRP_PROSE_MODEL        optional prose model, <backend>:<model>
-                           (default openai-codex:gpt-5.6-sol; generation.client)
+                           (default openai-codex:gpt-6-luna; generation.client)
     JRP_CODEX_AUTH         optional path of the pipeline's Codex login
                            (default ~/.config/jrp/codex-auth.json; `jrp codex login`)
     DASHSCOPE_API_KEY      required only for a dashscope: prose model

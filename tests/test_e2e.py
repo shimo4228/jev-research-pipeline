@@ -59,7 +59,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "JRP_DAILY_RESEARCH_CONFIG": str(cfg),
         "TYPESAFE_API_KEY": "replay",
         # The cassettes of these tests were synthesized on Qwen, before the Codex default;
-        # test_default_prose_model_is_gpt56_sol_on_the_codex_subscription runs the default.
+        # test_default_prose_model_is_gpt6_luna_on_the_codex_subscription runs the default.
         "JRP_PROSE_MODEL": QWEN,
         "DASHSCOPE_API_KEY": "replay",
     }
@@ -143,10 +143,10 @@ async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env:
     assert second.report.operations.generation_output_tokens == 0  # the prose model not asked again
 
 
-async def test_default_prose_model_is_gpt56_sol_on_the_codex_subscription(
+async def test_default_prose_model_is_gpt6_luna_on_the_codex_subscription(
     cassette: ClientFactory, env: dict[str, str], tmp_path: Path
 ):
-    """No JRP_PROSE_MODEL and no DashScope key: GPT-5.6 Sol writes the prose on the Codex
+    """No JRP_PROSE_MODEL and no DashScope key: GPT-6 Luna writes the prose on the Codex
     subscription, and the note counts its tokens but prices them at nothing."""
     del env["JRP_PROSE_MODEL"], env["DASHSCOPE_API_KEY"]
     env["JRP_CODEX_AUTH"] = str(codex_login(tmp_path / "codex-auth.json"))
@@ -157,7 +157,7 @@ async def test_default_prose_model_is_gpt56_sol_on_the_codex_subscription(
     assert ops.generation_output_tokens > 0
     assert ops.cost_usd == pytest.approx(ops.jev_questions * 0.001)
     text = outcome.note.read_text(encoding="utf-8")
-    assert "生成 token (openai-codex:gpt-5.6-sol): in " in text
+    assert "生成 token (openai-codex:gpt-6-luna): in " in text
     assert "(生成はサブスクリプション定額で 0 計上)" in text
 
 

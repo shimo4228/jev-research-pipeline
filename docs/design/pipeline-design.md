@@ -569,8 +569,13 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
   section but priced 0; the cost line says so and the cap then covers Jev alone. A
   per-token model with no entry in `PRICES` counts 0 and is flagged ("生成単価未設定").
 - **Production model (2026-09-27)**: `openai-codex:gpt-6-luna`, set in the env file
-  (`JRP_PROSE_MODEL`); the code default stays `gpt-5.6-sol` until its cassettes are
-  re-recorded. The prompt v10 + check6 was read on gpt-6-luna ("Prose bench").
+  (`JRP_PROSE_MODEL`), and the code default since 2026-10-01: the cassettes that pin the
+  model name are synthetic (`tests/fakes.py`, `JRP_CASSETTE_SYNTHETIC=1`), so the switch
+  re-synthesized them offline; no live re-recording was needed. The prompt v10 + check6 was
+  read on gpt-6-luna ("Prose bench"). pydantic-ai 2.47's OpenAI profile does not know
+  `gpt-6-luna` (it knows gpt-5.6 and gpt-6-astra), so its requests carry no `reasoning`:
+  the thinking policy is a no-op for it and the backend's default effort applies
+  (`tests/test_codex.py` pins this).
 - **`claude-code` backend (author decision 2026-10-01)**: Claude on the author's Claude
   subscription through `claude -p` (`generation/claude_code.py`, a pydantic-ai
   `FunctionModel` around a subprocess). The prose bench writes its drafts with it, because

@@ -33,7 +33,7 @@ CTX = LineContext(
 
 
 def test_endpoint_and_model_ids_are_pinned():
-    assert DEFAULT_PROSE_MODEL == "openai-codex:gpt-5.6-sol"
+    assert DEFAULT_PROSE_MODEL == "openai-codex:gpt-6-luna"
     assert DASHSCOPE_BASE_URL == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 
 

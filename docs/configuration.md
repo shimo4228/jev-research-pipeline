@@ -24,7 +24,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_VAULT_DIR` | yes | vault root; notes go to `<vault>/daily-research/`. Unset: nothing is written |
 | `JRP_STORE_DIR` | recommended | pipeline store, one JSON-LD file per line (default `./var/store`) |
 | `TYPESAFE_API_KEY` | yes | Jev ([docs.typesafe.ai](https://docs.typesafe.ai)) |
-| `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-5.6-sol`; or e.g. `dashscope:qwen3.7-max`). See [The writing model](../README.md#the-writing-model) |
+| `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-6-luna`; or e.g. `dashscope:qwen3.7-max`). See [The writing model](../README.md#the-writing-model) |
 | `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
 | `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
 | `JRP_DAILY_RESEARCH_CONFIG` | yes | the `config.toml` with your lines and `[nets]` |
@@ -32,7 +32,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_JEV_USD_PER_QUESTION` | recommended | Jev unit price for the note's cost line; unset, Jev is not counted |
 | `JRP_QUESTIONS_DIR` | no | question files (default `./questions`) |
 | `JRP_PROSE_TIMEOUT_S` | no | prose call timeout (default 900 s; prose is written with thinking on) |
-| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default) |
+| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default). pydantic-ai 2.47 sends no reasoning setting for `gpt-6-luna`, so there it has no effect |
 | `JRP_JEV_CONCURRENCY` | no | concurrent Jev requests (default 12; a separate limiter holds 1,200 per minute) |
 | `JRP_PROSE_CONCURRENCY` | no | concurrent prose-model calls (default 3) |
 | `JRP_SLACK_NOTIFY` | no | `1` sends each `jrp run`'s result to Slack as one message: `jrp run` with the claims per line; `jrp run DEGRADED` with one reason line per line when a line finished but not as a healthy run does (a failed prose draft, the writer's login refused, Jev failures on 5% or more of the (source, question) pairs, a failed fetch other than a skip for an unset key, the cost cap); `jrp run FAILED` when the run raised |

@@ -1,5 +1,5 @@
 """The one generation site: the per-question prose, written by the model JRP_PROSE_MODEL
-names (default GPT-5.6 Sol on the Codex subscription; Qwen on DashScope is the other
+names (default GPT-6 Luna on the Codex subscription; Qwen on DashScope is the other
 backend). Jev makes every judgment; queries and questions are authored in
 questions/<slug>.md (design "Authored queries")."""
 
