@@ -108,3 +108,68 @@ async def test_a_usage_limit_stops_the_burst_and_other_errors_are_reported(tmp_p
     assert not list(pe.comprehend_dir(bench, "cand").glob("*.json"))
     lines = await pe.comprehend(bench, "cand", Fake(fail=ClaudeCodeError), concurrency=1)
     assert any(line.startswith("error:") for line in lines)
+
+
+async def test_a_changed_rubric_or_draft_is_judged_and_read_again(tmp_path: Path):
+    bench = _bench(tmp_path)
+    pb.gate_files(bench, "cand", RUBRIC, split="all")
+    ask = Fake()
+    await pe.judge(bench, "cand", ask, concurrency=1)
+    await pe.comprehend(bench, "cand", ask, concurrency=1)
+    assert len(ask.calls) == 3
+    pb.gate_files(bench, "cand", RUBRIC + "\n- Q7 new check", split="all")
+    assert pe.scores(bench, "cand").judged == 0  # the old verdict no longer counts
+    await pe.judge(bench, "cand", ask, concurrency=1)
+    assert len(ask.calls) == 4
+    (case,) = pb.load_cases(bench, "all")
+    redrafted = "別の本文 [1]。"
+    pb.write_draft(
+        bench,
+        pb.Draft(
+            case=case.id,
+            variant="cand",
+            prose=redrafted,
+            failure=None,
+            seconds=1.0,
+            chars=len(redrafted),
+            gates=(),
+        ),
+    )
+    assert pe.scores(bench, "cand").comprehended == 0
+    await pe.comprehend(bench, "cand", ask, concurrency=1)
+    assert len(ask.calls) == 6
+
+
+def test_a_presented_study_the_reader_missed_counts_as_five_misses():
+    record = pe.Comprehension(
+        case="c",
+        variant="v",
+        reader=READER,
+        grade=GRADE,
+        presented=pe.presented("**A**\n\nx\n\n**B**\n\ny"),
+    )
+    assert record.presented == 2
+    assert record.facts == 4 / 10  # 4 Yes of study A, study B never got across
+
+
+async def test_a_failed_draft_counts_as_nothing_got_across(tmp_path: Path):
+    bench = _bench(tmp_path)
+    await pe.comprehend(bench, "cand", Fake(), concurrency=1)
+    (case,) = pb.load_cases(bench, "all")
+    pb.write_draft(
+        bench,
+        pb.Draft(
+            case="x", variant="cand", prose=None, failure="boom", seconds=0, chars=0, gates=()
+        ),
+    )
+    (bench / "cases" / "x.json").write_text(
+        case.model_copy(update={"id": "x"}).model_dump_json(), encoding="utf-8"
+    )
+    assert pe.scores(bench, "cand").facts == 0.4  # (0.8 + 0) / 2
+
+
+def test_the_clis_own_oauth_token_is_kept():
+    from jev_research_pipeline.generation.claude_code import child_env
+
+    env: dict[str, str] = dict.fromkeys(("CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_TOKEN"), "v")
+    assert child_env(env) == {"CLAUDE_CODE_OAUTH_TOKEN": "v"}

@@ -24,6 +24,8 @@ unexplained terms first), the grader Sonnet, the fidelity judge Opus.
 """
 
 import asyncio
+import hashlib
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Final, Literal
@@ -132,6 +134,21 @@ class Grade(BaseModel):
 
 
 FACTS: Final = ("identified", "problem", "method", "finding", "numbers")
+FIVE: Final = len(FACTS)
+
+
+_STUDY_LINE: Final = re.compile(r"^\*\*[^*\n]+\*\*\s*$", re.MULTILINE)
+
+
+def presented(prose: str) -> int:
+    """Studies the draft presents: v10 puts each under a bold name line of its own."""
+    return len(_STUDY_LINE.findall(prose))
+
+
+def sha(text: str) -> str:
+    """What a stored result was computed from: a result whose input changed since (the
+    rubric edited, the draft re-drafted) is stale and computed again, never reused."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 class Comprehension(BaseModel):
@@ -139,13 +156,18 @@ class Comprehension(BaseModel):
     variant: str
     reader: ReaderAnswer
     grade: Grade
+    draft_sha: str = ""
+    presented: int = 0
+    """Studies the draft presented (bold name lines); a study the reader could not name
+    counts as five misses, so dropping studies does not raise the score."""
 
     @property
     def facts(self) -> float:
-        """Share of Yes over the five facts of every study the reader named; 0 when the
-        reader could name none (nothing got across)."""
+        """Share of Yes over the five facts of every study presented or named; 0 when
+        there is none (nothing got across)."""
         cells = [getattr(s, f) for s in self.grade.studies for f in FACTS]
-        return sum(c == "Yes" for c in cells) / len(cells) if cells else 0.0
+        total = FIVE * max(len(self.grade.studies), self.presented)
+        return sum(c == "Yes" for c in cells) / total if total else 0.0
 
 
 def reader_prompt(case: BenchCase, prose: str) -> str:
@@ -215,16 +237,13 @@ async def judge(bench: Path, variant: str, ask: Ask, *, concurrency: int) -> lis
     gate = bench / "gate" / variant
     out = gate / "verdicts"
     out.mkdir(parents=True, exist_ok=True)
-    todo = [p for p in sorted(gate.glob("*.md")) if not (out / f"{p.stem}.json").exists()]
+    todo = [p for p in sorted(gate.glob("*.md")) if not _judged(out, p)]
 
     async def one(path: Path) -> None:
-        verdict = _as(
-            GateVerdict,
-            await ask(
-                JUDGE_MODEL, JUDGE_INSTRUCTIONS, path.read_text(encoding="utf-8"), GateVerdict
-            ),
-        )
+        text = path.read_text(encoding="utf-8")
+        verdict = _as(GateVerdict, await ask(JUDGE_MODEL, JUDGE_INSTRUCTIONS, text, GateVerdict))
         (out / f"{path.stem}.json").write_text(verdict.model_dump_json(indent=2), encoding="utf-8")
+        (out / f"{path.stem}.sha").write_text(sha(text), encoding="utf-8")
 
     done, errors, stopped = await _burst(todo, one, concurrency=concurrency)
     return [
@@ -232,6 +251,16 @@ async def judge(bench: Path, variant: str, ask: Ask, *, concurrency: int) -> lis
         f"{variant}: judged {done} of {len(todo)} waiting",
         *errors,
     ]
+
+
+def _judged(out: Path, gate_file: Path) -> bool:
+    """A verdict for exactly this gate file (rubric, materials, draft) exists."""
+    stamp = out / f"{gate_file.stem}.sha"
+    return (
+        (out / f"{gate_file.stem}.json").exists()
+        and stamp.exists()
+        and stamp.read_text(encoding="utf-8") == sha(gate_file.read_text(encoding="utf-8"))
+    )
 
 
 def comprehend_dir(bench: Path, variant: str) -> Path:
@@ -257,7 +286,7 @@ async def comprehend(
         if case.id in drafts
         and drafts[case.id].prose
         and (only is None or case.id in only)
-        and not (out / f"{case.id}.json").exists()
+        and _record(out, case.id, drafts[case.id]) is None
     ]
 
     async def one(item: tuple[BenchCase, Draft]) -> None:
@@ -271,7 +300,14 @@ async def comprehend(
         grade = _as(
             Grade, await ask(GRADER_MODEL, GRADER_INSTRUCTIONS, grader_prompt(case, reader), Grade)
         )
-        record = Comprehension(case=case.id, variant=variant, reader=reader, grade=grade)
+        record = Comprehension(
+            case=case.id,
+            variant=variant,
+            reader=reader,
+            grade=grade,
+            draft_sha=sha(d.prose or ""),
+            presented=presented(d.prose or ""),
+        )
         (out / f"{case.id}.json").write_text(record.model_dump_json(indent=2), encoding="utf-8")
 
     done, errors, stopped = await _burst(todo, one, concurrency=concurrency)
@@ -282,6 +318,15 @@ async def comprehend(
     ]
 
 
+def _record(out: Path, case: str, d: Draft) -> Comprehension | None:
+    """The comprehension record of exactly this draft, or None (none yet, or stale)."""
+    path = out / f"{case}.json"
+    if not path.exists() or not d.prose:
+        return None
+    record = Comprehension.model_validate_json(path.read_text(encoding="utf-8"))
+    return record if record.draft_sha == sha(d.prose) else None
+
+
 class VariantScores(BaseModel):
     variant: str
     cases: int
@@ -289,7 +334,8 @@ class VariantScores(BaseModel):
     passed: int
     comprehended: int
     facts: float
-    """Mean share of facts that got across (Comprehension.facts)."""
+    """Mean share of facts that got across (Comprehension.facts), a failed draft counting
+    0; drafts not comprehended yet are left out (the count beside it says how many are in)."""
     misbeliefs: int
     stuck: float
     """Mean places per draft where the reader stopped."""
@@ -299,16 +345,16 @@ class VariantScores(BaseModel):
 def scores(bench: Path, variant: str, only: set[str] | None = None) -> VariantScores:
     """What one variant scored over the cases it has drafts for (or `only` those)."""
     drafts = {k: d for k, d in load_drafts(bench, variant).items() if only is None or k in only}
+    gate = bench / "gate" / variant
     verdicts = [
         GateVerdict.model_validate_json(p.read_text(encoding="utf-8"))
-        for p in sorted((bench / "gate" / variant / "verdicts").glob("*.json"))
-        if p.stem in drafts
+        for p in sorted((gate / "verdicts").glob("*.json"))
+        if p.stem in drafts and _judged(gate / "verdicts", gate / f"{p.stem}.md")
     ]
-    records = [
-        Comprehension.model_validate_json(p.read_text(encoding="utf-8"))
-        for p in sorted(comprehend_dir(bench, variant).glob("*.json"))
-        if p.stem in drafts
-    ]
+    out = comprehend_dir(bench, variant)
+    records = [r for k, d in sorted(drafts.items()) if (r := _record(out, k, d)) is not None]
+    failed = sum(1 for d in drafts.values() if not d.prose)
+    counted = len(records) + failed
     chars = sorted(d.chars for d in drafts.values() if d.prose)
     return VariantScores(
         variant=variant,
@@ -316,7 +362,7 @@ def scores(bench: Path, variant: str, only: set[str] | None = None) -> VariantSc
         judged=len(verdicts),
         passed=sum(v.verdict == "pass" for v in verdicts),
         comprehended=len(records),
-        facts=round(sum(r.facts for r in records) / len(records), 3) if records else 0.0,
+        facts=round(sum(r.facts for r in records) / counted, 3) if counted else 0.0,
         misbeliefs=sum(len(r.grade.misbeliefs) for r in records),
         stuck=round(sum(len(r.reader.stuck) for r in records) / len(records), 2)
         if records
@@ -328,6 +374,8 @@ def scores(bench: Path, variant: str, only: set[str] | None = None) -> VariantSc
 def scores_table(bench: Path, variants: Sequence[str], only: set[str] | None = None) -> list[str]:
     """Variants side by side, over the cases every one of them has drafted (so the rows
     compare the same cases)."""
+    if not variants:
+        return ["no variants given (--variants a,b,...)"]
     common: set[str] = set(load_drafts(bench, variants[0])) if variants else set()
     for v in variants[1:]:
         common &= set(load_drafts(bench, v))

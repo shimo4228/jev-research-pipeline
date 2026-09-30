@@ -63,7 +63,11 @@ def is_usage_limit(failure: str | None) -> bool:
     return bool(failure) and failure.startswith(f"{ClaudeUsageLimit.__name__}:")
 
 
-_SECRET_ENV: Final = re.compile(r"^ANTHROPIC_|_API_KEY$|_TOKEN$|^JRP_CODEX_AUTH$")
+_SECRET_ENV: Final = re.compile(
+    r"^ANTHROPIC_|_API_KEY$|(?<!^CLAUDE_CODE_OAUTH)_TOKEN$|^JRP_CODEX_AUTH$"
+)
+"""CLAUDE_CODE_OAUTH_TOKEN stays: it is the CLI's own subscription login (`claude
+setup-token`), the one way to sign it in where the keychain cannot be read."""
 
 
 def child_env(env: Mapping[str, str]) -> dict[str, str]:
