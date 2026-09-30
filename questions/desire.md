@@ -15,6 +15,7 @@
 - arxiv: generative AI creative motivation
 - hf: creators motivation generative AI
 - web: AIで作りたいものがなくなった
+- web: AI coding agents lost motivation what to build next
 
 ## AI 後の余暇・選好についての予測（退屈で死ぬ / 分かっている）は、何を根拠にしており、どこが経験的問題として未決か
 - slug: post-ai-preferences-evidence
@@ -43,3 +44,5 @@
 - evidence: 場の存在と活動が確認できるもの
 - not: 単発のバズ投稿
 - arxiv: AI human flourishing
+- hf: AI and human flourishing
+- web: research program on what people want after AI abundance

@@ -15,6 +15,7 @@
 - arxiv: active inference meditation
 - hf: meditation predictive processing
 - web: active inference meditation cessation model
+- web: computational phenomenology meditation active inference
 
 ## 仏教の心所（mental factor）体系を計算・AI モデルとして実装した先行例は、何を実装し何を残したか
 - slug: mental-factors-computational
@@ -28,7 +29,6 @@
 - evidence: 何を実装したかの明示
 - not: 仏教心理学の解説書
 - not: 機械学習の attention / self-attention 論文
-- arxiv: Buddhist computational model
 - hf: Abhidharma mental factors
 - web: Abhidharma cetasika artificial intelligence
 
@@ -47,3 +47,4 @@
 - arxiv: phenomenal self-model
 - hf: minimal self meditation
 - web: Metzinger self-model meditation selflessness
+- web: minimal phenomenal experience selflessness predictive processing
