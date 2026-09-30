@@ -422,12 +422,17 @@ def title_key(source: SourceItem) -> str:
 
 
 def same_title_merged(
-    sources: Sequence[SourceItem], passing: Mapping[str, list[int]]
+    sources: Sequence[SourceItem],
+    passing: Mapping[str, list[int]],
+    *,
+    canaries: Collection[str] = (),
 ) -> tuple[list[SourceItem], dict[str, list[int]], int]:
     """One source per title_key among those the prefilter passed, before triage and the
-    screen: the one with the longest text (the most to judge), carrying every question
-    any of its copies passed for. Returns the kept sources in their first copy's place, the
-    passing map for them, and how many copies were dropped.
+    screen: a copy whose URL is a canary if there is one (the canary check and probe go by
+    exact URL — merged away, a kept canary would read as fallen and never be probed), else
+    the one with the longest text (the most to judge), carrying every question any of its
+    copies passed for. Returns the kept sources in their first copy's place, the passing
+    map for them, and how many copies were dropped.
 
     Why: the same paper at different URLs (arXiv and HF papers; one paper on four
     repository portals) was triaged and screened once per URL, and each copy could land in
@@ -440,7 +445,8 @@ def same_title_merged(
     kept: list[SourceItem] = []
     hits: dict[str, list[int]] = {}
     for copies in groups.values():
-        best = max(copies, key=lambda c: len(c.text))  # ties: the first copy
+        # ties: the first copy
+        best = max(copies, key=lambda c: (c.url in canaries, len(c.text)))
         kept.append(best)
         hits[best.id] = sorted({i for c in copies for i in passing[c.id]})
     return kept, hits, sum(len(c) - 1 for c in groups.values())
@@ -1214,7 +1220,8 @@ class LineRun:
         with self._stage("queries", questions=len(self.questions)):
             queries = await self._queries()
         sources, passing = await self._fetch_and_prefilter(queries)
-        candidates, passing, merged = same_title_merged(sources, passing)
+        canaries = {url for q in self.questions for url in q.canary_papers}
+        candidates, passing, merged = same_title_merged(sources, passing, canaries=canaries)
         if merged:
             self.st.notes.append(f"同じタイトルの重複 {merged} 件を 1 件にまとめて判定")
         with self._stage("triage", sources=len(passing)):

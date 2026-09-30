@@ -35,6 +35,7 @@ SOURCE: Final = "S4306400194"
 MAX_RESULTS: Final = 20
 MIN_INTERVAL_S: Final = 0.5
 SEARCH_CREDITS: Final = 10
+"""A `search=` list, measured from x-ratelimit-credits-used (2026-09-23)."""
 WINDOW_DAYS: Final = 90
 """The keyword search asks for the most relevant arXiv works published in the last 90 days.
 
@@ -50,7 +51,6 @@ Causes: A Dual-Process Computational Phenomenology of Focused-Attention Meditati
 absent from newest first). Newest first reached back about a month anyway for 20 results.
 A work that stays in the top 20 comes back on the next runs; its Jev answers are stored,
 so the repeat costs the search, not the screen."""
-"""A `search=` list, measured from x-ratelimit-credits-used (2026-09-23)."""
 SELECT: Final = "id,doi,title,publication_date,abstract_inverted_index"
 DOI_PREFIX: Final = "10.48550/arxiv."
 """arXiv's DataCite DOI prefix, lower-cased (OpenAlex answers `arxiv`, arXiv writes `arXiv`)."""

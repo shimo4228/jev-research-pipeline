@@ -64,3 +64,13 @@ def test_nothing_to_merge_changes_nothing():
     a = _source("https://arxiv.org/abs/2609.1", "Agent Memory", adapter="arxiv")
     kept, hits, merged = same_title_merged([a], {a.id: [0, 1]})
     assert (kept, hits, merged) == ([a], {a.id: [0, 1]}, 0)
+
+
+def test_a_canary_copy_is_the_one_kept():
+    """The canary check goes by exact URL: a kept canary merged away would read as fallen."""
+    canary = _source("https://arxiv.org/abs/2609.1", "Agent Memory", "a" * 300, "arxiv")
+    longer = _source("https://huggingface.co/papers/2609.1", "Agent memory", "b" * 900, "hf_papers")
+    passing = {canary.id: [0], longer.id: [1]}
+    kept, hits, _ = same_title_merged([longer, canary], passing, canaries={canary.url})
+    assert [s.id for s in kept] == [canary.id]
+    assert hits == {canary.id: [0, 1]}
