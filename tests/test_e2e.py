@@ -219,3 +219,21 @@ async def test_operations_show_prose_time_and_failure(cassette: ClientFactory, e
     assert health.reasons()[0].startswith(f"prose failed {health.drafts}/{health.drafts} drafts")
     assert "s" in prose_lines[0].rsplit(" ", 1)[1]
     assert any("prose 第" in ln for ln in outcome.note.read_text(encoding="utf-8").splitlines())
+
+
+async def test_a_rubric_that_cannot_judge_makes_a_degraded_line(env: dict[str, str]):
+    """The draft is written but the rubric's Jev call fails: the section is a template for a
+    Jev failure, not for the rubric's verdict, and the run's health names it. No cassette:
+    the fake world answers directly."""
+    world = fake_world()
+
+    async def rubric_down(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "api.typesafe.ai" and b"unsupported_statement" in request.content:
+            return httpx2.Response(400, json={"error": "rubric down"})  # 400: not retried
+        return await world(request)
+
+    http = httpx2.AsyncClient(transport=httpx2.MockTransport(rubric_down))
+    (outcome,) = await run_pipeline(env, now=b.T0, http=http, pacing=False)
+    assert outcome.report.rendering == "template"
+    assert outcome.health.unverified >= 1 and not outcome.health.prose_failures
+    assert any(r.startswith("prose unverified") for r in outcome.health.reasons())

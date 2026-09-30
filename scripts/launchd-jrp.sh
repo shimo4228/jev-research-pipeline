@@ -65,8 +65,8 @@ limited() {
     if ((SECONDS >= deadline)); then
       TIMED_OUT=1
       kill -TERM -- "-$pid" 2>/dev/null
-      for _ in 1 2 3 4 5 6 7 8 9 10; do
-        kill -0 "$pid" 2>/dev/null || break
+      for _ in 1 2 3 4 5 6 7 8 9 10; do  # until the whole group is gone: python unwinds
+        kill -0 -- "-$pid" 2>/dev/null || break  # after uv may already have exited
         sleep 1
       done
       kill -KILL -- "-$pid" 2>/dev/null
@@ -139,15 +139,27 @@ timed_out=$TIMED_OUT
 set -e
 
 # stage -> vault: only the notes this run wrote (newer than the mark) — a killed run's too
+# A copy that fails does not stop the others, and is said: python already reported the run
+# as done, but the author reads the vault, not the stage.
 copied=0
+uncopied=""
 while IFS= read -r -d '' note; do
-  cp -p "$note" "$VAULT/$NOTES/"
-  echo "vault ← $(basename "$note")"
-  copied=$((copied + 1))
+  if cp -p "$note" "$VAULT/$NOTES/"; then
+    echo "vault ← $(basename "$note")"
+    copied=$((copied + 1))
+  else
+    uncopied="${uncopied} $(basename "$note")"
+  fi
 done < <(find "$STAGE/$NOTES" -name '*_jrp_*.md' -newer "$MARK" -print0)
 
+if [[ -n "$uncopied" ]]; then
+  notify "jrp run FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${uncopied}"
+fi
 if ((timed_out)); then
   notify "jrp run TIMED OUT" "killed after ${TIMEOUT} s (JRP_RUN_TIMEOUT_S); ${copied} note(s) it wrote before the kill copied to the vault"
   exit 124
+fi
+if [[ -n "$uncopied" ]] && ((status == 0)); then
+  exit 1
 fi
 exit "$status"

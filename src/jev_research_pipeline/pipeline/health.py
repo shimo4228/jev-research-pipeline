@@ -8,7 +8,7 @@ was visible only in the note's `## 運用` block, which nobody reads before the 
 carries the counts behind those operations lines as values (never parsed back out of the
 Japanese text) and `reasons()` names the ones that mean the note is not what a healthy run
 writes. A rubric rejection that ends in the template is the ladder working, not a failure:
-it is not counted.
+it is not counted; a rubric that could not judge (its Jev call failed) is.
 """
 
 from dataclasses import dataclass
@@ -31,6 +31,9 @@ class LineHealth:
     empty answer) — the template fallback that is not the rubric's choice."""
     writer_auth: bool = False
     """At least one draft failed on the writer's credentials (generation.client.auth_failure)."""
+    unverified: int = 0
+    """Sections that fell to the template because the rubric's Jev call failed: the draft
+    was written but could not be checked, so it was not published."""
     fetch_failures: tuple[str, ...] = ()
     """`<net>/<adapter> <reason>` of every failed fetch; a skip for an unset key is intended
     and not here (nets._record_failure)."""
@@ -48,6 +51,8 @@ class LineHealth:
         if self.prose_failures:
             first = self.prose_failures[0][:FAILURE_CHARS]
             out.append(f"prose failed {len(self.prose_failures)}/{self.drafts} drafts ({first})")
+        if self.unverified:
+            out.append(f"prose unverified (rubric Jev failed) in {self.unverified} section(s)")
         if self.pairs and self.failed_pairs / self.pairs >= UNJUDGED_SHARE:
             share = self.failed_pairs / self.pairs
             out.append(f"unjudged {self.failed_pairs}/{self.pairs} pairs ({share:.0%})")

@@ -26,9 +26,11 @@ during the run is harvested the next morning. Nothing in the vault is deleted.
 
 The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
 through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going after
-`JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) is killed with
-its whole process group, the notes it wrote before the kill are copied back, and the message is
-`jrp run TIMED OUT` (exit 124). If the wrapper itself stops before Python starts (uv missing,
+`JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) gets SIGTERM
+(Python cancels the run, which also stops a `claude -p` it started), then its whole process group
+is killed 10 s later; the notes it wrote before the kill are copied back, and the message is
+`jrp run TIMED OUT` (exit 124). A note that cannot be copied to the vault is named in a
+`jrp run FAILED` message and stays in the stage. If the wrapper itself stops before Python starts (uv missing,
 `JRP_VAULT_DIR` unset, the staging copy failing), the message is `jrp run FAILED` with the reason.
 
 Before each `jrp run` the wrapper runs `jrp doctor` (limited to 120 s) and writes its lines to

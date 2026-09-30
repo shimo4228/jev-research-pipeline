@@ -22,6 +22,7 @@ additive differences are migrated in place first, incompatible ones need `jrp mi
 import argparse
 import asyncio
 import os
+import signal
 import sys
 import webbrowser
 from collections.abc import Mapping
@@ -106,6 +107,14 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 async def _run(env: Mapping[str, str]) -> int:
     unanswered: list[str] = []
     failed: list[str] = []
+    # The launchd wrapper's watchdog stops a hung run with SIGTERM. Its default action ends
+    # python without unwinding, which would orphan a claude-code CLI (it runs in a session of
+    # its own, out of reach of the wrapper's group kill) to spend the plan unread. Cancelling
+    # the run instead unwinds through generation.claude_code.run_claude, which kills it.
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    if task is not None:
+        loop.add_signal_handler(signal.SIGTERM, task.cancel)
     try:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
             outcomes = await run_pipeline(
@@ -119,6 +128,8 @@ async def _run(env: Mapping[str, str]) -> int:
         # An unattended run that fails must not be silent (the log alone is not read).
         notify("jrp run FAILED", f"{type(e).__name__}: {e}", env=env)
         raise
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
     # A skipped line (no open question) and a degraded one (failed drafts, a refused writer,
     # failed fetches, the cost cap) are said out loud rather than looking like a quiet
     # success; one message either way (runner.run_summary).

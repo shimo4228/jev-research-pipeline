@@ -324,6 +324,8 @@ class _State:
     """Sources with too little text to screen: counted, not listed."""
     drafts: list[ProseResult] = field(default_factory=list[ProseResult])
     """Every prose draft of the day, in question order (the health's prose failures)."""
+    unverified: int = 0
+    """Sections sent to the template because the rubric's Jev call failed (the health)."""
     fetch_failures: list[str] = field(default_factory=list[str])
     """nets.NetOutcome.failures of the day's fetch."""
 
@@ -337,6 +339,7 @@ class _SectionDay:
     nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
     notes: list[str] = field(default_factory=list[str])
     drafts: list[ProseResult] = field(default_factory=list[ProseResult])
+    unverified: bool = False
     made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
 
 
@@ -970,6 +973,11 @@ class LineRun:
         day.rubric += rendering.rubric
         day.nodes += drafts
         day.drafts += rendering.drafts
+        # a draft the rubric could not judge is never published: a template for a Jev
+        # failure, not for the rubric's verdict (generation.prose.render)
+        day.unverified = rendering.rendering == "template" and any(
+            d.outcome == "unjudged" for d in rendering.rubric
+        )
         for i, attempt in enumerate(rendering.drafts, start=1):
             state = "生成" if attempt.prose else f"失敗 ({attempt.failure})"
             day.notes.append(f"{question.slug} prose 第{i}稿: {state} {attempt.seconds:.1f}s")
@@ -1226,6 +1234,7 @@ class LineRun:
                     self.st.nodes += day.nodes
                     self.st.notes += day.notes
                     self.st.drafts += day.drafts
+                    self.st.unverified += day.unverified
                     if day.made is not None:
                         section, log, rendering = day.made
                         sections.append(section)
@@ -1290,6 +1299,7 @@ class LineRun:
             drafts=len(self.st.drafts),
             prose_failures=tuple(d.failure or "no text" for d in failed),
             writer_auth=any(d.auth for d in failed),
+            unverified=self.st.unverified,
             fetch_failures=tuple(self.st.fetch_failures),
             failed_pairs=self.st.failed_pairs,
             pairs=self.st.pairs,

@@ -133,3 +133,30 @@ def test_cli_run_failure_is_notified(monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(RuntimeError):
         cli.main(["run"])
     assert sent and sent[0][0] == "jrp run FAILED" and "vault missing" in sent[0][1]
+
+
+def test_sigterm_cancels_the_run_so_its_cleanup_runs(monkeypatch: pytest.MonkeyPatch):
+    """The wrapper's watchdog sends SIGTERM: the run is cancelled and unwinds (a claude-code
+    CLI is killed on the way out) instead of python dying mid-await."""
+    import asyncio
+    import os
+    import signal
+
+    from jev_research_pipeline import cli
+
+    unwound: list[str] = []
+
+    async def hangs(*args: object, **kwargs: object) -> list[object]:
+        asyncio.get_running_loop().call_later(0.05, os.kill, os.getpid(), signal.SIGTERM)
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            unwound.append("cancelled")
+            raise
+        return []
+
+    monkeypatch.setattr(cli, "run_pipeline", hangs)
+    with pytest.raises(asyncio.CancelledError):
+        cli.main(["run"])
+    assert unwound == ["cancelled"]
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL  # the handler is not left behind

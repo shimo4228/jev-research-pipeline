@@ -33,6 +33,10 @@ notes="$JRP_VAULT_DIR/daily-research"
 grep -q "[x]" "$notes/2026-09-23_jrp_akc.md"
 echo "rewritten" > "$notes/2026-09-24_jrp_akc.md"
 echo "new" > "$notes/2026-09-24_jrp_aap.md"
+if [[ -n "${{WRITE_ANS:-}}" ]]; then  # a note whose vault copy is read-only
+  rm -f "$notes/2026-09-24_jrp_ans.md"
+  echo "ans" > "$notes/2026-09-24_jrp_ans.md"
+fi
 echo "args: $*"
 """
 
@@ -186,3 +190,23 @@ def test_a_failing_doctor_is_notified_and_the_run_still_goes_ahead(tmp_path: Pat
     assert title == "jrp doctor FAILED"
     assert "FAIL writer: claude-code:sonnet: not logged in" in body and "run goes ahead" in body
     assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the run did run
+
+
+def test_a_note_that_cannot_reach_the_vault_is_notified_and_the_others_still_go(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    blocked = vault / "2026-09-24_jrp_ans.md"
+    blocked.write_text("old\n")
+    blocked.chmod(0o444)  # the vault copy of one note refuses the write
+    env["WRITE_ANS"] = "1"
+    try:
+        out = subprocess.run(
+            ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+        )
+    finally:
+        blocked.chmod(0o644)
+    assert out.returncode == 1
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the other note went
+    ((title, body),) = _messages(notified)
+    assert title == "jrp run FAILED" and "2026-09-24_jrp_ans.md" in body
+    assert "2026-09-24_jrp_aap.md" not in body
