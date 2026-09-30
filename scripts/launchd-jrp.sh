@@ -52,6 +52,7 @@ die() {  # die <why>: stop before jrp starts; on_exit notifies with the reason
 # limited <seconds> <cmd...>: cmd as a job of its own process group (job control on for it),
 # so a kill reaches uv's python and whatever it started, not only uv. Past <seconds> the
 # group gets TERM, then KILL 10 s later. Sets TIMED_OUT; returns cmd's exit status.
+CHILD=""  # the job limited() is running: a TERM to the wrapper is passed on to its group
 limited() {
   local limit=$1 pid
   shift
@@ -59,6 +60,7 @@ limited() {
   set -m
   "$@" </dev/null &
   pid=$!
+  CHILD=$pid
   set +m
   local deadline=$((SECONDS + limit))
   while kill -0 "$pid" 2>/dev/null; do
@@ -75,7 +77,20 @@ limited() {
     sleep 1
   done
   wait "$pid"
+  local status=$?
+  CHILD=""
+  return "$status"
 }
+
+# A TERM to the wrapper (launchctl, a shutdown) would otherwise orphan the job: it sits in
+# a process group of its own, which launchd's cleanup of the wrapper's group never reaches,
+# and it would go on spending the prose plan with nothing to copy its notes back.
+# shellcheck disable=SC2329  # called by the TERM trap
+on_term() {
+  if [[ -n "$CHILD" ]]; then kill -TERM -- "-$CHILD" 2>/dev/null; fi
+  exit 143
+}
+trap on_term TERM
 
 # shellcheck disable=SC2329  # called by the EXIT trap
 on_exit() {

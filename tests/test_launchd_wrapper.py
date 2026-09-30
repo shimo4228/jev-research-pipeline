@@ -210,3 +210,29 @@ def test_a_note_that_cannot_reach_the_vault_is_notified_and_the_others_still_go(
     ((title, body),) = _messages(notified)
     assert title == "jrp run FAILED" and "2026-09-24_jrp_ans.md" in body
     assert "2026-09-24_jrp_aap.md" not in body
+
+
+def test_a_term_to_the_wrapper_reaches_the_run_it_started(tmp_path: Path):
+    """launchctl or a shutdown TERMs the wrapper; the run sits in its own process group,
+    so without passing the signal on it would go on (spending the prose plan) orphaned."""
+    env, _, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    env |= {"JRP_RUN_TIMEOUT_S": "600", "HUNG_PID": str(tmp_path / "hung.pid")}
+    wrapper = subprocess.Popen(
+        ["bash", str(SCRIPT), "run"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    pid_file = tmp_path / "hung.pid"
+    deadline = time.monotonic() + 10
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    child = int(pid_file.read_text())
+    wrapper.terminate()
+    assert wrapper.wait(timeout=10) == 143
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    pytest.fail("the run outlived the wrapper")
