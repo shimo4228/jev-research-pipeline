@@ -26,7 +26,7 @@ uv run jrp run
 | `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default) |
 | `JRP_JEV_CONCURRENCY` | no | concurrent Jev requests (default 12; a separate limiter holds 1,200 per minute) |
 | `JRP_PROSE_CONCURRENCY` | no | concurrent prose-model calls (default 3) |
-| `JRP_SLACK_NOTIFY` | no | `1` sends a one-line result to Slack |
+| `JRP_SLACK_NOTIFY` | no | `1` sends each `jrp run`'s result to Slack as one message: `jrp run` with the claims per line; `jrp run DEGRADED` with one reason line per line when a line finished but not as a healthy run does (a failed prose draft, the writer's login refused, Jev failures on 5% or more of the (source, question) pairs, a failed fetch other than a skip for an unset key, the cost cap); `jrp run FAILED` when the run raised |
 | `JRP_DRIFT_LIVE` | no | `1` lets `jrp drift` call Jev live |
 | `GITHUB_TOKEN` | no | raises GitHub search from 10 to 30 requests per minute (a fine-grained token with no permissions is enough) |
 | `SEMANTIC_SCHOLAR_API_KEY` | no | recommendation net; without it the shared keyless quota may return 429 for the day |

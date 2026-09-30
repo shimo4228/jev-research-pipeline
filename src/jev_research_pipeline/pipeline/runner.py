@@ -23,7 +23,7 @@ The store is checked before anything else (store.migrate.prepare_store).
 
 import asyncio
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Final
@@ -136,10 +136,13 @@ async def run_pipeline(
     http: httpx2.AsyncClient,
     pacing: bool = True,
     unanswered: list[str] | None = None,
+    failed: list[str] | None = None,
 ) -> list[LineOutcome]:
     """`unanswered` collects the lines skipped for having no open question, so the caller
-    can show them (the CLI prints them; a silent skip would look like a quiet success)."""
+    can show them (the CLI prints them; a silent skip would look like a quiet success).
+    `failed` collects the lines that raised; without it they go to `unanswered`."""
     unanswered = unanswered if unanswered is not None else []
+    failed = failed if failed is not None else unanswered
     vault = vault_dir(env)
     api_keys, prose = keys(env)
     # One writer for the whole tick: the lines share its provider (and so the Codex login).
@@ -215,8 +218,27 @@ async def run_pipeline(
             raise
         except Exception as e:
             detail = " ".join(str(e).split())[:160]
-            unanswered.append(f"{slug}: 失敗 ({type(e).__name__}: {detail})")
+            failed.append(f"{slug}: 失敗 ({type(e).__name__}: {detail})")
             return None
 
     ran = await asyncio.gather(*(guarded(slug) for slug in picked))
     return [o for o in ran if o is not None]
+
+
+def run_summary(
+    outcomes: Sequence[LineOutcome], *, skipped: Sequence[str], failed: Sequence[str]
+) -> tuple[str, str]:
+    """(title, body) of the one message a finished run sends. The title says DEGRADED when
+    a line raised or any line's health has a reason (pipeline.health), and each such line
+    gets one `DEGRADED <note>: <reasons>` line under the claims summary — a template day
+    must not read like a quiet one. Lines skipped for want of a question follow, as before."""
+    summary = ", ".join(
+        f"{o.report.run_date} {o.note.stem}: {len(o.report.claims)} claims" for o in outcomes
+    )
+    degraded = [
+        f"DEGRADED {o.note.stem}: {'; '.join(reasons)}"
+        for o in outcomes
+        if (reasons := o.health.reasons())
+    ]
+    title = "jrp run DEGRADED" if degraded or failed else "jrp run"
+    return title, "\n".join([summary or "no line ran", *degraded, *failed, *skipped])

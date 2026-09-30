@@ -50,7 +50,7 @@ from jev_research_pipeline.adapters import (
     openalex,
     web_search,
 )
-from jev_research_pipeline.generation import GenerationMeter, Rendering, Writer
+from jev_research_pipeline.generation import GenerationMeter, ProseResult, Rendering, Writer
 from jev_research_pipeline.generation.prose import (
     SOURCE_EXCERPT_CHARS,
     prose_thinking,
@@ -109,6 +109,7 @@ from jev_research_pipeline.telemetry import span
 from . import meters, nets
 from .concurrency import jev_concurrency, prose_concurrency
 from .costs import Budget, generation_price
+from .health import LineHealth
 from .units import split_units
 
 GIST_CHARS: Final = 120
@@ -274,6 +275,9 @@ class LineOutcome:
     report: Report
     note: Path
     operations: list[str]
+    health: LineHealth = field(default_factory=LineHealth)
+    """What the operations lines say went wrong, as values: the run's notification reads
+    this, not the note (pipeline.health)."""
 
 
 @dataclass
@@ -318,6 +322,10 @@ class _State:
     """URLs the nets brought today (canaries among them are judged by the screen itself)."""
     incomplete: int = 0
     """Sources with too little text to screen: counted, not listed."""
+    drafts: list[ProseResult] = field(default_factory=list[ProseResult])
+    """Every prose draft of the day, in question order (the health's prose failures)."""
+    fetch_failures: list[str] = field(default_factory=list[str])
+    """nets.NetOutcome.failures of the day's fetch."""
 
 
 @dataclass
@@ -328,6 +336,7 @@ class _SectionDay:
     rubric: list[Decision] = field(default_factory=list[Decision])
     nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
     notes: list[str] = field(default_factory=list[str])
+    drafts: list[ProseResult] = field(default_factory=list[ProseResult])
     made: tuple[QuestionSection, QuestionLog, Rendering] | None = None
 
 
@@ -582,6 +591,7 @@ class LineRun:
             firehose_query=firehose_query(self.questions, self.queries, self.ctx.vocabulary),
         )
         self.st.notes += outcome.notes
+        self.st.fetch_failures += outcome.failures
         self.st.per_net = outcome.per_net
         self.st.openalex_credits = outcome.openalex_credits
         return outcome.sources
@@ -959,6 +969,7 @@ class LineRun:
             )
         day.rubric += rendering.rubric
         day.nodes += drafts
+        day.drafts += rendering.drafts
         for i, attempt in enumerate(rendering.drafts, start=1):
             state = "生成" if attempt.prose else f"失敗 ({attempt.failure})"
             day.notes.append(f"{question.slug} prose 第{i}稿: {state} {attempt.seconds:.1f}s")
@@ -1214,6 +1225,7 @@ class LineRun:
                     self.st.decisions += day.rubric
                     self.st.nodes += day.nodes
                     self.st.notes += day.notes
+                    self.st.drafts += day.drafts
                     if day.made is not None:
                         section, log, rendering = day.made
                         sections.append(section)
@@ -1269,6 +1281,19 @@ class LineRun:
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
             operations=lines,
+            health=self._health(),
+        )
+
+    def _health(self) -> LineHealth:
+        failed = [d for d in self.st.drafts if d.prose is None]
+        return LineHealth(
+            drafts=len(self.st.drafts),
+            prose_failures=tuple(d.failure or "no text" for d in failed),
+            writer_auth=any(d.auth for d in failed),
+            fetch_failures=tuple(self.st.fetch_failures),
+            failed_pairs=self.st.failed_pairs,
+            pairs=self.st.pairs,
+            cost_capped=self.st.partial,
         )
 
 

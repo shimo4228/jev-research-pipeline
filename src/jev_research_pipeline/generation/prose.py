@@ -37,7 +37,7 @@ from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import Decision, Question
 from jev_research_pipeline.model.jsonld import Value
 
-from .client import GenerationMeter
+from .client import GenerationMeter, auth_failure
 
 INFERENCE_MARK: Final = "【推論】"
 """A paragraph that goes beyond the claims opens with this and nothing else does."""
@@ -153,6 +153,8 @@ class ProseResult(Value):
     in the report until this reached the operations section."""
     invalid_citations: tuple[int, ...] = ()
     """[n]s the model wrote that name no claim of this call; dropped from the text."""
+    auth: bool = False
+    """The failure was the writer refusing its credentials (generation.client.auth_failure)."""
 
 
 class Rendering(Value):
@@ -257,7 +259,10 @@ async def write_prose(
         )
     except AgentRunError as e:
         return ProseResult(
-            prose=None, failure=f"{type(e).__name__}: {e}"[:200], seconds=_since(started)
+            prose=None,
+            failure=f"{type(e).__name__}: {e}"[:200],
+            seconds=_since(started),
+            auth=auth_failure(e),
         )
     finally:
         meter.add(usage)

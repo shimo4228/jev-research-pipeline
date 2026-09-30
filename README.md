@@ -270,7 +270,8 @@ runs launchd, because the browser redirects to `localhost:1455`. It is a login o
 separate from the Codex CLI's `~/.codex/auth.json`: refresh tokens are single-use, so sharing one
 with the CLI would leave one of them holding a dead grant after the first refresh. Every refresh is
 written back to the file, so the next scheduled run starts from a live one. If the operations
-block shows the prose drafts failing with `CredentialsRefreshError`, the grant was rejected: sign in
+block shows the prose drafts failing with `CredentialsRefreshError` (with `JRP_SLACK_NOTIFY=1` the
+run's message says `jrp run DEGRADED` and `writer auth failed`), the grant was rejected: sign in
 again. How you use your subscription this way is governed by your agreement with OpenAI.
 
 The prose prompt was tuned and read on `dashscope:qwen3.7-max`. The prose bench (AGENTS.md) takes

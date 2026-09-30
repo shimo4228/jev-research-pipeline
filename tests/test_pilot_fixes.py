@@ -271,6 +271,7 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
     # the second arXiv query is not sent at all (one failure line, not two)
     assert sum("fetch 失敗" in n for n in out.notes) == 1
     assert not any("keyword/github" in n for n in out.notes)  # GitHub still ran
+    assert out.failures == ["keyword/arxiv http_status"]  # the run's health sees it once
 
 
 def replace_interval(adapter: Adapter) -> Adapter:

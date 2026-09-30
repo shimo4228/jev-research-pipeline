@@ -161,7 +161,7 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 
 どちらの backend も Pydantic AI（`OpenAICodexProvider`、`AlibabaProvider`）を通るので、それぞれが提供するモデルなら名前で指定できます。backend を足すのは `src/jev_research_pipeline/generation/client.py` の分岐 1 つです。`JRP_PROSE_THINKING`（`always` / `rewrite` / `off`）は、backend ごとのスイッチ（DashScope の thinking、GPT-5.6 の reasoning effort）に対応します。
 
-`jrp codex login` は、Codex CLI と同じ ChatGPT のログイン画面をブラウザで開き、結果を `~/.config/jrp/codex-auth.json`（所有者だけが読める。`JRP_CODEX_AUTH` で場所を変えられる）に保存します。ブラウザが `localhost:1455` に戻ってくるので、launchd を動かす機械で実行してください。これはパイプライン専用のログインで、Codex CLI の `~/.codex/auth.json` とは別です。refresh token は 1 回しか使えないので、CLI と共有すると、最初の refresh のあとでどちらかが失効した grant を持つことになります。refresh のたびにファイルへ書き戻すので、次の定期実行は有効な token から始まります。運用節で本文の下書きが `CredentialsRefreshError` で失敗していたら、grant が拒否されたということなので、もう一度ログインしてください。この使い方がサブスクリプションの規約上どう扱われるかは、OpenAI との契約に従います。
+`jrp codex login` は、Codex CLI と同じ ChatGPT のログイン画面をブラウザで開き、結果を `~/.config/jrp/codex-auth.json`（所有者だけが読める。`JRP_CODEX_AUTH` で場所を変えられる）に保存します。ブラウザが `localhost:1455` に戻ってくるので、launchd を動かす機械で実行してください。これはパイプライン専用のログインで、Codex CLI の `~/.codex/auth.json` とは別です。refresh token は 1 回しか使えないので、CLI と共有すると、最初の refresh のあとでどちらかが失効した grant を持つことになります。refresh のたびにファイルへ書き戻すので、次の定期実行は有効な token から始まります。運用節で本文の下書きが `CredentialsRefreshError` で失敗していたら（`JRP_SLACK_NOTIFY=1` なら、その実行の通知が `jrp run DEGRADED` と `writer auth failed` を伝えます）、grant が拒否されたということなので、もう一度ログインしてください。この使い方がサブスクリプションの規約上どう扱われるかは、OpenAI との契約に従います。
 
 本文のプロンプトは `dashscope:qwen3.7-max` で調整して読んだものです。本文のベンチ（AGENTS.md）の `--model` も同じ `<backend>:<model>` の形なので、凍結した同じ入力で両方のモデルを比べられます。
 

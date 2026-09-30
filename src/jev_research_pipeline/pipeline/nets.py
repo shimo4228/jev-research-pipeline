@@ -306,6 +306,9 @@ class NetOutcome:
     per_net: dict[DiscoveryNet, int] = field(default_factory=dict[DiscoveryNet, int])
     topics: list[str] = field(default_factory=list[str])
     openalex_credits: int = 0
+    failures: list[str] = field(default_factory=list[str])
+    """`<net>/<adapter> <reason>` per failed request, for the run's health (pipeline.health);
+    an adapter skipped for an unset key is intended and not listed."""
 
 
 def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
@@ -347,6 +350,8 @@ def _record_failure(
 ) -> None:
     """A failed request is a line in the operations section, never the end of the run."""
     outcome.notes.append(f"{_source_key(request)}: fetch 失敗 ({failure.reason} {failure.detail})")
+    if failure.reason != "missing_key":
+        outcome.failures.append(f"{_source_key(request)} {failure.reason}")
     if "rate_limit" in failure.detail:
         # A shared pool answering 429 is a policy signal, not a transient error: that
         # source is done for the day in this net, for every line. The net's other sources

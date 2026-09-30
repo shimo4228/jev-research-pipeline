@@ -24,16 +24,21 @@ from pathlib import Path
 from typing import Final, Literal, override
 
 import httpx2
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModelSettings
 from pydantic_ai.models.openai_codex import OpenAICodexModel
 from pydantic_ai.profiles import ModelProfile, merge_profile
 from pydantic_ai.providers.alibaba import AlibabaProvider
-from pydantic_ai.providers.openai_codex import OpenAICodexProvider
+from pydantic_ai.providers.openai_codex import (
+    CredentialsPersistenceError,
+    CredentialsRefreshError,
+    OpenAICodexProvider,
+)
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 
-from .claude_code import CLAUDE_BIN_ENV, claude_bin, claude_code_model
+from .claude_code import CLAUDE_BIN_ENV, ClaudeAuthError, claude_bin, claude_code_model
 from .codex import CodexAuthFile, codex_auth_path
 
 type Backend = Literal["openai-codex", "dashscope", "claude-code"]
@@ -125,6 +130,19 @@ def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAu
             f"no Codex login at {path} (for {spec}): run `uv run jrp codex login`"
         )
     return ProseAuth(spec=spec, codex_auth=path)
+
+
+def auth_failure(error: BaseException) -> bool:
+    """Whether a failed prose call was refused for its credentials rather than for its load
+    or its content: the Codex grant rejected on refresh or its refresh not saved
+    (pydantic-ai's credential errors), a 401/403 from either HTTP backend, or the Claude Code
+    CLI not signed in. Unlike a timeout it repeats on every draft of every line until a
+    human signs in again, so the run's notification names it (pipeline.health)."""
+    if isinstance(error, ModelHTTPError):
+        return error.status_code in (401, 403)
+    return isinstance(
+        error, CredentialsRefreshError | CredentialsPersistenceError | ClaudeAuthError
+    )
 
 
 def _native_json_schema(base: ModelProfile) -> ModelProfile:

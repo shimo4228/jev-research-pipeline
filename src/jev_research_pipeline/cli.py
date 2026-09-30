@@ -46,7 +46,7 @@ from .pipeline.config import config_path, line_context, load_tracks, rotation_co
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
-from .pipeline.runner import run_pipeline, store_dir
+from .pipeline.runner import run_pipeline, run_summary, store_dir
 from .quality import agreement, trusted_axes
 from .questions import NoQuestions
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
@@ -101,23 +101,26 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
 
 async def _run(env: Mapping[str, str]) -> int:
     unanswered: list[str] = []
+    failed: list[str] = []
     try:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
             outcomes = await run_pipeline(
-                env, now=datetime.now().astimezone(), http=http, unanswered=unanswered
+                env,
+                now=datetime.now().astimezone(),
+                http=http,
+                unanswered=unanswered,
+                failed=failed,
             )
     except Exception as e:
         # An unattended run that fails must not be silent (the log alone is not read).
         notify("jrp run FAILED", f"{type(e).__name__}: {e}", env=env)
         raise
-    summary = ", ".join(
-        f"{o.report.run_date} {o.note.stem}: {len(o.report.claims)} claims" for o in outcomes
-    )
-    # A line skipped for having no open question is the author's to fix, so it is said
-    # out loud rather than looking like a quiet success.
-    skipped = "; ".join(unanswered)
-    sys.stdout.write("\n".join(filter(None, [summary, skipped])) + "\n")
-    notify("jrp run", "; ".join(filter(None, [summary or "no line ran", skipped])), env=env)
+    # A skipped line (no open question) and a degraded one (failed drafts, a refused writer,
+    # failed fetches, the cost cap) are said out loud rather than looking like a quiet
+    # success; one message either way (runner.run_summary).
+    title, body = run_summary(outcomes, skipped=unanswered, failed=failed)
+    sys.stdout.write(f"{title}\n{body}\n")
+    notify(title, body, env=env)
     return 0
 
 

@@ -58,6 +58,12 @@ class ClaudeUsageLimit(ClaudeCodeError):
     prose bench stops its burst on it instead of retrying (harness rule debugging.md)."""
 
 
+class ClaudeAuthError(ClaudeCodeError):
+    """The CLI is not signed in (or its login was refused): every call fails the same way
+    until the author runs `claude` and signs in, so the run's notification names it
+    (pipeline.health), and `jrp doctor` checks for it before the run."""
+
+
 def is_usage_limit(failure: str | None) -> bool:
     """A ProseResult failure that came from ClaudeUsageLimit (write_prose keeps the name)."""
     return bool(failure) and failure.startswith(f"{ClaudeUsageLimit.__name__}:")
@@ -138,6 +144,9 @@ def prompt_text(messages: Sequence[ModelMessage]) -> str:
 
 
 _LIMIT_MARKERS: Final = ("usage limit", "rate limit", "rate_limit", "overloaded")
+_AUTH_MARKERS: Final = ("not logged in", "/login", "invalid api key", "authentication_error")
+"""What the CLI says when its login is missing or refused ("Not logged in · Please run
+/login", "Invalid API key · Please run /login"; claude 2.1.285)."""
 
 
 class _CliUsage(BaseModel):
@@ -177,9 +186,16 @@ def _checked(stdout: bytes, stderr: bytes, returncode: int) -> _CliResult:
         data = _CliResult.model_validate(json.loads(stdout))
     except (ValueError, ValidationError):
         detail = (stderr or stdout).decode(errors="replace").strip()[:300]
-        raise ClaudeCodeError(f"claude exited {returncode}: {detail or 'no output'}") from None
+        error = (
+            ClaudeAuthError if any(m in detail.lower() for m in _AUTH_MARKERS) else ClaudeCodeError
+        )
+        raise error(f"claude exited {returncode}: {detail or 'no output'}") from None
     if data.is_error or data.subtype != "success" or returncode != 0:
         message = f"claude error (status {data.api_error_status}): {data.result[:300]}"
+        if data.api_error_status in (401, 403) or any(
+            m in data.result.lower() for m in _AUTH_MARKERS
+        ):
+            raise ClaudeAuthError(message)
         if data.api_error_status == 429 or any(m in data.result.lower() for m in _LIMIT_MARKERS):
             raise ClaudeUsageLimit(message)
         raise ClaudeCodeError(message)

@@ -86,6 +86,7 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     part = GraphStore(Path(env["JRP_STORE_DIR"])).line("akc")
     assert isinstance(part.get(outcome.report.id), Report)
     assert any("web_search: key 未設定" in ln for ln in outcome.operations)
+    assert outcome.health.reasons() == []  # an unset key is a skip, not a degradation
 
     # The author ticks the first claim ⭕; the next run's harvest turns it into a Label.
     note.write_text(
@@ -176,6 +177,8 @@ async def test_cost_cap_zero_gives_partial_report(cassette: ClientFactory, env: 
     assert outcome.report.partial
     assert outcome.report.claims == ()
     assert outcome.report.rendering == "template"
+    assert outcome.health.cost_capped
+    assert outcome.health.reasons() == ["cost cap reached (partial note)"]
 
 
 async def test_note_date_follows_the_local_timezone(cassette: ClientFactory, env: dict[str, str]):
@@ -210,5 +213,9 @@ async def test_operations_show_prose_time_and_failure(cassette: ClientFactory, e
     assert outcome.report.rendering == "template"
     prose_lines = [ln for ln in outcome.operations if " prose 第" in ln]
     assert prose_lines and "失敗" in prose_lines[0]
+    health = outcome.health
+    assert health.prose_failures and len(health.prose_failures) == health.drafts
+    assert not health.writer_auth  # a 400, not a refused login
+    assert health.reasons()[0].startswith(f"prose failed {health.drafts}/{health.drafts} drafts")
     assert "s" in prose_lines[0].rsplit(" ", 1)[1]
     assert any("prose 第" in ln for ln in outcome.note.read_text(encoding="utf-8").splitlines())
