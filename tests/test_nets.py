@@ -103,6 +103,46 @@ def test_a_config_that_still_has_arxiv_keyword_max_loads(tmp_path: Path):
     assert not hasattr(loaded, "arxiv_keyword_max")
 
 
+LINE_CONFIG = """
+[nets]
+arxiv_categories = ["cs.AI", "cs.CL"]
+[tracks.ans]
+name = "ANS"
+firehose = false
+[tracks.desire]
+name = "Desire"
+arxiv_categories = ["q-bio.NC", "cs.CY"]
+[tracks.akc]
+name = "AKC"
+"""
+
+
+def test_a_line_can_turn_the_firehose_off(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    config.write_text(LINE_CONFIG, encoding="utf-8")
+    ans = nets.for_line(config, "ans", nets.load_nets(config))
+    assert ans.budget("firehose") == 0
+    assert "firehose" not in {r.net for r in _plan(ans)}  # neither HF daily nor arXiv
+    assert ans.budget("keyword") == nets.DEFAULT_BUDGETS["keyword"]  # the rest untouched
+
+
+def test_a_line_can_have_its_own_arxiv_categories(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    config.write_text(LINE_CONFIG, encoding="utf-8")
+    desire = nets.for_line(config, "desire", nets.load_nets(config))
+    listing = [r for r in _plan(desire) if r.net == "firehose" and r.adapter.kind == "arxiv"]
+    assert [r.query for r in listing] == ["q-bio.NC+cs.CY"]
+
+
+def test_a_line_without_its_own_settings_runs_on_the_nets_table(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    config.write_text(LINE_CONFIG, encoding="utf-8")
+    base = nets.load_nets(config)
+    assert nets.for_line(config, "akc", base) == base
+    assert nets.for_line(config, "not-a-line", base) == base
+    assert nets.for_line(tmp_path / "missing.toml", "ans", base) == base
+
+
 def test_the_openalex_cap_defaults_by_whether_there_is_a_key():
     assert nets.NetConfig().credit_cap({}) == nets.DEFAULT_CREDIT_CAP == 400
     assert nets.NetConfig().credit_cap({"OPENALEX_API_KEY": "k"}) == nets.KEYED_CREDIT_CAP == 4000

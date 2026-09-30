@@ -143,6 +143,32 @@ def load_nets(config: Path) -> NetConfig:
     )
 
 
+def for_line(config: Path, slug: str, base: NetConfig) -> NetConfig:
+    """`base` with the line's own firehose settings from `[tracks.<slug>]`, both optional:
+    `firehose = false` sends no firehose request for the line (HF daily and the arXiv
+    listing), `arxiv_categories = [...]` replaces `[nets] arxiv_categories` for its arXiv
+    listing. A line without them runs on `base` unchanged.
+
+    Why per line: the firehose categories were global (cs.AI, cs.CL, cs.LG, cs.HC), and a
+    line whose literature lives elsewhere spent a fixed share of every run screening
+    listings that could not answer it — ans's prefilter passed 0 of 1,070 arXiv and 0 of 96
+    HF daily items over its history (2026-10-01)."""
+    try:
+        data = cast("dict[str, JsonValue]", tomllib.loads(config.read_text(encoding="utf-8")))
+    except (OSError, tomllib.TOMLDecodeError):
+        return base
+    tracks = data.get("tracks")
+    raw = tracks.get(slug) if isinstance(tracks, dict) else None
+    track: dict[str, JsonValue] = raw if isinstance(raw, dict) else {}
+    out = base
+    if track.get("firehose") is False:
+        out = replace(out, budgets={**out.budgets, "firehose": 0})
+    categories = track.get("arxiv_categories")
+    if isinstance(categories, list) and categories:
+        out = replace(out, categories=tuple(str(c) for c in categories))
+    return out
+
+
 @dataclass(frozen=True)
 class NetRequest:
     """One fetch: which net asks, with which code-built query."""

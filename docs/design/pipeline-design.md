@@ -613,6 +613,12 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   back on later runs; its Jev answers are stored, so the repeat costs the search only.
   Review-when: repeats crowd out new works for a line (its arXiv keyword sources are mostly
   already-judged), or OpenAlex changes how `relevance_score` is computed.
+- **Per-line firehose** (nets.for_line): `[tracks.<slug>] firehose = false` or
+  `arxiv_categories = [...]`; the default is unchanged. The global categories are AI/ML and
+  ans's literature is not there (0/1,166 firehose items passed its prefilter, each asked
+  against three questions). The real config.toml is the author's; the proposed diff is in
+  the G2 report. A probe of q-bio.NC on 2026-10-01 listed 12 new items, none on meditation:
+  a narrow listing costs little but finds little too.
 
 ### Non-goals (explicit)
 

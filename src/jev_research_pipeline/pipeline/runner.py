@@ -51,7 +51,7 @@ from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
 from .config import config_path, line_context, load_tracks, rotation_config
-from .nets import DayBudget, load_nets
+from .nets import DayBudget, for_line, load_nets
 from .run import Keys, LineOutcome, LineRun
 
 STORE_ENV: Final = "JRP_STORE_DIR"
@@ -198,7 +198,7 @@ async def run_pipeline(
             env=env,
             now=now,
             harvest_notes=harvested[slug],
-            net_config=net_config,
+            net_config=for_line(cfg, slug, net_config),
             day_budget=day_budget,
             pacing=pacing,
             queries=question_queries(env, slug, questions),

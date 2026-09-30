@@ -62,6 +62,11 @@ target_repo = "~/projects/agent-knowledge-cycle"   # required for rotation; only
 name = "TypeSafe Jev"
 daily = true                       # runs on every tick beside the rotated lines
 
+[tracks.ans]
+name = "Attention, Not Self"
+arxiv_categories = ["q-bio.NC"]    # optional: this line's arXiv listing, instead of [nets]
+# firehose = false                 # optional: no firehose request at all for this line
+
 [nets]                             # all keys optional
 firehose = 2                       # API requests per run, per net
 recommendation = 1
@@ -84,6 +89,14 @@ BM25 against the line's English query text — the open questions' `arxiv:` / `h
 lines plus the line vocabulary — and the note says `firehose: 関連度順に上位 N 件 (M 件を省略)`.
 Hugging Face daily papers keep their place ahead of it. With no query text the cut is in feed
 order. `arxiv_keyword_max` is no longer read; a config that still has it loads unchanged.
+
+The firehose is the same for every line unless a line says otherwise in its own table:
+`firehose = false` sends it no firehose request (neither HF daily papers nor the arXiv
+listing), and `arxiv_categories` replaces `[nets] arxiv_categories` for its arXiv listing
+(HF daily papers still come). Use them for a line whose literature is not in the global
+categories: over its history the `ans` line (meditation, Buddhist psychology) passed the
+prefilter with 0 of 1,070 arXiv listing items and 0 of 96 HF daily papers, each of them
+screened against every open question.
 
 A line enters the daily rotation only when it has a `[[tracks.<slug>.repos]]` entry. If that directory
 holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of its `Concept` and
