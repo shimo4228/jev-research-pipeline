@@ -669,6 +669,38 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   is re-cut for another reason (the flip test can then carry this clause), or the author
   accepts some movement on healthy lines in exchange for ans claims.
 
+### Prose bench on claude -p (2026-10-01, plan daily-tool-hardening G1)
+
+The bench's drafting and judging moved to the author's Claude subscription (`claude-code`
+backend; `jrp prose judge|comprehend|scores`), because the Codex and DashScope quotas run out
+within an eval loop. GPT is kept for the transfer check only (20 requests, used up).
+- **Cases**: 51 (40 exported from production since 09-24, 14 holdout). Production's own prose
+  from 09-28 on is v10 on gpt-6-luna and serves as a free baseline (`prod`).
+- **Simulated reader** (pipeline/prose_eval.py): Haiku reads the draft alone and writes down
+  name / problem / method / finding / numbers per study and where it stopped; Sonnet grades
+  that against the materials. A proxy for "what got across"; its stops on the first trial
+  matched the author's past complaints (unexplained terms, a percentage of what).
+- **Noise** (18 cases): re-judging the same drafts moves facts ±0.01, misbeliefs ±2, stops
+  ±0.5; re-drafting with the same prompt moves facts ±0.07, misbeliefs ±7, the cutoff ±1.
+  Only the cutoff separated the variants below.
+- **Production fails the cutoff 5-6 of 10** (v10 on gpt-6-luna, judged twice): mostly the lead
+  paragraph (merged studies, dropped hedges, no citation) and copied numbers (16.1 for 16.2,
+  relative read as points).
+- **v11-v14 + check7/8** (prompts in bench/prose/prompts/): the lead says each study's finding
+  with its conditions and cites; numbers copied exactly; comparators in the same sentence;
+  guarantees keep their conditions; per study 1-2 paragraphs of 600-1,000 chars spent on
+  premises and glossing (author: length is not a criterion); background only from the
+  excerpt; one final inference paragraph; check8 adds a citation to every factual paragraph.
+  On Opus over 32 cases: v10 23/32 → v14+check8 31/32 (holdout 14/14); misbeliefs 79 → 68,
+  facts and stops within noise of v10.
+- **Transfer failed**: v14+check8 on gpt-6-luna (10 cases) passed 6/10 vs production's 5-6/10,
+  facts 0.84 vs 0.90; it ignored the per-study length (888 chars median). Opus on the same
+  10: 9/10. The gain is the pairing of prompt and model, not the prompt alone.
+- **Not decided here**: the production prompt and model stay v10 on gpt-6-luna until the
+  author's blind read of prod / gpt-v14 / opus-v14 (5 cases).
+Review-when: the author's blind read disagrees with the cutoff's direction, or a new GPT
+model makes the transfer check worth re-running.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

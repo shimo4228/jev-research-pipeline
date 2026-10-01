@@ -67,7 +67,7 @@ feed the threshold proposals that `jrp fit` writes for you to apply, and become 
 Every Jev call goes through Pydantic AI's native `typesafe:` model, so each judgment is a Pydantic
 output type and the raw probability distributions are stored with the decision.
 
-## Status as of 2026-09-25
+## Status as of 2026-10-01
 
 - **The evaluation: 11 runs, ended 2026-09-23.** The last run passed 5 of its 7 goal conditions:
   every note under 12 KB with a short Review list; prose for every question that had evidence;
@@ -77,26 +77,25 @@ output type and the raw probability distributions are stored with the decision.
   cap (cost was $0.297 against $0.30). And an independent judge, a separate Opus model reading only the
   finished notes against a seven-axis rubric, rated 1 of 3 notes publishable. The record, run by run,
   is in [docs/pilot-log.md](docs/pilot-log.md).
-- **The prose step was rebuilt after the evaluation**; what changed and why is under
-  [Why judgment, not generation](#why-judgment-not-generation). On frozen inputs from past runs, I read
-  all six test cases as readable, and a fidelity check (a separate model comparing each draft with its
-  sources) passed five of them ([docs/design/pipeline-design.md](docs/design/pipeline-design.md)).
 - **Daily since 2026-09-24.** launchd runs it every morning against the real vault, over my seven
-  active lines. With the new prose step a four-line morning costs more than the final evaluation run
-  (also four lines, $0.297): $1.05 and $1.75 on the first two days with Qwen writing, and it takes
-  about 15 minutes. The independent Opus judge has not read these notes yet. On both daily
-  runs so far, arXiv keyword search answered HTTP 406, so `arxiv:` query lines returned nothing (new
-  arXiv listings still arrive through the firehose net), and some OpenAlex citation lookups failed.
-  The OpenAlex failure is fixed as of 2026-09-25. arXiv's own API still refuses Python clients, so
-  since 2026-09-26 `arxiv:` queries go to OpenAlex's search, limited to arXiv papers, instead.
-- **The prose model is now GPT-5.6 Sol on a Codex subscription** (2026-09-24), in place of
-  qwen3.7-max on DashScope. The prompt was tuned and read on qwen3.7-max and has not been re-read on
-  GPT-5.6 Sol yet. Qwen is still one environment variable away
-  (`JRP_PROSE_MODEL=dashscope:qwen3.7-max`), and with the subscription the notes' cost line counts
-  Jev alone.
+  active lines, in about 15 minutes. The prose is written by GPT-6 Luna on a Codex subscription,
+  so a morning's cost line counts Jev alone. Two lines whose questions ask about theory rather
+  than measurements (meditation models, first-hand accounts) kept producing nothing; since
+  2026-10-01 a question that asks for a formal model counts one as evidence, arXiv queries rank
+  the last 90 days by relevance, and a line can turn the firehose off. One of them still gets no
+  claim, for a reason recorded in [docs/design/pipeline-design.md](docs/design/pipeline-design.md).
+- **The prose passes a fidelity check about half the time.** A separate model comparing each
+  production section with its sources passed 5 to 6 of 10 recent ones; the failures sit mostly in
+  the opening summary (two studies merged into one claim, a hedge dropped) and in copied numbers.
+  A rewritten prompt passes 31 of 32 on Claude Opus but not on GPT-6 Luna, so production keeps its
+  prompt and model until I have read the three side by side. The prose can also be written by
+  Claude through `claude -p` ([The writing model](#the-writing-model)).
+- **Alerts.** A morning that ran degraded (a section fell back to the template, the writer's login
+  failed, a source failed, too many unjudged pairs) says so in its Slack message, a run that hangs
+  is stopped after an hour, and `jrp doctor` checks the setup before every run.
 - **Thresholds.** Jev's routing thresholds started from the values in TypeSafe's published examples
   and were adjusted by hand during the evaluation. They have not been refit on ticks yet, so expect
-  borderline calls. Those land in each note's Review section, and your ticks there are what a refit
+  borderline calls; `jrp fit` proposes nothing until ticks include both `[x]` and `[-]`. Those land in each note's Review section, and your ticks there are what a refit
   learns from.
 
 ## Quick start
@@ -219,7 +218,7 @@ Headings and prose are Japanese; the layout is:
 ## Review                       borderline sources, at most 10, one checkbox each
 ## 橋渡し                         sources Jev judged to tie the question to something outside the line's vocabulary
 > [!note]- Claims               folded list of every claim with its source and a checkbox
-## 未判定                         pairs whose Jev request failed
+## 未判定                         items whose Jev request failed, each tagged with the Jev function
 ## 運用                          the operations block
 ```
 
