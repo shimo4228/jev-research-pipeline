@@ -50,11 +50,10 @@ def read_credentials(path: Path) -> OpenAICodexCredentials:
     try:
         stored = _STORED.validate_json(path.read_bytes())
     except FileNotFoundError:
-        raise CodexLoginError(f"no Codex login at {path}: run `uv run jrp codex login`") from None
+        raise CodexLoginError(f"no Codex login at {path}: run `jrp codex login`") from None
     except ValidationError as e:
         raise CodexLoginError(
-            f"unreadable Codex login at {path} ({e.error_count()} errors): "
-            "run `uv run jrp codex login`"
+            f"unreadable Codex login at {path} ({e.error_count()} errors): run `jrp codex login`"
         ) from None
     return OpenAICodexCredentials(**stored)
 

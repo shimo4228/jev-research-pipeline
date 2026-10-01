@@ -441,65 +441,6 @@ wheels = [
 ]
 
 [[package]]
-name = "jev-research-pipeline"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "bm25s" },
-    { name = "defusedxml" },
-    { name = "httpx2" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-distro" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-instrumentation-httpx" },
-    { name = "opentelemetry-sdk" },
-    { name = "pydantic" },
-    { name = "pydantic-ai-slim", extra = ["openai", "typesafe"] },
-    { name = "pydantic-evals" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "deptry" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "types-defusedxml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "bm25s", specifier = ">=0.3.11" },
-    { name = "defusedxml", specifier = ">=0.7.1" },
-    { name = "httpx2", specifier = ">=2.13.0" },
-    { name = "opentelemetry-api", specifier = "==1.44.0" },
-    { name = "opentelemetry-distro", specifier = "==0.65b0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.44.0" },
-    { name = "opentelemetry-instrumentation", specifier = "==0.65b0" },
-    { name = "opentelemetry-instrumentation-httpx", specifier = "==0.65b0" },
-    { name = "opentelemetry-sdk", specifier = "==1.44.0" },
-    { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "pydantic-ai-slim", extras = ["openai", "typesafe"], specifier = "==2.47.0" },
-    { name = "pydantic-evals", specifier = "==2.47.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "bandit", specifier = "==1.9.4" },
-    { name = "deptry", specifier = "==0.25.1" },
-    { name = "pyright", specifier = "==1.1.414" },
-    { name = "pytest", specifier = "==9.1.1" },
-    { name = "pytest-asyncio", specifier = "==1.4.0" },
-    { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "ruff", specifier = "==0.16.8" },
-    { name = "types-defusedxml", specifier = "==0.7.0.20260504" },
-]
-
-[[package]]
 name = "jiter"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -592,6 +533,65 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/28/30/879570ecf82574eaea77c5eb10309f4b630dece5f2a556e9814a90ba3f2d/jiter-0.17.0-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:40d2c240f8f80b5b0f201b29f0ae129c81448c60c772227a41747b5e0026f6a2", size = 279113, upload-time = "2026-09-12T15:14:10.117Z" },
     { url = "https://files.pythonhosted.org/packages/77/7a/1f0b8a35fbd079a4f1752c31a15dc99cf277f863747c459be0af39e900e5/jiter-0.17.0-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3e05f5adbf68c4bd11e1610f394034d984152988e84be6f8314235ce6f2139e5", size = 303708, upload-time = "2026-09-12T15:14:11.445Z" },
     { url = "https://files.pythonhosted.org/packages/e1/8b/d76219ebdbcf3d4209d9d21a0810db4c8d0a6f88e3ee87d30bdea4e90d30/jiter-0.17.0-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d2c0bf24c72fd0491405dce5d40194f2070e9021ce648c1a1d46234b93d848ff", size = 307147, upload-time = "2026-09-12T15:14:12.897Z" },
+]
+
+[[package]]
+name = "jrp"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "bm25s" },
+    { name = "defusedxml" },
+    { name = "httpx2" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-distro" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-instrumentation-httpx" },
+    { name = "opentelemetry-sdk" },
+    { name = "pydantic" },
+    { name = "pydantic-ai-slim", extra = ["openai", "typesafe"] },
+    { name = "pydantic-evals" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "bandit" },
+    { name = "deptry" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "types-defusedxml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bm25s", specifier = ">=0.3.11" },
+    { name = "defusedxml", specifier = ">=0.7.1" },
+    { name = "httpx2", specifier = ">=2.13.0" },
+    { name = "opentelemetry-api", specifier = "==1.44.0" },
+    { name = "opentelemetry-distro", specifier = "==0.65b0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.44.0" },
+    { name = "opentelemetry-instrumentation", specifier = "==0.65b0" },
+    { name = "opentelemetry-instrumentation-httpx", specifier = "==0.65b0" },
+    { name = "opentelemetry-sdk", specifier = "==1.44.0" },
+    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pydantic-ai-slim", extras = ["openai", "typesafe"], specifier = "==2.47.0" },
+    { name = "pydantic-evals", specifier = "==2.47.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bandit", specifier = "==1.9.4" },
+    { name = "deptry", specifier = "==0.25.1" },
+    { name = "pyright", specifier = "==1.1.414" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-asyncio", specifier = "==1.4.0" },
+    { name = "pytest-cov", specifier = "==7.1.0" },
+    { name = "ruff", specifier = "==0.16.8" },
+    { name = "types-defusedxml", specifier = "==0.7.0.20260504" },
 ]
 
 [[package]]

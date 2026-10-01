@@ -1,9 +1,24 @@
 [project]
-name = "jev-research-pipeline"
+# Distribution `jrp` (so `uvx jrp init` works); the import package stays
+# jev_research_pipeline (tool.uv.build-backend below).
+name = "jrp"
 version = "0.1.0"
-description = "Research pipeline with explicit separation: code owns control flow, TypeSafe Jev owns bounded judgment, a swappable LLM writes text."
+description = "A daily research note per research line: your questions steer the search, TypeSafe Jev makes the judgments, an LLM writes the explanation (ja / en / zh)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Tatsuya Shimomoto", email = "shimo4228@gmail.com" }
+]
+keywords = ["research", "arxiv", "llm", "jev", "typesafe", "obsidian"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 requires-python = ">=3.12"
 # pydantic-ai is pinned exactly (weekly releases) and carries both models: its `typesafe`
@@ -26,6 +41,13 @@ dependencies = [
 
 [project.scripts]
 jrp = "jev_research_pipeline.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/shimo4228/jev-research-pipeline"
+Repository = "https://github.com/shimo4228/jev-research-pipeline"
+
+[tool.uv.build-backend]
+module-name = "jev_research_pipeline"
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]

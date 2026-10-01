@@ -127,9 +127,7 @@ def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAu
         return ProseAuth(spec=spec, claude_bin=binary)
     path = codex_auth_path(env)
     if not path.is_file():
-        raise MissingCredentials(
-            f"no Codex login at {path} (for {spec}): run `uv run jrp codex login`"
-        )
+        raise MissingCredentials(f"no Codex login at {path} (for {spec}): run `jrp codex login`")
     return ProseAuth(spec=spec, codex_auth=path)
 
 
