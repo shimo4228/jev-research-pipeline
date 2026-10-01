@@ -20,8 +20,9 @@ from pydantic_ai.models import Model
 
 from .generation import GenerationMeter, ProseResult, Rendering, render, write_prose
 from .generation.prose import (
-    CHECK_INSTRUCTIONS,
+    CHECK_PROMPTS,
     NO_DIRECT_EVIDENCE,
+    PROSE_PROMPTS,
     PROSE_TIMEOUT_S,
     STUDY_NAME_LINE,
     evidence_text,
@@ -41,6 +42,7 @@ from .model import (
     kind_of,
 )
 from .model.jsonld import Value
+from .note_text import DEFAULT_LANG, Lang
 
 AGREEMENT_FLOOR: Final = 0.7
 """Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
@@ -116,6 +118,13 @@ def axis_meters(
     return tuple(meters)
 
 
+class _LangCheck:
+    """The default self-check of rubric_ladder: CHECK_PROMPTS of the ladder's language."""
+
+
+LANG_CHECK: Final = _LangCheck()
+
+
 async def rubric_ladder(
     *,
     jev: JevClient,
@@ -131,15 +140,20 @@ async def rubric_ladder(
     rewrite_model: Model | None = None,
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
-    check: str | None = CHECK_INSTRUCTIONS,
+    check: str | _LangCheck | None = LANG_CHECK,
+    lang: Lang = DEFAULT_LANG,
 ) -> tuple[Rendering, list[Judgment]]:
     """One question's section: `claims` = its accepted claim texts, in reading order.
+    `lang` = the note language: the prompt (PROSE_PROMPTS), the rewrite feedback and the
+    rubric's asks follow it, and so does the self-check unless `check` names one (None = no
+    self-check pass).
 
     Returns the rendering and every draft's rubric_report Judgment (dense labels; each
     draft's prose differs, so each Judgment has its own @id). The Decisions of both drafts
     share one @id (same report, bundle, policy): storing them keeps the final draft's
     decision, which is the report's — the per-draft evidence lives in the Judgments."""
     judged: list[Judgment] = []
+    check_text = CHECK_PROMPTS[lang] if isinstance(check, _LangCheck) else check
 
     async def write(feedback: str | None) -> ProseResult:
         # A rewrite (feedback given) may go to another model setting — prose thinking
@@ -156,8 +170,10 @@ async def rubric_ladder(
             evidence_set=evidence_set,
             sources=sources,
             claim_sources=claim_sources,
+            instructions=PROSE_PROMPTS[lang],
+            lang=lang,
         )
-        if check is None or drafted.prose is None:
+        if check_text is None or drafted.prose is None:
             return drafted
         # The self-check pass (prose bench): the same model re-reads the draft against the
         # claims and excerpts and fixes factual slips only; a failed check keeps the draft.
@@ -170,10 +186,11 @@ async def rubric_ladder(
             meter=meter,
             timeout_s=timeout_s,
             evidence_set=evidence_set,
-            instructions=check,
+            instructions=check_text,
             sources=sources,
             claim_sources=claim_sources,
             draft=drafted.prose,
+            lang=lang,
         )
         return drafted.model_copy(
             update={
@@ -193,7 +210,11 @@ async def rubric_ladder(
         # not unsupported), next to the question's evidence set.
         known = [*(evidence_set or []), *excerpts]
         result = await rubric_report.judge(
-            jev, report_id, rubric_report.state(ctx, evidence, claims, known or None), now=now
+            jev,
+            report_id,
+            rubric_report.state(ctx, evidence, claims, known or None),
+            now=now,
+            lang=lang,
         )
         if isinstance(result, Judged):
             judged.append(result.judgment)
@@ -213,6 +234,7 @@ async def rubric_ladder(
                         cited_claims(p, claims) + cited_excerpts(p, excerpts),
                     ),
                     now=now,
+                    lang=lang,
                 )
                 for p in evidence.split("\n\n")
                 # a study's bold name line says nothing to check, and citing nothing it
@@ -226,7 +248,7 @@ async def rubric_ladder(
         verdicts = [rubric_report.fidelity_decision(c) for c in checks]
         return next((d for d in verdicts if d.outcome != "accept"), base)
 
-    return await render(write, evaluate), judged
+    return await render(write, evaluate, lang), judged
 
 
 def cited_claims(paragraph: str, claims: list[str]) -> list[str]:

@@ -21,6 +21,7 @@ from jev_research_pipeline.generation.client import DASHSCOPE_BASE_URL
 from jev_research_pipeline.generation.prose import check_citations
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import Decision
+from jev_research_pipeline.note_text import Lang
 
 from . import builders as b
 from .conftest import ClientFactory
@@ -230,3 +231,25 @@ def test_the_prompt_labels_follow_the_language_and_any_inference_mark_counts():
     assert "Question: " in prompt and "Feedback on the previous draft: shorter" in prompt
     prose = "Fact [1].\n\n[Inference] Guess.\n\n【推论】猜测。"
     assert evidence_text(prose) == "Fact [1]."
+
+
+@pytest.mark.parametrize(
+    ("lang", "prose", "check"),
+    [
+        ("ja", "v15.md", "check9.md"),
+        ("en", "en2.md", "en-check1.md"),
+        ("zh", "zh1.md", "zh-check1.md"),
+    ],
+)
+def test_the_production_prompts_are_the_bench_prompts_they_were_chosen_as(
+    lang: Lang, prose: str, check: str
+):
+    """The package ships its own copy (generation/prompts/) so an installed jrp has it; the
+    copy must stay the text the bench measured (design "Prose in English")."""
+    from pathlib import Path
+
+    from jev_research_pipeline.generation.prose import CHECK_PROMPTS, PROSE_PROMPTS
+
+    bench = Path(__file__).parents[1] / "bench" / "prose" / "prompts"
+    assert PROSE_PROMPTS[lang] == (bench / prose).read_text(encoding="utf-8").rstrip("\n")
+    assert CHECK_PROMPTS[lang] == (bench / check).read_text(encoding="utf-8").rstrip("\n")

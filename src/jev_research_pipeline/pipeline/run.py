@@ -1041,6 +1041,7 @@ class LineRun:
                     for s in sources
                 ],
                 claim_sources=[sources.index(i.source) + 1 for i in items],
+                lang=self.lang,
             )
         day.rubric += rendering.rubric
         day.nodes += drafts

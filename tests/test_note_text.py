@@ -87,6 +87,7 @@ def test_an_english_note_has_english_headings():
 
 async def test_an_english_run_writes_no_japanese_of_its_own(
     cassette: ClientFactory,
+    cassette_path: Path,
     env: dict[str, str],
 ):
     """End to end with JRP_NOTE_LANG=en: the operations section (the pipeline's own text)
@@ -98,3 +99,7 @@ async def test_an_english_run_writes_no_japanese_of_its_own(
     assert [line for line in ops.splitlines() if CJK.search(line)] == []
     assert any("web_search: skipped, key not set" in ln for ln in outcome.operations)
     assert "jrp:qday:" in text
+    # the English prompt and the English rubric went on the wire
+    wire = cassette_path.read_text(encoding="utf-8")
+    assert "You explain the research that arrived today" in wire
+    assert "English-reading practitioner" in wire

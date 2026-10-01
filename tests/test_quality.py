@@ -336,3 +336,40 @@ async def test_the_self_check_pass_replaces_the_draft_and_sees_it(cassette: Clie
     assert rendering.prose == "点検後 [1]。"
     if seen:  # synthesized: the second request is the check, carrying the first draft
         assert "<draft>" in seen[1] and "一稿" in seen[1]
+
+
+async def test_an_english_ladder_drafts_and_checks_in_english(cassette: ClientFactory):
+    """lang=en: the English prompt drafts, the English self-check re-reads (not ja's check9),
+    and the rubric asks are the English ones."""
+    seen: list[str] = []
+    fake = fake_qwen("Draft [1].", "Checked [1].")
+
+    async def recording(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.content.decode())
+        return await fake(request)
+
+    from jev_research_pipeline.jev import JevClient
+
+    jev = JevClient(
+        cassette(fake_jev({"unsupported_statement": 0.1, "exceeds_claims": 0.1})),
+        api_key="replay",
+    )
+    rendering, judged = await rubric_ladder(
+        jev=jev,
+        model=qwen_model(cassette(recording)),
+        ctx=CTX,
+        question=b.question(),
+        report_id=b.report().id,
+        claims=[b.claim().text],
+        meter=GenerationMeter(),
+        now=b.T0,
+        lang="en",
+    )
+    assert rendering.prose == "Checked [1]."
+    assert {j.bundle_sha256 for j in judged} == {
+        rubric_report.ASKS["en"].sha256,
+        rubric_report.FIDELITY_ASKS["en"].sha256,
+    }
+    if seen:  # synthesized: the draft and the check went out with the English prompts
+        assert "You explain the research" in seen[0]
+        assert "You are a copy editor" in seen[1]

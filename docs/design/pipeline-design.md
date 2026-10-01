@@ -747,8 +747,12 @@ the three languages side by side; tests/test_note_text.py checks that the three 
 same placeholders and that the en column has no Japanese. What is read back does not
 change: the three `<!-- jrp:… -->` marks, `## Review` and `> [!note]- Claims` are the same
 in every language, so ticks harvest alike. Third-party text (claims, titles) stays as
-fetched. Not yet per language: the prose prompt and the rubric's readability question
-(next step of P1), the CLI's own messages, and a store migration's detail text.
+fetched. The prose follows the same setting: the prompt and the self-check
+(`PROSE_PROMPTS` / `CHECK_PROMPTS`, shipped in generation/prompts/ and pinned to the bench
+files they were chosen as), the rewrite feedback, and rubric_report's asks (the readability
+question names the reader's language; ja keeps v2 / fidelity_v1, en and zh are v2_en /
+v2_zh and fidelity_v1_en / _zh). Not yet per language: the CLI's own messages and a store
+migration's detail text.
 Review-when: a fourth language is asked for, or a text is found that bypasses note_text.
 
 ### Prose in English (2026-10-01, plan productize-en-zh P1)
@@ -778,8 +782,12 @@ On Opus, with the English self-check en-check1:
   cases (5/5, facts 0.98, stuck 3.4). The author's blind read of en0b vs en2 decides.
 - English chars are not Japanese chars: 4,900 English chars is about 800 words, two
   studies of 200-350 words plus the lead and the inference.
-Review-when: the author's blind read prefers en0b, or a native English reader finds the
-drafts hard going.
+- **Accepted: en2** (2026-10-01). The author does not read English and left the choice to
+  the proxies ("英語はわからんから任せる"), so en is accepted like zh: cutoff at ja-v15's level,
+  more of each study got across, fewer misbeliefs; the reader's stops are of ja's kind
+  (terms and mechanisms left unexplained). The blind-read file (en0b vs en2) was not read.
+Review-when: a native English reader finds the drafts hard going, or production en notes
+template more often than ja.
 
 ### Non-goals (explicit)
 
