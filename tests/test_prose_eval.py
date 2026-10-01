@@ -173,3 +173,35 @@ def test_the_clis_own_oauth_token_is_kept():
 
     env: dict[str, str] = dict.fromkeys(("CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_TOKEN"), "v")
     assert child_env(env) == {"CLAUDE_CODE_OAUTH_TOKEN": "v"}
+
+
+async def test_an_english_variant_is_judged_and_read_in_english(tmp_path: Path):
+    bench = _bench(tmp_path)
+    (case,) = pb.load_cases(bench)
+    pb.write_draft(
+        bench,
+        pb.Draft(
+            case=case.id,
+            variant="en",
+            prose="A claim [1].\n\n[Inference] Next.",
+            failure=None,
+            seconds=1.0,
+            chars=10,
+            gates=(),
+            lang="en",
+        ),
+    )
+    seen: list[str] = []
+
+    async def ask(model: str, instructions: str, prompt: str, output: type[BaseModel]) -> BaseModel:
+        seen.append(instructions)
+        return await Fake()(model, instructions, prompt, output)
+
+    pb.gate_files(bench, "en", RUBRIC, split="all")
+    await pe.judge(bench, "en", ask, concurrency=1)
+    await pe.comprehend(bench, "en", ask, concurrency=1)
+    assert seen == [
+        pe.JUDGE_INSTRUCTIONS.en,
+        pe.READER_INSTRUCTIONS.en,
+        pe.GRADER_INSTRUCTIONS.en,
+    ]

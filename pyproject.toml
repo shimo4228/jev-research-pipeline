@@ -71,6 +71,9 @@ select = [
     "ANN001", "ANN002", "ANN003", "ANN201", "ANN401",
     "T20",
 ]
+# Chinese text (note_text, the bench's zh prompts) writes the full-width comma and
+# semicolon on purpose; RUF001 would flag every one as a confusable.
+allowed-confusables = ["，", "；"]
 
 [tool.ruff.lint.mccabe]
 # Budget rule: drain, do not raise — any change needs a dated reason in
@@ -94,8 +97,6 @@ known-first-party = ["jev_research_pipeline", "tests"]
 [tool.ruff.lint.per-file-ignores]
 # Test functions are not consumed boundaries — nothing regenerates against them.
 "tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN401"]
-# Chinese note text uses the full-width comma (，) on purpose.
-"src/jev_research_pipeline/note_text.py" = ["RUF001"]
 
 [tool.pyright]
 include = ["src", "tests"]

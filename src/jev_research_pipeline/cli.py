@@ -28,6 +28,7 @@ import webbrowser
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
+from typing import Final
 
 import httpx2
 
@@ -42,6 +43,7 @@ from .generation import (
 from .generation.claude_code import CLAUDE_BIN_ENV, claude_bin
 from .generation.codex import codex_auth_path, login
 from .generation.prose import INSTRUCTIONS
+from .note_text import LANGS, NOTE_LANG_ENV, Lang, note_lang
 from .pipeline import prose_bench as pb
 from .pipeline import prose_eval
 from .pipeline.concurrency import prose_concurrency
@@ -59,8 +61,14 @@ from .store.migrate import StoreSchemaError, migrate_store, prepare_store
 from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
-RUBRIC = Path(__file__).resolve().parents[2] / "docs" / "prose-rubric.md"
-"""The fidelity judge's checks; each gate file embeds them (pipeline.prose_bench.gate_files)."""
+DOCS = Path(__file__).resolve().parents[2] / "docs"
+RUBRICS: Final[Mapping[Lang, Path]] = {
+    "ja": DOCS / "prose-rubric.md",
+    "en": DOCS / "prose-rubric.en.md",
+    "zh": DOCS / "prose-rubric.zh.md",
+}
+"""The fidelity judge's checks per draft language; each gate file embeds the one of its
+variant's language (pipeline.prose_bench.gate_files)."""
 
 
 def parser() -> argparse.ArgumentParser:
@@ -90,6 +98,7 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--no-thinking", action="store_true")
     pr.add_argument("--sources", action="store_true", help="bench: send source excerpts")
     pr.add_argument("--check", help="bench: self-check instructions file (second pass)")
+    pr.add_argument("--lang", choices=list(LANGS), default="ja", help="bench: the drafts' language")
     pr.add_argument("--cases", help="bench/read/gate: comma-separated case ids (default all)")
     pr.add_argument("--split", choices=["dev", "holdout", "all"], default="dev")
     pr.add_argument("--variants", help="read/scores: comma-separated variants to show side by side")
@@ -289,6 +298,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 thinking=not args.no_thinking,
                 sources=bool(args.sources),
                 check=Path(args.check).read_text(encoding="utf-8") if args.check else None,
+                lang=note_lang({NOTE_LANG_ENV: str(args.lang)}),
             )
             async with httpx2.AsyncClient(timeout=pb.PROSE_TIMEOUT_S) as http:
                 lines = await pb.run_bench(
@@ -320,7 +330,9 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
             if args.verdicts:
                 lines = pb.gate_summary(bench, str(args.variant), Path(args.verdicts))
             else:
-                rubric = RUBRIC.read_text(encoding="utf-8")
+                rubric = RUBRICS[pb.variant_lang(bench, str(args.variant))].read_text(
+                    encoding="utf-8"
+                )
                 out, n = pb.gate_files(
                     bench, str(args.variant), rubric, split=split, only=_ids(args.cases)
                 )

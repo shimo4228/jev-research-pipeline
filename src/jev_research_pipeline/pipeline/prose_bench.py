@@ -38,9 +38,12 @@ from pydantic_ai.models import Model
 from jev_research_pipeline.generation import GenerationMeter, Writer
 from jev_research_pipeline.generation.claude_code import is_usage_limit
 from jev_research_pipeline.generation.prose import (
-    INFERENCE_MARK,
+    BRIEF_LABEL,
+    INFERENCE_MARKS,
+    LINE_LABEL,
     NO_DIRECT_EVIDENCE,
     PROSE_TIMEOUT_S,
+    QUESTION_LABEL,
     SOURCE_EXCERPT_CHARS,
     write_prose,
 )
@@ -56,6 +59,7 @@ from jev_research_pipeline.model import (
     Unit,
 )
 from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.note_text import DEFAULT_LANG, Lang, Msg
 from jev_research_pipeline.store import GraphStore
 
 BENCH_DIR: Final = "prose_bench"
@@ -101,6 +105,8 @@ class Draft(Value):
     chars: int
     gates: tuple[str, ...]
     """Code-gate failures; empty = passed. Facts only (citations, marks), never taste."""
+    lang: Lang = DEFAULT_LANG
+    """The language the variant writes in; the gate, the judge and the reader follow it."""
 
 
 @dataclass(frozen=True)
@@ -115,6 +121,8 @@ class Variant:
     check: str | None = None
     """Instructions for a second pass by the same model that verifies the draft against
     the claims and returns a corrected text (self-check). None = one pass."""
+    lang: Lang = DEFAULT_LANG
+    """The language of the drafts (plan productize-en-zh P1); the materials are shared."""
 
 
 def bench_dir(store_root: Path) -> Path:
@@ -231,24 +239,47 @@ def load_cases(bench: Path, split: Split | Literal["all"] = "all") -> list[Bench
 # --- bench ----------------------------------------------------------------------------------
 
 
-def gates(prose: str, n_claims: int) -> tuple[str, ...]:
+GATE_INFERENCE_PLACE: Final = Msg(
+    "推論段落が最後に 1 つではない",
+    "the inference paragraph is not exactly one, at the end",
+    "推论段落不是唯一的一段且位于最后",
+)
+GATE_INFERENCE_CITED: Final = Msg(
+    "推論段落に [n] がある", "the inference paragraph cites [n]", "推论段落中有 [n]"
+)
+GATE_UNCITED: Final = Msg(
+    "引用の無い根拠段落がある",
+    "an evidence paragraph has no citation",
+    "有未附引用的证据段落",
+)
+GATE_NO_CITATION: Final = Msg("引用が 1 つも無い", "no citation at all", "没有任何引用")
+GATE_POLITE: Final = Msg("です・ます調の文がある", "", "")
+GATE_JAPANESE: Final = Msg("", "Japanese text in the draft", "草稿中有日文")
+_KANA_RE: Final = re.compile(r"[\u3040-\u30ff]")
+_CJK_RE: Final = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
+
+
+def gates(prose: str, n_claims: int, lang: Lang = DEFAULT_LANG) -> tuple[str, ...]:
     """The code gates. Invalid [n] were already dropped by check_citations, so what is left
-    to check is where citations and the inference mark sit."""
+    to check is where citations and the inference mark sit, and the language: the plain
+    である register in ja, no Japanese in en (no kana, no kanji) or zh (no kana)."""
     paragraphs = [p.strip() for p in prose.split("\n\n") if p.strip()]
     failed: list[str] = []
-    marked = [i for i, p in enumerate(paragraphs) if p.startswith(INFERENCE_MARK)]
+    marked = [i for i, p in enumerate(paragraphs) if p.startswith(INFERENCE_MARKS[lang])]
     if len(marked) != 1 or marked[0] != len(paragraphs) - 1:
-        failed.append("推論段落が最後に 1 つではない")
+        failed.append(GATE_INFERENCE_PLACE(lang))
     elif re.search(r"\[\d+\]", paragraphs[-1]):
-        failed.append("推論段落に [n] がある")
+        failed.append(GATE_INFERENCE_CITED(lang))
     for p in paragraphs[: len(paragraphs) - 1 if marked else len(paragraphs)]:
         if not _cited_or_framing(p):
-            failed.append("引用の無い根拠段落がある")
+            failed.append(GATE_UNCITED(lang))
             break
     if n_claims and not re.search(r"\[\d+\]", prose):
-        failed.append("引用が 1 つも無い")
-    if _POLITE_RE.search(_QUOTED_RE.sub("", prose)):
-        failed.append("です・ます調の文がある")
+        failed.append(GATE_NO_CITATION(lang))
+    if lang == "ja" and _POLITE_RE.search(_QUOTED_RE.sub("", prose)):
+        failed.append(GATE_POLITE(lang))
+    if (lang == "en" and _CJK_RE.search(prose)) or (lang == "zh" and _KANA_RE.search(prose)):
+        failed.append(GATE_JAPANESE(lang))
     return tuple(failed)
 
 
@@ -312,6 +343,7 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
         instructions=variant.instructions,
         sources=[dict(s.model_dump()) for s in case.sources] if thick else None,
         claim_sources=[c.source or 0 for c in case.claims] if thick else None,
+        lang=variant.lang,
     )
     prose = result.prose
     seconds = result.seconds
@@ -329,6 +361,7 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
             sources=[dict(s.model_dump()) for s in case.sources] if thick else None,
             claim_sources=[c.source or 0 for c in case.claims] if thick else None,
             draft=prose,
+            lang=variant.lang,
         )
         seconds += checked.seconds
         prose = checked.prose or prose  # a failed check keeps the first draft
@@ -341,6 +374,7 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
                 seconds=seconds,
                 chars=0,
                 gates=("生成失敗",),
+                lang=variant.lang,
             )
     return Draft(
         case=case.id,
@@ -349,7 +383,8 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
         failure=result.failure,
         seconds=seconds,
         chars=len(prose or ""),
-        gates=gates(prose, len(claims)) if prose else ("生成失敗",),
+        gates=gates(prose, len(claims), variant.lang) if prose else ("生成失敗",),
+        lang=variant.lang,
     )
 
 
@@ -370,26 +405,61 @@ def load_drafts(bench: Path, variant: str) -> dict[str, Draft]:
 # --- gate: the LLM judge checks fidelity, one draft at a time -------------------------------
 
 
-def materials(case: BenchCase) -> str:
-    """What the writer was given, as the judge and the author see it: the same excerpts."""
+M_CLAIMS: Final = Msg(
+    "今日の claim(原文。本文の [n] はこの番号):",
+    "Today's claims (verbatim; the draft's [n] are these numbers):",
+    "今日的 claim(原文。正文中的 [n] 即此编号):",
+)
+M_CLAIM_SOURCE: Final = Msg("  (出典 S{n})", "  (source S{n})", "  (出处 S{n})")
+M_KNOWN: Final = Msg(
+    "既知の evidence(以前に分かっていたこと):",
+    "Known evidence (what was known before):",
+    "已知 evidence(此前已知的内容):",
+)
+M_KNOWN_NONE: Final = Msg("既知の evidence: なし", "Known evidence: none", "已知 evidence: 无")
+M_SOURCES: Final = Msg(
+    "出典(タイトルと抜粋。本文の書き手にこれが渡ったとは限らない):",
+    "Sources (title and excerpt; the writer was not necessarily given them):",
+    "出处(标题与摘录。不一定提供给了正文作者):",
+)
+
+
+def materials(case: BenchCase, lang: Lang = DEFAULT_LANG) -> str:
+    """What the writer was given, as the judge and the author see it: the same excerpts.
+    `lang` words the labels; the claims and excerpts are as fetched."""
     lines = [
-        f"研究ライン: {case.line_name}",
-        f"問い: {case.question_title}",
-        f"問いの背景: {case.question_brief}" if case.question_brief else "",
+        LINE_LABEL(lang, v=case.line_name),
+        QUESTION_LABEL(lang, v=case.question_title),
+        BRIEF_LABEL(lang, v=case.question_brief) if case.question_brief else "",
         "",
-        "今日の claim(原文。本文の [n] はこの番号):",
+        M_CLAIMS(lang),
         *(
-            f"[{i}] {c.text}" + (f"  (出典 S{c.source})" if c.source else "")
+            f"[{i}] {c.text}" + (M_CLAIM_SOURCE(lang, n=c.source) if c.source else "")
             for i, c in enumerate(case.claims, start=1)
         ),
         "",
-        "既知の evidence(以前に分かっていたこと):" if case.known else "既知の evidence: なし",
+        M_KNOWN(lang) if case.known else M_KNOWN_NONE(lang),
         *(f"- {k}" for k in case.known),
         "",
-        "出典(タイトルと抜粋。本文の書き手にこれが渡ったとは限らない):",
+        M_SOURCES(lang),
         *(f"S{i}. {s.title} — {s.url}\n    {s.excerpt}" for i, s in enumerate(case.sources, 1)),
     ]
     return "\n".join(lines)
+
+
+def variant_lang(bench: Path, variant: str) -> Lang:
+    """The language a variant's drafts were written in (Draft.lang; ja when none)."""
+    langs: set[Lang] = {d.lang for d in load_drafts(bench, variant).values()}
+    return langs.pop() if len(langs) == 1 else DEFAULT_LANG
+
+
+G_MATERIALS: Final = Msg("## 材料", "## Materials", "## 材料")
+G_DRAFT: Final = Msg("## 草稿", "## Draft", "## 草稿")
+G_PASSED: Final = Msg("コード検査: 通過", "Code checks: passed", "代码检查: 通过")
+G_FAILED: Final = Msg(
+    "コード検査: 不合格({why})", "Code checks: failed ({why})", "代码检查: 不合格({why})"
+)
+G_NO_DRAFT: Final = Msg("(生成なし)", "(no draft)", "(未生成)")
 
 
 def _selected(
@@ -418,10 +488,18 @@ def gate_files(
     out.mkdir(parents=True, exist_ok=True)
     selected = _selected(bench, variant, split, only)
     for case, d in selected:
-        failed = gates(d.prose, len(case.claims)) if d.prose else d.gates
-        code = "コード検査: 通過" if not failed else f"コード検査: 不合格({' / '.join(failed)})"
+        lang = d.lang
+        failed = gates(d.prose, len(case.claims), lang) if d.prose else d.gates
+        code = G_PASSED(lang) if not failed else G_FAILED(lang, why=" / ".join(failed))
         body = "\n\n".join(
-            [rubric.strip(), "## 材料", materials(case), "## 草稿", code, d.prose or "(生成なし)"]
+            [
+                rubric.strip(),
+                G_MATERIALS(lang),
+                materials(case, lang),
+                G_DRAFT(lang),
+                code,
+                d.prose or G_NO_DRAFT(lang),
+            ]
         )
         (out / f"{case.id}.md").write_text(body + "\n", encoding="utf-8")
     return out, len(selected)

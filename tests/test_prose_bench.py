@@ -141,3 +141,42 @@ def test_a_polite_sentence_is_a_gate_the_plain_register_is_not():
         "改善します\uff08S1\uff09",
     ):
         assert "です・ます調の文がある" in pb.gates(f"{polite}\n\n【推論】x。", 1), polite
+
+
+# --- languages (plan productize-en-zh P1) ---------------------------------------------------
+
+
+def test_the_gates_follow_the_drafts_language():
+    """en: the [Inference] mark, no register check, no Japanese left in; zh: 【推论】, no kana."""
+    good = "A claim [1].\n\n[Inference] So check this next."
+    assert pb.gates(good, 1, "en") == ()
+    assert pb.gates("A claim [1].\n\n【推論】推論。", 1, "en") == (
+        "the inference paragraph is not exactly one, at the end",
+        "Japanese text in the draft",
+    )
+    assert pb.gates("研究发现 [1]。\n\n【推论】下一步。", 1, "zh") == ()
+    assert "草稿中有日文" in pb.gates("研究です [1]。\n\n【推论】下一步。", 1, "zh")
+
+
+def test_an_english_variant_gets_english_materials_and_gate_lines(tmp_path: Path):
+    bench = _bench(tmp_path)
+    (case,) = pb.load_cases(bench)
+    pb.write_draft(
+        bench,
+        pb.Draft(
+            case=case.id,
+            variant="en",
+            prose="A claim [1].\n\n[Inference] Next.",
+            failure=None,
+            seconds=1.0,
+            chars=10,
+            gates=(),
+            lang="en",
+        ),
+    )
+    assert pb.variant_lang(bench, "en") == "en"
+    assert pb.variant_lang(bench, "cand") == "ja"  # a draft stored before Draft.lang
+    out, _ = pb.gate_files(bench, "en", "RUBRIC", split="all")
+    text = (out / f"{case.id}.md").read_text(encoding="utf-8")
+    assert "## Materials" in text and "Today's claims (verbatim" in text
+    assert "Code checks: passed" in text and "研究ライン" not in text

@@ -40,8 +40,11 @@ class Msg(NamedTuple):
     zh: str
 
     def __call__(self, lang: Lang, /, **values: object) -> str:
-        text = {"ja": self.ja, "en": self.en, "zh": self.zh}[lang]
-        return text.format(**values)
+        return self.raw(lang).format(**values)
+
+    def raw(self, lang: Lang) -> str:
+        """The text as written, braces and all (prompts that are not templates)."""
+        return {"ja": self.ja, "en": self.en, "zh": self.zh}[lang]
 
 
 # --- note structure (report.markdown) -------------------------------------------------------

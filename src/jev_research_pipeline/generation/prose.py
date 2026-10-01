@@ -36,11 +36,18 @@ from pydantic_ai.usage import RunUsage
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import Decision, Question
 from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.note_text import DEFAULT_LANG, Lang, Msg
 
 from .client import GenerationMeter, auth_failure
 
-INFERENCE_MARK: Final = "【推論】"
-"""A paragraph that goes beyond the claims opens with this and nothing else does."""
+INFERENCE_MARKS: Final[Mapping[Lang, str]] = {
+    "ja": "【推論】",
+    "en": "[Inference]",
+    "zh": "【推论】",
+}
+"""A paragraph that goes beyond the claims opens with its language's mark and nothing else
+does. Any language's mark is recognized, so a note's language never decides what is checked."""
+INFERENCE_MARK: Final = INFERENCE_MARKS["ja"]
 
 NO_DIRECT_EVIDENCE: Final = "この問いの対象への直接の証拠は無い。"
 """Written verbatim when the claims are about something else (author mandate 2026-09-23);
@@ -96,14 +103,27 @@ def check_citations(text: str, n_claims: int) -> tuple[str, tuple[int, ...]]:
     return cleaned.strip(), tuple(invalid)
 
 
+def is_inference(paragraph: str) -> bool:
+    return paragraph.lstrip().startswith(tuple(INFERENCE_MARKS.values()))
+
+
 def inference_paragraphs(text: str) -> tuple[str, ...]:
     """The paragraphs the model marked as going beyond the claims."""
-    return tuple(p for p in text.split("\n\n") if p.lstrip().startswith(INFERENCE_MARK))
+    return tuple(p for p in text.split("\n\n") if is_inference(p))
 
 
 def evidence_text(text: str) -> str:
     """Everything but the marked inference — what `grounded` is judged on."""
-    return "\n\n".join(p for p in text.split("\n\n") if not p.lstrip().startswith(INFERENCE_MARK))
+    return "\n\n".join(p for p in text.split("\n\n") if not is_inference(p))
+
+
+LINE_LABEL: Final = Msg("研究ライン: {v}", "Research line: {v}", "研究方向: {v}")
+VOCABULARY_LABEL: Final = Msg("語彙: {v}", "Vocabulary: {v}", "词汇: {v}")
+QUESTION_LABEL: Final = Msg("問い: {v}", "Question: {v}", "问题: {v}")
+BRIEF_LABEL: Final = Msg("問いの背景: {v}", "Background of the question: {v}", "问题背景: {v}")
+FEEDBACK_LABEL: Final = Msg(
+    "前回の草稿への指摘: {v}", "Feedback on the previous draft: {v}", "对上一稿的意见: {v}"
+)
 
 
 PROSE_TIMEOUT_S: Final = 900.0
@@ -189,9 +209,11 @@ def user_prompt(
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
     draft: str | None = None,
+    lang: Lang = DEFAULT_LANG,
 ) -> str:
     """`sources` (title / excerpt / url per source) and `claim_sources` (the 1-based source
-    of each claim) are the thicker material the prose bench tuned; a run sends both (pipeline.run)."""
+    of each claim) are the thicker material the prose bench tuned; a run sends both (pipeline.run).
+    `lang` words the labels; the data inside <claims> is as fetched."""
     payload: dict[str, object] = {
         "claims": [
             {"n": i, "text": text}
@@ -210,18 +232,18 @@ def user_prompt(
         # round, 2026-09-23 — [3] written for claim [1] throughout a draft)
         payload["sources"] = [{"id": f"S{i}", **src} for i, src in enumerate(sources, start=1)]
     parts = [
-        f"研究ライン: {ctx.line.name}",
-        f"語彙: {', '.join(ctx.vocabulary)}",
-        f"問い: {question.title}",
+        LINE_LABEL(lang, v=ctx.line.name),
+        VOCABULARY_LABEL(lang, v=", ".join(ctx.vocabulary)),
+        QUESTION_LABEL(lang, v=question.title),
     ]
     if question.brief:
-        parts.append(f"問いの背景: {question.brief}")
+        parts.append(BRIEF_LABEL(lang, v=question.brief))
     parts.append(f"<claims>\n{as_data(payload)}\n</claims>")
     if draft:
         # the bench's self-check pass: the draft to verify against the claims above
         parts.append(f"<draft>\n{draft}\n</draft>")
     if feedback:
-        parts.append(f"前回の草稿への指摘: {feedback}")
+        parts.append(FEEDBACK_LABEL(lang, v=feedback))
     return "\n\n".join(parts)
 
 
@@ -243,6 +265,7 @@ async def write_prose(
     sources: list[dict[str, object]] | None = None,
     claim_sources: list[int] | None = None,
     draft: str | None = None,
+    lang: Lang = DEFAULT_LANG,
 ) -> ProseResult:
     """`claims` in reading order. Never raises for model trouble; every [n] it writes is
     checked against `claims` before the text leaves this function."""
@@ -260,6 +283,7 @@ async def write_prose(
                 sources=sources,
                 claim_sources=claim_sources,
                 draft=draft,
+                lang=lang,
             ),
             usage=usage,
         )

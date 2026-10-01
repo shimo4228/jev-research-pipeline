@@ -220,3 +220,13 @@ async def test_prose_reports_the_citations_it_dropped(cassette: ClientFactory):
     )
     assert result.invalid_citations == (7,)
     assert result.prose is not None and "[7]" not in result.prose
+
+
+def test_the_prompt_labels_follow_the_language_and_any_inference_mark_counts():
+    from jev_research_pipeline.generation.prose import evidence_text, user_prompt
+
+    prompt = user_prompt(CTX, QUESTION, ["c"], feedback="shorter", lang="en")
+    assert prompt.startswith("Research line: ")
+    assert "Question: " in prompt and "Feedback on the previous draft: shorter" in prompt
+    prose = "Fact [1].\n\n[Inference] Guess.\n\n【推论】猜测。"
+    assert evidence_text(prose) == "Fact [1]."
