@@ -2,6 +2,7 @@
 sequential one would have been (judge's timing 2026-09-23: 3 lines took 15-20 min)."""
 
 import asyncio
+import contextlib
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -207,18 +208,26 @@ async def test_several_question_days_in_parallel_write_the_sequential_note(
 
 async def test_prefilter_starts_before_the_last_net_is_fetched(env: dict[str, str]):
     """The firehose's sources are prefiltered while the keyword net is still being
-    fetched, instead of the whole run waiting for the slowest (paced) net first."""
+    fetched, instead of the whole run waiting for the slowest (paced) net first.
+
+    A GitHub (keyword) answer is held until a prefilter request arrives, so the order does
+    not depend on timing: a pipeline that waited for every fetch first would hold each
+    GitHub answer for the full 5 s, and its prefilter would come after them all."""
     order: list[str] = []
+    prefiltering = asyncio.Event()
     world = fake_world()
 
     async def record(request: httpx2.Request) -> httpx2.Response:
         body = request.content.decode() if request.url.host == "api.typesafe.ai" else ""
-        order.append("prefilter" if "q0_on_topic" in body else request.url.host or "")
+        if "q0_on_topic" in body:
+            order.append("prefilter")
+            prefiltering.set()
         if request.url.host == "api.github.com":
-            await asyncio.sleep(0.05)  # a keyword request that takes its time (pacing, network)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(prefiltering.wait(), timeout=5)
+            order.append("github answered")
         return await world(request)
 
     await run_pipeline(env, now=b.T0, http=_client(record), pacing=False)
-    first_prefilter = order.index("prefilter")
-    last_keyword_fetch = max(i for i, host in enumerate(order) if host == "api.github.com")
-    assert first_prefilter < last_keyword_fetch
+    assert "github answered" in order
+    assert order.index("prefilter") < order.index("github answered")
