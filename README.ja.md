@@ -34,7 +34,7 @@ Python 3.12 と [uv](https://docs.astral.sh/uv/) のほかに、省けないア�
 ## はじめかた
 
 ```bash
-uv tool install git+https://github.com/shimo4228/jev-research-pipeline
+uv tool install jrp
 jrp init --lang ja              # ~/.config/jrp/ に env、config.toml、questions/agent-memory.md を書く
 ```
 
@@ -52,7 +52,7 @@ jrp try --line agent-memory     # 使い捨てのフォルダに 1 回だけ回�
 jrp schedule install --hour 5   # macOS: launchd の job を書き、読み込み方を表示する
 ```
 
-Linux の cron と systemd の例は [docs/scheduling.md](docs/scheduling.md)（英語）にあります。通知は Slack の webhook、macOS の通知センター、またはその両方に送れます（同じページ）。すべての環境変数と `config.toml` の全体は [docs/configuration.md](docs/configuration.md)（英語）にあります。jrp が PyPI に載ったあとは、1 行目の代わりに `uv tool install jrp` でインストールでき、`uvx jrp init` ならインストールせずに試せます。
+Linux の cron と systemd の例は [docs/scheduling.md](docs/scheduling.md)（英語）にあります。通知は Slack の webhook、macOS の通知センター、またはその両方に送れます（同じページ）。すべての環境変数と `config.toml` の全体は [docs/configuration.md](docs/configuration.md)（英語）にあります。インストールせずに試すときは、各 `jrp` コマンドの前に `uvx` を付けます（`uvx jrp init --lang ja`）。
 
 ## ノートの見本
 

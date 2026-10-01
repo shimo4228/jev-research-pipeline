@@ -43,7 +43,7 @@ Everything else is optional: source-API keys raise free quotas, and `TAVILY_API_
 ## Quick start
 
 ```bash
-uv tool install git+https://github.com/shimo4228/jev-research-pipeline
+uv tool install jrp
 jrp init --lang en              # writes ~/.config/jrp/{env, config.toml, questions/agent-memory.md}
 ```
 
@@ -66,8 +66,8 @@ jrp schedule install --hour 5   # macOS: writes a launchd job and prints how to 
 
 On Linux, [docs/scheduling.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/scheduling.md) has cron and systemd examples. Notifications go
 to a Slack webhook, macOS Notification Center, or both (same page). Every variable and the full
-`config.toml` are in [docs/configuration.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/configuration.md). Once jrp is on PyPI,
-`uv tool install jrp` does the same as the first line, and `uvx jrp init` tries it without installing.
+`config.toml` are in [docs/configuration.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/configuration.md). To try it without
+installing, put `uvx` in front of each `jrp` command (`uvx jrp init --lang en`).
 
 ## Sample notes
 
