@@ -51,6 +51,7 @@ from typing import Final
 
 from pydantic import AwareDatetime
 
+from jev_research_pipeline.home import JRP_HOME
 from jev_research_pipeline.model import AdapterKind, GraphNodeType, Question, QuestionStatus
 
 type AuthoredQueries = tuple[tuple[AdapterKind, str], ...]
@@ -65,7 +66,7 @@ QUERY_FIELDS: Final[Mapping[str, AdapterKind]] = {
 """Field key in the question block → the keyword adapter it is sent to."""
 
 QUESTIONS_ENV: Final = "JRP_QUESTIONS_DIR"
-DEFAULT_QUESTIONS_DIR: Final = Path("questions")
+DEFAULT_QUESTIONS_DIR: Final = JRP_HOME / "questions"
 NO_QUESTIONS: Final = "問い未設定"
 """Why a line's run stops: the author has not opened a question for it yet."""
 

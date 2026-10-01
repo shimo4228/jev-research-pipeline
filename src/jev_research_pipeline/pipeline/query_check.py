@@ -15,7 +15,7 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline.questions import open_questions, question_queries
 
-from .config import config_path, line_context, load_tracks
+from .config import env_tracks, line_context
 from .run import make_adapter
 
 TOP_TITLES: Final = 3
@@ -25,7 +25,7 @@ async def check_queries(
     env: Mapping[str, str], slug: str, *, http: httpx2.AsyncClient, now: AwareDatetime
 ) -> list[str]:
     """The printed lines, one block per open question. Raises NoQuestions like a run."""
-    tracks = {t.slug: t for t in load_tracks(config_path(env))}
+    tracks = {t.slug: t for t in env_tracks(env)}
     if slug not in tracks:
         return [f"{slug}: config.toml に無いライン"]
     ctx = line_context(tracks[slug])

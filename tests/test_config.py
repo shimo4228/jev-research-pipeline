@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from jev_research_pipeline.model import STORE_NS
 from jev_research_pipeline.pipeline.config import (
     line_context,
     load_tracks,
@@ -104,10 +105,22 @@ def test_tracks_keep_config_order_and_flags(world: Path):
     assert tracks[2].repo is None
 
 
-def test_rotation_skips_daily_and_repo_less_tracks(world: Path):
+def test_rotation_skips_daily_tracks(world: Path):
     config = rotation_config(load_tracks(world), per_tick=3)
     assert config.order == ("akc", "edge")
     assert config.per_tick == 3
+
+
+def test_a_track_without_a_repo_joins_the_rotation(tmp_path: Path):
+    """graph.jsonld is an optional vocabulary source (plan productize-en-zh P2): a line
+    that points at no repository still runs, named by its slug."""
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[tracks.memo]\nname = "Memo"\n', encoding="utf-8")
+    tracks = load_tracks(cfg)
+    assert rotation_config(tracks, per_tick=1).order == ("memo",)
+    ctx = line_context(tracks[0])
+    assert ctx.line.id == f"{STORE_NS}line/memo"
+    assert ctx.vocabulary == ("Memo",)
 
 
 def test_line_id_is_the_graph_research_line_for_this_repo(world: Path):
@@ -127,11 +140,29 @@ def test_line_id_is_the_graph_research_line_for_this_repo(world: Path):
     )
 
 
-def test_line_without_graph_falls_back_to_repo_url_and_name(world: Path):
+def test_line_without_graph_is_named_by_its_slug_and_name(world: Path):
     edge = load_tracks(world)[1]
     ctx = line_context(edge)
-    assert ctx.line.id == "https://github.com/shimo4228/edge-frontier"
+    assert ctx.line.id == f"{STORE_NS}line/edge"
     assert ctx.vocabulary == ("Edge 探索",)
+
+
+def test_a_github_owner_keeps_the_authors_line_ids(world: Path):
+    """JRP_GITHUB_OWNER: the ids the author's store was built on (github.com/<owner>/<repo>,
+    github.com/<owner> for a track with no repo); a graph's ResearchLine still wins."""
+    akc, edge, jev = load_tracks(world, owner="shimo4228")
+    assert line_context(edge).line.id == "https://github.com/shimo4228/edge-frontier"
+    assert line_context(jev).line.id == "https://github.com/shimo4228"
+    assert line_context(akc).line.id == "https://doi.org/10.5281/zenodo.19200726"
+
+
+def test_a_tracks_own_id_wins(tmp_path: Path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(
+        '[tracks.memo]\nname = "Memo"\nid = "https://example.org/memo"\n', encoding="utf-8"
+    )
+    (track,) = load_tracks(cfg, owner="shimo4228")
+    assert line_context(track).line.id == "https://example.org/memo"
 
 
 def test_graph_is_only_read(world: Path):

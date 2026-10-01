@@ -2,7 +2,7 @@
 
 Environment (nothing is guessed):
     JRP_VAULT_DIR          vault root (required; nothing is written without it)
-    JRP_STORE_DIR          pipeline store root (default ./var/store)
+    JRP_STORE_DIR          pipeline store root (default ~/.local/share/jrp/store)
     TYPESAFE_API_KEY       Jev key (required)
     JRP_PROSE_MODEL        optional prose model, <backend>:<model>
                            (default openai-codex:gpt-6-luna; generation.client)
@@ -13,8 +13,9 @@ Environment (nothing is guessed):
     GITHUB_TOKEN           optional; raises the GitHub search limit
     JRP_COST_CAP_USD       optional cost cap per line-run → partial report
     JRP_JEV_USD_PER_QUESTION  optional Jev price for the cost meter
-    JRP_DAILY_RESEARCH_CONFIG  optional config.toml path
-    JRP_QUESTIONS_DIR      optional question-file root (default ./questions)
+    JRP_DAILY_RESEARCH_CONFIG  optional config.toml path (default ~/.config/jrp/config.toml)
+    JRP_QUESTIONS_DIR      optional question-file root (default ~/.config/jrp/questions)
+    JRP_GITHUB_OWNER       optional; line @ids from github.com/<owner> (pipeline.config)
     JRP_JEV_CONCURRENCY    optional Jev requests in flight (default 12; pipeline.concurrency)
     JRP_PROSE_CONCURRENCY  optional prose calls in flight (default 3)
     JRP_NOTE_LANG          optional note language, ja | en | zh (default ja; note_text)
@@ -40,6 +41,7 @@ from jev_research_pipeline.generation import (
     Writer,
     prose_auth,
 )
+from jev_research_pipeline.home import DATA_HOME
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
 from jev_research_pipeline.model import GraphNodeType, QuestionLog, Report
 from jev_research_pipeline.note_text import DEFAULT_LANG, BadNoteLang, Lang, note_lang
@@ -53,12 +55,12 @@ from jev_research_pipeline.report import harvest_note, note_report_id, report_no
 from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
-from .config import config_path, line_context, load_tracks, rotation_config
+from .config import config_path, env_tracks, line_context, rotation_config
 from .nets import DayBudget, for_line, load_nets
 from .run import Keys, LineOutcome, LineRun
 
 STORE_ENV: Final = "JRP_STORE_DIR"
-DEFAULT_STORE: Final = Path("var/store")
+DEFAULT_STORE: Final = DATA_HOME / "store"
 KEY_ENVS: Final = ("TYPESAFE_API_KEY",)
 
 
@@ -158,7 +160,7 @@ async def run_pipeline(
     # One writer for the whole tick: the lines share its provider (and so the Codex login).
     writer = Writer(prose, http)
     cfg = config_path(env)
-    tracks = {t.slug: t for t in load_tracks(cfg)}
+    tracks = {t.slug: t for t in env_tracks(env)}
     rotation = rotation_config(list(tracks.values()), per_tick=lines_per_day(cfg))
     net_config = load_nets(cfg)
     day_budget = DayBudget()  # the daily quotas are shared by every line of the rotation

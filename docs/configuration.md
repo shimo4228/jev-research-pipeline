@@ -22,15 +22,17 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | variable | required | purpose |
 |---|---|---|
 | `JRP_VAULT_DIR` | yes | vault root; notes go to `<vault>/daily-research/`. Unset: nothing is written |
-| `JRP_STORE_DIR` | recommended | pipeline store, one JSON-LD file per line (default `./var/store`) |
+| `JRP_STORE_DIR` | no | pipeline store, one JSON-LD file per line (default `~/.local/share/jrp/store`) |
 | `TYPESAFE_API_KEY` | yes | Jev ([docs.typesafe.ai](https://docs.typesafe.ai)) |
 | `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-6-luna`; or e.g. `dashscope:qwen3.7-max`). See [The writing model](../README.md#the-writing-model) |
 | `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
 | `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
-| `JRP_DAILY_RESEARCH_CONFIG` | yes | the `config.toml` with your lines and `[nets]` |
+| `JRP_DAILY_RESEARCH_CONFIG` | no | the `config.toml` with your lines and `[nets]` (default `~/.config/jrp/config.toml`) |
 | `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`) counts 0 toward it |
 | `JRP_JEV_USD_PER_QUESTION` | recommended | Jev unit price for the note's cost line; unset, Jev is not counted |
-| `JRP_QUESTIONS_DIR` | no | question files (default `./questions`) |
+| `JRP_QUESTIONS_DIR` | no | question files (default `~/.config/jrp/questions`) |
+| `JRP_NOTE_LANG` | no | the note's language: `ja` (default), `en` or `zh` — headings, the operations section and the prose (its prompt and its checks). Anything else stops the run at the start |
+| `JRP_GITHUB_OWNER` | no | derive a line's @id from `github.com/<owner>/<repo name>` (`github.com/<owner>` for a line with no repo) when its `graph.jsonld` names no ResearchLine. Unset, such a line is `<store namespace>line/<slug>`. Set it only to keep the ids a store was built on |
 | `JRP_PROSE_TIMEOUT_S` | no | prose call timeout (default 900 s; prose is written with thinking on) |
 | `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default). pydantic-ai 2.47 sends no reasoning setting for `gpt-6-luna`, so there it has no effect |
 | `JRP_JEV_CONCURRENCY` | no | concurrent Jev requests (default 12; a separate limiter holds 1,200 per minute) |
@@ -56,7 +58,11 @@ lines_per_day = 3                  # lines picked per run, in fixed rotation
 [tracks.akc]                       # one table per line; "track" and "line" mean the same thing
 name = "Agent Knowledge Cycle"
 [[tracks.akc.repos]]
-target_repo = "~/projects/agent-knowledge-cycle"   # required for rotation; only graph.jsonld is read
+target_repo = "~/projects/agent-knowledge-cycle"   # optional; only graph.jsonld is read
+
+[tracks.memo]
+name = "Agent memory"              # a line needs only a name
+# id = "https://example.org/memo"  # optional: the line's @id as given
 
 [tracks.jev]
 name = "TypeSafe Jev"
@@ -98,11 +104,11 @@ categories: over its history the `ans` line (meditation, Buddhist psychology) pa
 prefilter with 0 of 1,070 arXiv listing items and 0 of 96 HF daily papers, each of them
 screened against every open question.
 
-A line enters the daily rotation only when it has a `[[tracks.<slug>.repos]]` entry. If that directory
-holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of its `Concept` and
-`DefinedTerm` nodes become the line's vocabulary for screening and the prose) the vocabulary is
-read from it; otherwise the line's `name` is the only vocabulary. A line with `daily = true` runs on
-every tick and needs no repo.
+Every line that is not `daily = true` takes its turn in the rotation; a line with `daily = true`
+runs on every tick beside it. A line may point at a repository with a `[[tracks.<slug>.repos]]`
+entry: if that directory holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of
+its `Concept` and `DefinedTerm` nodes become the line's vocabulary for screening and the prose) the
+vocabulary is read from it. Otherwise the line's `name` is the only vocabulary.
 
 ## Store schema changes
 

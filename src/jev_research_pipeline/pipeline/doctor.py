@@ -42,7 +42,7 @@ from jev_research_pipeline.generation.codex import (
 from jev_research_pipeline.questions import parse_questions, questions_dir, questions_path
 from jev_research_pipeline.report import VAULT_ENV
 
-from .config import config_path, line_context, load_tracks, rotation_config
+from .config import config_path, env_tracks, line_context, rotation_config
 from .runner import KEY_ENVS, STORE_ENV, lines_per_day
 
 AUTH_STATUS_TIMEOUT_S: Final = 30.0
@@ -102,7 +102,7 @@ def _config(env: Mapping[str, str]) -> tuple[Check, dict[str, str]]:
     """The check, and the slug → line @id of every line a run can pick."""
     path = config_path(env)
     try:
-        tracks = load_tracks(path)
+        tracks = env_tracks(env)
         per_day = lines_per_day(path)
         ids = {t.slug: line_context(t).line.id for t in tracks}
     except Exception as e:  # any way it fails to load is the finding

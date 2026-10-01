@@ -47,7 +47,7 @@ from .note_text import LANGS, NOTE_LANG_ENV, Lang, note_lang
 from .pipeline import prose_bench as pb
 from .pipeline import prose_eval
 from .pipeline.concurrency import prose_concurrency
-from .pipeline.config import config_path, line_context, load_tracks, rotation_config
+from .pipeline.config import env_tracks, line_context, rotation_config
 from .pipeline.doctor import doctor
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
@@ -110,7 +110,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _slugs(env: Mapping[str, str]) -> list[str]:
-    return list(rotation_config(load_tracks(config_path(env)), per_tick=1).order)
+    return list(rotation_config(env_tracks(env), per_tick=1).order)
 
 
 async def _run(env: Mapping[str, str]) -> int:
@@ -180,7 +180,7 @@ def _fit(env: Mapping[str, str]) -> int:
 
 def _export(env: Mapping[str, str]) -> int:
     store = GraphStore(store_dir(env))
-    tracks = {t.slug: t for t in load_tracks(config_path(env))}
+    tracks = {t.slug: t for t in env_tracks(env)}
     for slug in _slugs(env):
         log = DecisionLog.from_partition(store.line(slug))
         path = export_cases(log, line_context(tracks[slug]), store.root / "cases" / f"{slug}.yaml")
@@ -275,7 +275,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
     split = "all" if args.cases else args.split
     match args.action:
         case "export":
-            tracks = load_tracks(config_path(env))
+            tracks = env_tracks(env)
             contexts = {t.slug: line_context(t) for t in tracks}
             roots = [root, *(Path(r) for r in args.roots)]
             cases = pb.export(roots, contexts, bench)
