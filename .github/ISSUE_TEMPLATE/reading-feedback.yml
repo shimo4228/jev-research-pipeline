@@ -1,0 +1,40 @@
+name: "Reading feedback (English / 中文 / 日本語)"
+description: "Tell where a note's prose reads badly or misleads / 告诉我们笔记正文哪里读不顺或有误导 / ノートの本文の読みにくい箇所"
+title: "[reading] "
+labels: ["reading-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The English and Chinese prose was accepted on automated measurements only; the author reads Japanese only. A reader's word on where it reads badly is the most useful feedback this project gets. Write in any language.
+        英文和中文正文只经过自动测量就被采用，作者只读日文。请告诉我们哪里读不顺、哪里让人误解，用任何语言都可以。
+        Please quote short passages only, and leave out claim sentences copied from papers (a link to the paper is enough).
+        请只引用简短的片段；论文原句不必复制，给出论文链接即可。
+  - type: dropdown
+    id: language
+    attributes:
+      label: Note language / 笔记语言
+      options:
+        - zh (中文)
+        - en (English)
+        - ja (日本語)
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Which note or sample, which section / 哪篇笔记或样例、哪一节
+      placeholder: "docs/samples/agent-memory.zh.md, DreamBench-SWE"
+    validations:
+      required: true
+  - type: textarea
+    id: stopped
+    attributes:
+      label: Where you stopped or were misled / 在哪里读不下去或被误导
+      description: "A short quote and why: an unexplained term, a skipped premise, a number whose meaning is unclear, unnatural phrasing, a claim stronger than the source… / 简短引文和原因：术语没有解释、跳过了前提、不清楚数字的含义、表达不自然、说得比原文更绝对……"
+    validations:
+      required: true
+  - type: textarea
+    id: overall
+    attributes:
+      label: Overall, would you read this every morning? / 总体来说，你愿意每天早上读这样的笔记吗？

@@ -10,6 +10,8 @@ jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f99
 
 <!-- A sample jrp note (JRP_NOTE_LANG=en), from a one-line test run on 2026-10-01. Third-party text is left out: each claim's own sentence, the excerpts beside sources, and unjudged claim texts are replaced by their links. The prose and the operations section are jrp's own output. -->
 
+> Where does this read badly or mislead? [Open a reading-feedback issue](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml).
+
 # Agent memory — 2026-10-01
 
 ### Which memory designs measurably change what an LLM agent gets right?

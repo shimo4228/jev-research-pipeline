@@ -10,6 +10,8 @@ jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f99
 
 <!-- jrp 笔记样例 (JRP_NOTE_LANG=zh)，来自 2026-10-01 对单个方向的一次试运行。第三方文本已省略: claim 原句、出处旁的摘录、未判定的 claim 文本都只保留链接。正文和运行部分是 jrp 自己的输出。 -->
 
+> 请读后告诉我们哪里读不顺、哪里让人误解：[提交阅读反馈](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml)（可用中文）。
+
 # Agent memory — 2026-10-01
 
 ### 哪些记忆设计能可测地改变 LLM 智能体的正确率?

@@ -146,8 +146,15 @@ question-days (one question on one day), drafts written by Claude Opus passed a 
 (another Opus, checking each draft against its sources) 28 of 32 times in English and 32 of 32 in
 Chinese (Japanese: 28 of 32), and a simulated reader that saw only the draft took away at least as
 much of each study as from the Japanese one. The default writer, GPT-6 Luna, has not been measured
-in English or Chinese. No English or Chinese reader has read them yet;
-an issue saying where they read badly is the most useful feedback this project can get. The record
+in English or Chinese. No English or Chinese reader has read them yet, so a reader's word on
+where they read badly is the most useful feedback this project can get: read a
+[sample](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/samples/agent-memory.zh.md) or a note of your own and
+[open a reading-feedback issue](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml) (any language; quote short passages only).
+
+> 中文读者：中文正文只经过自动测量就被采用，作者不读中文。请读一读[中文样例](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/samples/agent-memory.zh.md)，
+> 告诉我们哪里读不顺、哪里让人误解：[提交阅读反馈](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml)（可用中文）。
+
+The record
 is in [docs/design/pipeline-design.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/design/pipeline-design.md) ("Prose in English", "Prose in
 Chinese").
 
