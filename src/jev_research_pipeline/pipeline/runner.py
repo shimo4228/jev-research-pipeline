@@ -149,10 +149,12 @@ async def run_pipeline(
     pacing: bool = True,
     unanswered: list[str] | None = None,
     failed: list[str] | None = None,
+    only: Sequence[str] | None = None,
 ) -> list[LineOutcome]:
     """`unanswered` collects the lines skipped for having no open question, so the caller
     can show them (the CLI prints them; a silent skip would look like a quiet success).
-    `failed` collects the lines that raised; without it they go to `unanswered`."""
+    `failed` collects the lines that raised; without it they go to `unanswered`.
+    `only` runs exactly these lines and leaves the rotation where it is (`jrp try`)."""
     unanswered = unanswered if unanswered is not None else []
     failed = failed if failed is not None else unanswered
     vault = vault_dir(env)
@@ -176,9 +178,9 @@ async def run_pipeline(
             *(n for n in migrated if f"lines/{slug}.jsonld" in n),
             *harvest_line(store, vault, slug, now, lang),
         ]
-        for slug in (*rotation.order, *daily)
+        for slug in (only or (*rotation.order, *daily))
     }
-    picked = (*advance_rotation(store, rotation, now), *daily)
+    picked = tuple(only) if only else (*advance_rotation(store, rotation, now), *daily)
     # One Jev rate window for the whole tick: the limit is per key, not per line.
     pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
 

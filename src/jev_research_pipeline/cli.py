@@ -3,6 +3,9 @@
 jrp run            harvest, then the next lines in rotation (env: pipeline.runner)
 jrp doctor         check what a run needs (env, config, questions, keys, the writer's login)
                    without running one; non-zero exit on a failure (pipeline.doctor)
+jrp init           write ~/.config/jrp/{env,config.toml,questions/} where missing (init)
+jrp try --line <slug>
+                   one line, once, into a scratch store and vault; prints the note (init)
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
@@ -43,11 +46,12 @@ from .generation import (
 from .generation.claude_code import CLAUDE_BIN_ENV, claude_bin
 from .generation.codex import codex_auth_path, login
 from .generation.prose import INSTRUCTIONS
+from .init import init, init_lines, try_line
 from .note_text import LANGS, NOTE_LANG_ENV, Lang, note_lang
 from .pipeline import prose_bench as pb
 from .pipeline import prose_eval
 from .pipeline.concurrency import prose_concurrency
-from .pipeline.config import env_tracks, line_context, rotation_config
+from .pipeline.config import config_path, env_tracks, line_context, rotation_config
 from .pipeline.doctor import doctor
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
@@ -76,6 +80,10 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("run")
     sub.add_parser("doctor")
+    i = sub.add_parser("init", help="write ~/.config/jrp/{env,config.toml,questions/} if missing")
+    i.add_argument("--lang", choices=list(LANGS), default="en", help="the notes' language")
+    t = sub.add_parser("try", help="run one line once into a scratch store and vault")
+    t.add_argument("--line", required=True, help="line slug (config.toml track)")
     sub.add_parser("fit")
     sub.add_parser("export-cases")
     d = sub.add_parser("drift")
@@ -146,6 +154,22 @@ async def _run(env: Mapping[str, str]) -> int:
     sys.stdout.write(f"{title}\n{body}\n")
     notify(title, body, env=env)
     return 0
+
+
+def _init(lang: Lang) -> int:
+    sys.stdout.write("\n".join(init_lines(init(lang=lang))) + "\n")
+    return 0
+
+
+async def _try(env: Mapping[str, str], slug: str) -> int:
+    async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
+        ran = await try_line(env, slug, http=http, now=datetime.now().astimezone())
+    if ran is None:
+        slugs = ", ".join(t.slug for t in env_tracks(env))
+        sys.stderr.write(f"no line {slug!r} in {config_path(env)} (lines: {slugs})\n")
+        return 1
+    sys.stdout.write("\n".join(ran.lines) + "\n")
+    return 0 if ran.notes else 1
 
 
 def _doctor(env: Mapping[str, str]) -> int:
@@ -231,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> int:
+    if args.command == "init":
+        return _init(note_lang({NOTE_LANG_ENV: str(args.lang)}))
+    if args.command == "try":
+        return await _try(env, str(args.line))
     if args.command == "queries":
         return await _check_queries(env, str(args.line))
     if args.command == "prose":

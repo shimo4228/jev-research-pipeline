@@ -1,5 +1,13 @@
 # Configuration
 
+`jrp init` writes a starting setup where jrp looks by default, leaving any file that already
+exists alone: `~/.config/jrp/env` (0600; fill in `JRP_VAULT_DIR` and `TYPESAFE_API_KEY`),
+`~/.config/jrp/config.toml` with one line, and `~/.config/jrp/questions/agent-memory.md` with one
+open question and its query lines (`--lang ja|en|zh` sets `JRP_NOTE_LANG`, default `en`).
+`jrp try --line <slug>` then runs that one line once into `~/.local/share/jrp/try/<time>/` and
+prints the note's path: the real store, vault and rotation are not touched, and nothing is
+notified.
+
 Every setting is an environment variable. Put them in `~/.config/jrp/env`; `scripts/launchd-jrp.sh`
 sources that file before each scheduled run, and for a manual run you source it yourself:
 
