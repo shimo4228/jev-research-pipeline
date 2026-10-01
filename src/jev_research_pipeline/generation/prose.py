@@ -1,5 +1,6 @@
-"""The generation site: Japanese prose for one open question (the model JRP_PROSE_MODEL
-names, generation.client), and the rendering ladder that maps onto Report.rendering
+"""The generation site: the prose for one open question, in the note's language
+(JRP_NOTE_LANG; the model JRP_PROSE_MODEL names, generation.client), and the rendering
+ladder that maps onto Report.rendering
 (decision 8, rubric-eval row):
 
     write → rubric_report accept → "prose"

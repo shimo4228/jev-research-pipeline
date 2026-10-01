@@ -732,11 +732,15 @@ carry a judge verdict (c10o / c12o / c14o / c15o / prod / g14; scratch `lab.py`,
   Jev. A reworded question (fidelity_v2: glossing a term and saying what the study is not
   about allowed) separated no better (AUROC 0.67 vs 0.68 on Opus drafts); not kept.
   Production stays on gpt-6-luna until the author settles the gate below.
-- **Not decided**: whether claim_fidelity should stay a gate at all — it separates weakly
+- **Decided (author, 2026-10-02): claim_fidelity is not a gate.** It separates weakly
   (AUROC 0.68 on Opus drafts) and misses the subject swaps it was mandated for; the bench
-  judge catches those (Q4). Keeping it costs about a quarter of good Opus drafts at the first try (95 → 65 of 106).
-Review-when: the author reads a published section as unfaithful, or the template rate in
-the 運用 section stays above one section in three for a week.
+  judge catches those (Q4). The ladder still asks it per evidence paragraph and stores the
+  Judgments (labels for a later refit); rubric_report v2 alone accepts or rejects a draft.
+  Replaying the jev line's three question-days with Opus: 3 of 3 sections prose at the first
+  draft. Production prose moves to `claude-code:claude-opus-5-5` the same day.
+Review-when: the author reads a published section as unfaithful, the 運用 section shows
+templates on more than one section in three for a week, or a launchd run cannot read
+Claude Code's keychain login (jrp doctor's writer line).
 
 ### Note language (2026-10-01, plan productize-en-zh P1)
 

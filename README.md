@@ -167,8 +167,9 @@ Each morning:
    contradict the question. A claim is a sentence, never a paraphrase, so citations always resolve.
 6. The writing model (GPT-6 Luna by default) writes one short section per question that got new
    evidence today, from those claims and short excerpts of their sources, with one paragraph marked
-   as inference. It checks its own draft once. Jev then scores the section on a rubric and checks each evidence paragraph against its
-   claims; a failing draft is rewritten once, then the section falls back to a list of its sources.
+   as inference. It checks its own draft once. Jev then scores the section on a rubric (readable,
+   coherent, nothing the claims and excerpts do not support); a failing draft is rewritten once,
+   then the section falls back to a list of its sources.
 7. The note is written to the vault with an operations block: Jev question count, tokens, cost,
    per-net acceptance, and canary results (whether the papers a question must always keep were kept).
 
@@ -232,15 +233,14 @@ governed by your agreement with its provider.
 ## Status as of 2026-10-01
 
 - **Daily since 2026-09-24** on my seven lines, in about 15 minutes a morning, writing
-  Japanese with `openai-codex:gpt-6-luna`. An evaluation of 11 runs before that is in
+  Japanese (with `openai-codex:gpt-6-luna` until 2026-10-01). An evaluation of 11 runs before that is in
   [docs/pilot-log.md](docs/pilot-log.md).
-- **The prose is the open problem.** On my blind reading, Claude Opus with the current prompt wrote
-  the best sections. In a test run on one line, though, Jev's paragraph check sent all three Opus
-  sections back to the list of sources: it judges background explained from a source's abstract as
-  going beyond the claims. I corrected the check where the prose bench showed it wrong (on the bench's
-  32 question-days, Opus first drafts now pass about one time in two, against one in ten before), and
-  the same test run still lost two of three sections. Until the check stops rejecting faithful
-  sections, production stays on GPT-6 Luna.
+- **The prose moved to Claude Opus on 2026-10-02.** On my blind reading, Opus with the current
+  prompt wrote the best sections. Jev's per-paragraph fidelity check kept sending them back: it
+  judged background explained from a source's abstract as going beyond the claims, and on the
+  prose bench it hardly told faithful drafts from unfaithful ones. It is now recorded, not a gate;
+  fidelity rests on the prompt, the self-check and Jev's rubric. A replay of one line's morning
+  wrote all three Opus sections at the first draft.
 - **Thresholds.** Jev's routing thresholds started from TypeSafe's published examples and were tuned
   by hand; they have not been refit on ticks yet, so expect borderline calls in each note's Review
   section. `jrp fit` proposes a refit once at least 10 ticked claims include both `[x]` and `[-]`, and
@@ -273,8 +273,8 @@ from the evaluation shaped the current form:
 - Prose is the hard part. The independent judge rated at most 2 of 3 notes publishable during the
   evaluation, and 1 of 3 on the last run; the usual failure was a paper's claim bent to fit the
   wording of the question. So the prose step was rebuilt around short source excerpts beside the
-  verbatim claims, a self-check pass, and Jev's check of each evidence paragraph against its claims.
-  These checks do not depend on which model writes.
+  verbatim claims, a self-check pass, and Jev's rubric on the finished section. These checks do
+  not depend on which model writes.
 
 ## Development
 

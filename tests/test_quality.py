@@ -154,21 +154,11 @@ async def test_rubric_ladder_accepts_first_draft(cassette: ClientFactory):
     assert rendering.rubric[0].bundle_sha256 == rubric_report.ASK.sha256
 
 
-async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_back(
-    cassette: ClientFactory,
-):
-    """claim_fidelity (author mandate 2026-09-23): the judge read general LLM-calibration
-    papers written up as findings about Jev. One evidence paragraph over the bar sends the
-    draft back with the fidelity feedback; still over → template."""
-    from jev_research_pipeline.generation.prose import FIDELITY_FEEDBACK
+async def test_claim_fidelity_is_recorded_but_sends_no_draft_back(cassette: ClientFactory):
+    """claim_fidelity is a label, not a gate (author 2026-10-02): a paragraph Jev reads as
+    going beyond its claims is recorded as a Judgment and the draft is published; the
+    rubric_report decision alone accepts or rejects it."""
     from jev_research_pipeline.jev import JevClient
-
-    seen: list[str] = []
-    qwen = fake_qwen("Jev の較正が崩れる [1]。", "一般の LLM で較正が崩れる [1]。")
-
-    async def recording(request: httpx2.Request) -> httpx2.Response:
-        seen.append(request.content.decode())
-        return await qwen(request)
 
     jev = JevClient(
         cassette(fake_jev({"unsupported_statement": 0.1, "exceeds_claims": 0.9})),
@@ -176,7 +166,7 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
     )
     rendering, judged = await rubric_ladder(
         jev=jev,
-        model=qwen_model(cassette(recording)),
+        model=qwen_model(cassette(fake_qwen("一般の LLM で較正が崩れる [1]。"))),
         ctx=CTX,
         question=b.question(),
         report_id=b.report().id,
@@ -185,11 +175,9 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
         now=b.T0,
         check=None,  # the ladder's own logic; the self-check pass has its own test
     )
-    assert rendering.rendering == "template"
-    assert [d.policy for d in rendering.rubric] == ["rubric_report@fidelity_v1"] * 2
+    assert rendering.rendering == "prose"
+    assert [d.policy for d in rendering.rubric] == [rubric_report.ASK.policy]
     assert any(j.bundle_sha256 == rubric_report.FIDELITY_ASK.sha256 for j in judged)
-    if seen:  # synthesized: the rewrite request carries the fidelity feedback
-        assert json.dumps(FIDELITY_FEEDBACK, ensure_ascii=False)[1:-1][:20] in seen[1]
 
 
 async def test_a_study_name_line_is_not_a_paragraph_to_check(cassette: ClientFactory):

@@ -221,8 +221,10 @@ async def rubric_ladder(
         base = rubric_report.decision(result)
         if base.outcome != "accept":
             return base
-        # claim_fidelity, one request per evidence paragraph: a single paragraph that
-        # restates a claim in the question's terms sends the draft back.
+        # claim_fidelity, one request per evidence paragraph: recorded as Judgments (labels
+        # for a later refit), never a gate. As a gate it rejected faithful sections that
+        # explain background from the excerpts (author 2026-10-02; design "Production check
+        # vs the prose bench"); fidelity is the self-check's and the prompt's job.
         checks = await asyncio.gather(
             *(
                 rubric_report.judge_fidelity(
@@ -245,8 +247,7 @@ async def rubric_ladder(
         for check in checks:
             if isinstance(check, Judged):
                 judged.append(check.judgment)
-        verdicts = [rubric_report.fidelity_decision(c) for c in checks]
-        return next((d for d in verdicts if d.outcome != "accept"), base)
+        return base
 
     return await render(write, evaluate, lang), judged
 

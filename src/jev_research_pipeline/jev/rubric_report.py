@@ -214,7 +214,9 @@ findings about Jev; single studies written up as the "venues" the question asks 
 0.6 → 0.7 (2026-10-01, design "Production check vs the prose bench"): over 151 bench drafts
 the check at 0.6 (with rubric_report v1) accepted 24 of the 120 the bench judge passed, and
 the drafts it accepted were faithful less often (24 of 34) than the drafts overall (120 of
-151); with v2 and 0.7, 77 of 120 and 77 of 91."""
+151); with v2 and 0.7, 77 of 120 and 77 of 91.
+Not a gate since 2026-10-02 (author): quality.rubric_ladder records the judgments only;
+fidelity_decision applies this bar wherever a caller still wants the verdict."""
 
 
 def fidelity_state(question_title: str, paragraph: str, claims: list[str]) -> dict[str, JsonValue]:

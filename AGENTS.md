@@ -49,8 +49,8 @@ dev と holdout を合わせた 32 件で比べ、改善は holdout で崩れな
 本番の本文プロンプトは言語ごとに `src/jev_research_pipeline/generation/prompts/` にあり、bench の
 ファイルと同文であることをテストが固定している: ja = `v15.md` + `check9.md`、en = `en2.md` + `en-check1.md`、
 zh = `zh1.md` + `zh-check1.md`。言語のベンチは `jrp prose bench --lang en|zh`（判定役の rubric と
-読み手の指示文も言語に従う）。本番のモデルは `openai-codex:gpt-6-luna`。著者は Opus を選んだが、本番の
-点検が Opus の節を落とすため据え置き（design「Production check vs the prose bench」）。
+読み手の指示文も言語に従う）。本番のモデルは `claude-code:claude-opus-5-5`（2026-10-02 から。著者の blind 読み
+5/5）。Jev の claim_fidelity は記録だけで足切りではない（design「Production check vs the prose bench」）。
 
 ## trace を見る（OTel）
 
