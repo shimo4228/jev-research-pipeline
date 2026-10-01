@@ -1,0 +1,60 @@
+# Publish jrp to PyPI when a GitHub release is published, through PyPI Trusted Publishing
+# (OIDC): no token is stored anywhere.
+#
+# One-time setup by the owner, before the first release:
+# - PyPI: add a pending publisher for project "jrp" — owner shimo4228, repository
+#   jev-research-pipeline, workflow publish.yml, environment pypi.
+# - GitHub: create the environment "pypi" with a required reviewer (the owner) and
+#   deployment limited to tags `v*`, so no release reaches PyPI without a human approval.
+#
+# `build` runs the gate and builds with no publishing rights; `publish` gets the OIDC
+# token and only uploads the artifact `build` made. Run `build` alone from the Actions tab
+# (workflow_dispatch) to try the gate on Linux without a release.
+# Actions are pinned to commit SHAs (their tags as of 2026-10-02 in the comments).
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.10.0"
+          enable-cache: false
+      - name: Gate (format, lint, types, security, deps, tests; offline)
+        run: bash .claude/verify.sh
+      - name: Build
+        run: uv build --out-dir dist
+      - name: Release tag matches the package version
+        if: github.event_name == 'release'
+        run: |
+          version="$(uv version --short)"
+          [[ "${GITHUB_REF_NAME#v}" == "$version" ]] || { echo "tag ${GITHUB_REF_NAME} != version ${version}"; exit 1; }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # Trusted Publishing, this job only
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2

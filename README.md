@@ -1,15 +1,15 @@
 # jrp — jev-research-pipeline
 
-**English** | [日本語](README.ja.md)
+**English** | [日本語](https://github.com/shimo4228/jev-research-pipeline/blob/main/README.ja.md)
 
 **A research note each morning for the topics you follow: your questions steer the search, Jev (a judgment-only model) decides what counts, an LLM you choose explains it, in English, Chinese or Japanese.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
-[![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](docs/pilot-log.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/pyproject.toml)
+[![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/pilot-log.md)
 
 <p align="center">
-  <img src="assets/overview.svg" width="760" alt="A loop of four boxes around a center labelled Your questions: gather new papers and repos every morning; Jev judges whether each one helps answer one of your questions and marks it keep, review or drop; an LLM writes a short section per question; you read the day's note in your Obsidian vault and tick what was worth reading, and a dashed arrow shows the ticks steering tomorrow's run.">
+  <img src="https://raw.githubusercontent.com/shimo4228/jev-research-pipeline/main/assets/overview.svg" width="760" alt="A loop of four boxes around a center labelled Your questions: gather new papers and repos every morning; Jev judges whether each one helps answer one of your questions and marks it keep, review or drop; an LLM writes a short section per question; you read the day's note in your Obsidian vault and tick what was worth reading, and a dashed arrow shows the ticks steering tomorrow's run.">
 </p>
 
 jrp is a command-line pipeline for one person keeping up with research. For each topic (a *line*) you
@@ -64,16 +64,16 @@ morning:
 jrp schedule install --hour 5   # macOS: writes a launchd job and prints how to load it
 ```
 
-On Linux, [docs/scheduling.md](docs/scheduling.md) has cron and systemd examples. Notifications go
+On Linux, [docs/scheduling.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/scheduling.md) has cron and systemd examples. Notifications go
 to a Slack webhook, macOS Notification Center, or both (same page). Every variable and the full
-`config.toml` are in [docs/configuration.md](docs/configuration.md). Once jrp is on PyPI,
+`config.toml` are in [docs/configuration.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/configuration.md). Once jrp is on PyPI,
 `uv tool install jrp` does the same as the first line, and `uvx jrp init` tries it without installing.
 
 ## Sample notes
 
 The same line and question, run on the same morning in each language with Claude Opus as the writer:
-[English](docs/samples/agent-memory.en.md) · [Chinese](docs/samples/agent-memory.zh.md) ·
-[Japanese](docs/samples/agent-memory.ja.md). Third-party text is left out of the samples: each claim
+[English](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/samples/agent-memory.en.md) · [Chinese](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/samples/agent-memory.zh.md) ·
+[Japanese](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/samples/agent-memory.ja.md). Third-party text is left out of the samples: each claim
 (a sentence jrp quotes from a source) and the excerpts beside sources are replaced by links. The prose
 and the operations section (the note's last block: questions asked, cost, what each search returned)
 are jrp's own output.
@@ -103,7 +103,7 @@ The questions set the ceiling on what a run can find, so they get their own proc
 draft two to four questions nobody has settled yet, name what each one is *not* about, search this
 week's vocabulary, write the search queries per source, try them, and name a few papers each question
 must always keep. The procedure is the Claude Code skill
-[`jrp-question`](.claude/skills/jrp-question/SKILL.md), and `jrp questions new --line <slug>` opens a
+[`jrp-question`](https://github.com/shimo4228/jev-research-pipeline/blob/main/.claude/skills/jrp-question/SKILL.md), and `jrp questions new --line <slug>` opens a
 Claude Code session that walks you through it. An example block:
 
 ```markdown
@@ -148,7 +148,7 @@ Chinese (Japanese: 28 of 32), and a simulated reader that saw only the draft too
 much of each study as from the Japanese one. The default writer, GPT-6 Luna, has not been measured
 in English or Chinese. No English or Chinese reader has read them yet;
 an issue saying where they read badly is the most useful feedback this project can get. The record
-is in [docs/design/pipeline-design.md](docs/design/pipeline-design.md) ("Prose in English", "Prose in
+is in [docs/design/pipeline-design.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/design/pipeline-design.md) ("Prose in English", "Prose in
 Chinese").
 
 ## How a morning run works
@@ -196,7 +196,7 @@ Counter-evidence               claims that count against the answer, if any
 
 Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `[-]` means no, and
 `[ ]` means no label. Obsidian's click toggles `[x]`; type `[-]` by hand. In a viewer other than
-Obsidian the folded claim list shows as an ordinary quote block ([docs/scheduling.md](docs/scheduling.md#reading-the-notes-outside-obsidian)).
+Obsidian the folded claim list shows as an ordinary quote block ([docs/scheduling.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/scheduling.md#reading-the-notes-outside-obsidian)).
 
 ## Source nets
 
@@ -234,7 +234,7 @@ governed by your agreement with its provider.
 
 - **Daily since 2026-09-24** on my seven lines, in about 15 minutes a morning, writing
   Japanese (with `openai-codex:gpt-6-luna` until 2026-10-01). An evaluation of 11 runs before that is in
-  [docs/pilot-log.md](docs/pilot-log.md).
+  [docs/pilot-log.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/pilot-log.md).
 - **The prose moved to Claude Opus on 2026-10-02.** On my blind reading, Opus with the current
   prompt wrote the best sections. Jev's per-paragraph fidelity check kept sending them back: it
   judged background explained from a source's abstract as going beyond the claims, and on the
@@ -285,9 +285,9 @@ uv run pytest -q      # replays committed cassettes; live recording is opt-in (d
 ```
 
 Traces are OpenTelemetry and off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set
-([docs/observability.md](docs/observability.md)). The prose bench that chose the prompts, and how to
-run it, is in [AGENTS.md](AGENTS.md) (Japanese, for coding agents). The design record, every
-decision and the evidence it rests on, is [docs/design/pipeline-design.md](docs/design/pipeline-design.md).
+([docs/observability.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/observability.md)). The prose bench that chose the prompts, and how to
+run it, is in [AGENTS.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/AGENTS.md) (Japanese, for coding agents). The design record, every
+decision and the evidence it rests on, is [docs/design/pipeline-design.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/design/pipeline-design.md).
 
 ## Related
 
