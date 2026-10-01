@@ -360,3 +360,24 @@ def test_a_note_over_the_cap_drops_review_from_the_far_end_and_says_so():
     assert len(text.encode()) <= run.NOTE_MAX_BYTES
     assert [e.source_id for e in review] == ["s0", "s1"]
     assert ops == ["base", "note 12 KB のため省略: Review 3 件"]
+
+
+def test_the_prose_does_not_count_against_the_note_cap():
+    """Author 2026-10-01: prose length is not a criterion, so a long section must not push
+    the Review lines (the author's tick material) out of the note."""
+    from jev_research_pipeline.pipeline import run
+    from jev_research_pipeline.report import SourceEntry
+
+    fitted = run._fitted  # pyright: ignore[reportPrivateUsage]
+    review = [
+        SourceEntry(source_id=f"s{i}", title="t", gist="g", url="https://example.org")
+        for i in range(3)
+    ]
+    prose = "本文" * 3_000  # 18,000 bytes of prose
+
+    def rendered(ops: list[str]) -> str:
+        return prose + "x" * (1_000 * len(review)) + "\n".join(ops)
+
+    text, ops = fitted(rendered, ["base"], review, prose_bytes=len(prose.encode()))
+    assert len(review) == 3 and ops == ["base"]
+    assert len(text.encode()) > run.NOTE_MAX_BYTES

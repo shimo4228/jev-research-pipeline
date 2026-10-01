@@ -353,7 +353,9 @@ CLAIMS_PER_NOTE: Final = 9
 """Spread over the questions that have claims: 1 → 5, 2 → 4, 3 → 3, 4+ → 2 each."""
 NOTE_MAX_BYTES: Final = 12_000
 """A note above this drops the Review lines farthest from the cut, until it fits (author
-mandate: note ≤ 12 KB = 12,288 bytes; margin for the line that says what was dropped)."""
+mandate: note ≤ 12 KB = 12,288 bytes; margin for the line that says what was dropped).
+The prose is not counted (author 2026-10-01: its length is not a criterion; a section may
+run 2,000-3,000 chars, ~6-9 KB in UTF-8), so a long section never pushes Review out."""
 """Reported claims per question section, and from one source within it (note ≤ 12 KB,
 author mandate 2026-09-23)."""
 REVIEW_MAX: Final = 10
@@ -1349,7 +1351,8 @@ class LineRun:
                 empty_day=self._empty_day(len(accepted)),
             )
 
-        text, lines = _fitted(rendered, lines, review)
+        prose_bytes = sum(len(s.prose.encode()) for s in sections if s.prose)
+        text, lines = _fitted(rendered, lines, review, prose_bytes=prose_bytes)
         return LineOutcome(
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
@@ -1375,14 +1378,16 @@ def _fitted(
     rendered: Callable[[list[str]], str],
     lines: list[str],
     review: list[SourceEntry],
+    *,
+    prose_bytes: int = 0,
 ) -> tuple[str, list[str]]:
-    """The note within NOTE_MAX_BYTES, and the operations lines it was rendered with. The
-    body and the claims stay; what goes is Review, farthest from the cut first. `review` is
-    shortened in place (the renderer reads it)."""
+    """The note within NOTE_MAX_BYTES plus its prose, and the operations lines it was
+    rendered with. The body and the claims stay; what goes is Review, farthest from the cut
+    first. `review` is shortened in place (the renderer reads it)."""
     text = rendered(lines)
     dropped = 0
     ops = lines
-    while len(text.encode()) > NOTE_MAX_BYTES and review:
+    while len(text.encode()) > NOTE_MAX_BYTES + prose_bytes and review:
         review.pop()
         dropped += 1
         ops = [*lines, f"note 12 KB のため省略: Review {dropped} 件"]

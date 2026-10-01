@@ -125,3 +125,11 @@ def test_a_single_variant_reading_file_asks_whether_it_reads(tmp_path: Path):
     out, _ = pb.read_file(_bench(tmp_path), ["cand"], tmp_path / "one.md", split="all")
     text = out.read_text(encoding="utf-8")
     assert "読めるか" in text and "### A" not in text
+
+
+def test_a_polite_sentence_is_a_gate_the_plain_register_is_not():
+    plain = "冒頭の段落である。[1]\n\n【推論】次に確かめる。"
+    assert "です・ます調の文がある" not in pb.gates(plain, 1)
+    for polite in ("冒頭の段落です。[1]", "改善しました [1]", "調べました。[1] (S1)"):
+        assert "です・ます調の文がある" in pb.gates(f"{polite}\n\n【推論】次に確かめる。", 1)
+    assert "です・ます調の文がある" not in pb.gates("ますます増えた。[1]\n\n【推論】x。", 1)

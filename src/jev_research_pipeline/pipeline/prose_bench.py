@@ -247,7 +247,17 @@ def gates(prose: str, n_claims: int) -> tuple[str, ...]:
             break
     if n_claims and not re.search(r"\[\d+\]", prose):
         failed.append("引用が 1 つも無い")
+    if _POLITE_RE.search(prose):
+        failed.append("です・ます調の文がある")
     return tuple(failed)
+
+
+_POLITE_RE: Final = re.compile(
+    r"(?:です|ます|でした|ました|ません|でしょう)(?=[。」\uff09)]|\s*\[|\s*\(S|$)", re.M
+)
+"""A sentence ending in the polite register. The prose is written in the plain である
+register (author 2026-10-01: drafts mixing the two read badly; 10 of 13 production drafts
+did). A sentence end, or the citation marks that may follow one."""
 
 
 FRAMING_MAX_CHARS: Final = 120
