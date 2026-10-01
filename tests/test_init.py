@@ -64,3 +64,21 @@ async def test_try_runs_one_line_into_a_scratch_folder(
     assert not list(Path(env["JRP_VAULT_DIR"]).rglob("*.md"))
     assert not GraphStore(Path(env["JRP_STORE_DIR"])).root.exists()
     assert await try_line(env, "nope", http=cassette(fake_world()), now=b.T0, root=root) is None
+
+
+def test_the_packaged_question_skill_is_the_repos_skill():
+    """`jrp questions new` hands Claude Code the package's copy; it must stay the skill."""
+    repo = Path(__file__).parents[1]
+    packaged = repo / "src" / "jev_research_pipeline" / "skills" / "jrp-question.md"
+    skill = repo / ".claude" / "skills" / "jrp-question" / "SKILL.md"
+    assert packaged.read_text(encoding="utf-8") == skill.read_text(encoding="utf-8")
+
+
+def test_the_question_session_carries_the_skill_and_the_file(tmp_path: Path):
+    from jev_research_pipeline.init import question_session
+
+    argv = question_session(Path("/bin/claude"), "memo", tmp_path / "memo.md")
+    assert argv[:2] == ["/bin/claude", "--append-system-prompt"]
+    assert "# Questions for a jrp line" in argv[2]
+    assert "`memo`" in argv[3] and str(tmp_path / "memo.md") in argv[3]
+    assert "does not exist yet" in argv[3]

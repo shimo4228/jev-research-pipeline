@@ -6,6 +6,8 @@ jrp doctor         check what a run needs (env, config, questions, keys, the wri
 jrp init           write ~/.config/jrp/{env,config.toml,questions/} where missing (init)
 jrp try --line <slug>
                    one line, once, into a scratch store and vault; prints the note (init)
+jrp questions new --line <slug>
+                   a Claude Code session that writes the line's questions (skill jrp-question)
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
@@ -26,6 +28,7 @@ import argparse
 import asyncio
 import os
 import signal
+import subprocess
 import sys
 import webbrowser
 from collections.abc import Mapping
@@ -46,7 +49,7 @@ from .generation import (
 from .generation.claude_code import CLAUDE_BIN_ENV, claude_bin
 from .generation.codex import codex_auth_path, login
 from .generation.prose import INSTRUCTIONS
-from .init import init, init_lines, try_line
+from .init import init, init_lines, question_session, try_line
 from .note_text import LANGS, NOTE_LANG_ENV, Lang, note_lang
 from .pipeline import prose_bench as pb
 from .pipeline import prose_eval
@@ -58,7 +61,7 @@ from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, run_summary, store_dir
 from .quality import agreement, trusted_axes
-from .questions import NoQuestions
+from .questions import NoQuestions, questions_path
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
@@ -82,6 +85,9 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor")
     i = sub.add_parser("init", help="write ~/.config/jrp/{env,config.toml,questions/} if missing")
     i.add_argument("--lang", choices=list(LANGS), default="en", help="the notes' language")
+    qn = sub.add_parser("questions", help="set up a line's questions with Claude Code")
+    qn.add_argument("action", choices=["new"])
+    qn.add_argument("--line", required=True, help="line slug (config.toml track)")
     t = sub.add_parser("try", help="run one line once into a scratch store and vault")
     t.add_argument("--line", required=True, help="line slug (config.toml track)")
     sub.add_parser("fit")
@@ -172,6 +178,20 @@ async def _try(env: Mapping[str, str], slug: str) -> int:
     return 0 if ran.notes else 1
 
 
+def _questions_new(env: Mapping[str, str], slug: str) -> int:
+    """An interactive Claude Code session on the jrp-question procedure (init.question_session)."""
+    slugs = [t.slug for t in env_tracks(env)]
+    if slug not in slugs:
+        sys.stderr.write(f"no line {slug!r} in {config_path(env)} (lines: {', '.join(slugs)})\n")
+        return 1
+    binary = claude_bin(env)
+    if binary is None:
+        sys.stderr.write(f"no Claude Code CLI: install it, or set {CLAUDE_BIN_ENV}\n")
+        return 1
+    argv = question_session(binary, slug, questions_path(env, slug))
+    return subprocess.run(argv, check=False).returncode
+
+
 def _doctor(env: Mapping[str, str]) -> int:
     checks = doctor(env)
     sys.stdout.write("".join(f"{c.line()}\n" for c in checks))
@@ -255,17 +275,22 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> int:
-    if args.command == "init":
-        return _init(note_lang({NOTE_LANG_ENV: str(args.lang)}))
-    if args.command == "try":
-        return await _try(env, str(args.line))
-    if args.command == "queries":
-        return await _check_queries(env, str(args.line))
-    if args.command == "prose":
-        return await _prose(env, args)
-    if args.command == "codex":
-        return await _codex_login(env)
-    return await _drift(env, Path(args.cassettes))
+    match args.command:
+        case "init":
+            code = _init(note_lang({NOTE_LANG_ENV: str(args.lang)}))
+        case "try":
+            code = await _try(env, str(args.line))
+        case "questions":
+            code = _questions_new(env, str(args.line))
+        case "queries":
+            code = await _check_queries(env, str(args.line))
+        case "prose":
+            code = await _prose(env, args)
+        case "codex":
+            code = await _codex_login(env)
+        case _:
+            code = await _drift(env, Path(args.cassettes))
+    return code
 
 
 def _ids(raw: str | None) -> set[str] | None:

@@ -7,42 +7,17 @@
 
 問い（`questions/<slug>.md`）は著者が持つ。著者が気づいたときに更新する — pipeline が自動で
 新設・退役することはない（design「Authored queries」節）。agent がやるのは、著者の指示で
-問いを書き換えることと、その問いの検索クエリを書くこと。
+問いを書き換えることと、その問いの検索クエリを書くこと。手順の正本は repo の skill
+`jrp-question`（[.claude/skills/jrp-question/SKILL.md](.claude/skills/jrp-question/SKILL.md)）—
+テーマを聞く → 問い 2〜4 本と `not:` → 今週の語彙を検索 → アダプタごとのクエリ → `jrp queries check`
+で試し打ち → canary → `jrp try`。この repo では skill の `jrp …` を `uv run jrp …` で呼ぶ。
 
 **いつ**: 問いを足した・書き換えたとき / あるラインの note に 2 週間続けて動いた問いが無いとき /
 著者に頼まれたとき。
 
-1. **問いの block を読む**: 見出し・`brief`・`method`・`evidence`・`not`。クエリはこの問いの
-   答えを動かしうる文献を拾うためのもので、ラインの語彙全般ではない。`not:` の話題に当たる語は
-   クエリに入れない
-2. **今の語彙を確かめる（記憶から書かない）**: この分野の用語は週単位で変わる。直近の arXiv /
-   HF papers / GitHub を検索して、実際の論文・repo が使っている語を拾う。store にこの問いで
-   Keep された source があれば、そのタイトルの語も使う
-3. **アダプタごとに書く**（原則英語、1 行 1 クエリ、1 アダプタにつき 1–2 本）:
-   - `- arxiv:` 2–4 語。OpenAlex の全文検索（`search=`、arXiv の source に絞る）にそのまま渡る。
-     題名・抄録・本文が対象で、語は AND で結ばれ（語を足すほど狭まる）、stemming と stopword
-     除去がかかる。結果は直近 90 日の関連度順に 20 件で（関連度は被引用数も混ぜるので窓で新しさを保つ）、
-     OpenAlex の索引は arXiv の告知から約 3 日遅れる。
-     1 回 10 credit（OpenAlex の 1 日の枠を引用の網と共有）。引用符・ブール演算子は書かない
-   - `- github:` 短いキーワード。`topic:x` などの GitHub 修飾子は使える
-   - `- hf:` 自然な英語の句（HF papers の検索）
-   - `- web:` Tavily の Web 検索（`TAVILY_API_KEY` が要る。無料枠は月 1,000 回、basic 1 回 1 クレジット）。
-     一次資料が日本語の問い（個人ブログ・note など）は日本語のクエリも書いてよい
-   - 問いの見出し・`brief` は変えない（文面を変えたら `version` を上げる — evidence は新しい
-     版に引き継がれない）
-4. **試し打ちする**（repo root で。live に 1 クエリ 1 リクエスト、store には何も書かない）:
-
-   ```bash
-   set -a; source ~/.config/jrp/env; set +a
-   uv run jrp queries check --line <slug>
-   ```
-
-   - 0 件 → 語を減らす・言い換える
-   - 上位が別分野 → 語を足す・分野の語に替える
-   - 429 の `失敗` → 相手の rate limit。時間を置く。繰り返し回さない（arXiv は特に厳しい）
-   - 「クエリ未設定」の問いは実行時に keyword 検索を 1 本も送らない（他の net は走る）。必ず書く
-5. **commit して main に入れる**。launchd は main の checkout の `questions/` を読むので、
-   次の tick から効く
+この repo の著者環境では、`JRP_QUESTIONS_DIR` が main の checkout の `questions/` を指す
+（`~/.config/jrp/env`）。書き換えたら **commit して main に入れる** — launchd の 05:00 の run は
+main の checkout を読むので、次の tick から効く。
 
 ## 本文を磨く（prose bench）
 

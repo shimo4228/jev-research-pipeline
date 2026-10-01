@@ -15,6 +15,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
@@ -144,6 +145,24 @@ def try_dirs(now: datetime, *, root: Path = DATA_HOME) -> tuple[Path, Path]:
     store.mkdir(parents=True, exist_ok=True)
     vault.mkdir(parents=True, exist_ok=True)
     return store, vault
+
+
+QUESTION_SKILL: Final = "jrp-question.md"
+"""The skill `jrp questions new` hands to Claude Code: the package's copy of
+.claude/skills/jrp-question/SKILL.md (tests/test_init.py pins the two equal), so an
+installed jrp has it outside the repo."""
+
+
+def question_session(binary: Path, slug: str, path: Path) -> list[str]:
+    """The argv of an interactive Claude Code session that runs the jrp-question procedure
+    for one line. Interactive, not `claude -p`: the procedure interviews the person."""
+    skill = (files("jev_research_pipeline") / "skills" / QUESTION_SKILL).read_text(encoding="utf-8")
+    exists = "It exists: read it first." if path.exists() else "It does not exist yet."
+    ask = (
+        f"Set up the questions of the jrp line `{slug}` with the procedure in your system "
+        f"prompt. The question file is {path}. {exists}"
+    )
+    return [str(binary), "--append-system-prompt", skill, ask]
 
 
 @dataclass(frozen=True)

@@ -789,6 +789,20 @@ On Opus, with the English self-check en-check1:
 Review-when: a native English reader finds the drafts hard going, or production en notes
 template more often than ja.
 
+### Prose in Chinese (2026-10-01, plan productize-en-zh P1)
+
+zh1 (bench/prose/prompts/zh1.md + zh-check1.md): v15's design written for Simplified
+Chinese — short sentences, no translationese (被 overuse, 进行…, 的 chained), Chinese even when
+the question is Japanese, paragraphs only, one 【推论】 paragraph. Judge rubric
+docs/prose-rubric.zh.md; reader and grader instructions in Chinese. On Opus over ja-v15's
+32 cases: cutoff 32/32 (ja-v15 28/32), facts 0.921 (0.903), misbeliefs 75 (76), stops 1.62
+a draft (1.88), median 1,765 chars; one draft failed the code gate (an uncited setup
+paragraph). The reader stops on the same kind of thing as in ja (a mechanism or a term
+left unexplained). Accepted on the proxies alone: the author does not read Chinese, and
+the README says so (plan P4).
+Review-when: a Chinese-reading user finds the notes hard going, or production zh notes
+template more often than ja.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
