@@ -390,7 +390,7 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
 
 Machine-checkable necessary conditions per 3-line run; the author's reading is the
 sufficient condition. (1) 3 lines ≤ 5 min, cost ≤ $0.30; (2) note ≤ 12 KB, Review ≤ 10,
-橋渡し ≤ 5, unjudged < 5% of pairs; (3) prose for every question with a Keep, all [n]
+橋渡し ≤ 5, unjudged < 5% of pairs (> **注記（2026-10-01）**: the 12 KB now excludes the prose — the author made prose length no criterion, so a note grows with its sections, ~6-9 KB each; plan daily-tool-hardening); (3) prose for every question with a Keep, all [n]
 resolve; (4) obviously off-topic papers Drop, jev canaries Keep; (5) no adapter failure
 lines except web_search skip; (6) no stack traces; (7) a fresh-context Opus judge (not the implementer) reads the
 three final notes against a six-axis rubric and returns Publishable / Fix / Rewrite,

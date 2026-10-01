@@ -359,7 +359,7 @@ def test_a_note_over_the_cap_drops_review_from_the_far_end_and_says_so():
     text, ops = fitted(rendered, ["base"], review)
     assert len(text.encode()) <= run.NOTE_MAX_BYTES
     assert [e.source_id for e in review] == ["s0", "s1"]
-    assert ops == ["base", "note 12 KB のため省略: Review 3 件"]
+    assert ops == ["base", "note 12 KB (本文を除く) のため省略: Review 3 件"]
 
 
 def test_the_prose_does_not_count_against_the_note_cap():

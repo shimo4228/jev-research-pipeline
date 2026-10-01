@@ -132,4 +132,12 @@ def test_a_polite_sentence_is_a_gate_the_plain_register_is_not():
     assert "です・ます調の文がある" not in pb.gates(plain, 1)
     for polite in ("冒頭の段落です。[1]", "改善しました [1]", "調べました。[1] (S1)"):
         assert "です・ます調の文がある" in pb.gates(f"{polite}\n\n【推論】次に確かめる。", 1)
-    assert "です・ます調の文がある" not in pb.gates("ますます増えた。[1]\n\n【推論】x。", 1)
+    for plain in ("ますます増えた。[1]", "熱を冷ます。[1]", "「かもしれません」と述べる。[1]"):
+        assert "です・ます調の文がある" not in pb.gates(f"{plain}\n\n【推論】x。", 1), plain
+    for polite in (
+        "確かめましょう。[1]",
+        "使えますか。[1]",
+        "見てください。[1]",
+        "改善します\uff08S1\uff09",
+    ):
+        assert "です・ます調の文がある" in pb.gates(f"{polite}\n\n【推論】x。", 1), polite

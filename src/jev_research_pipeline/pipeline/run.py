@@ -1390,7 +1390,7 @@ def _fitted(
     while len(text.encode()) > NOTE_MAX_BYTES + prose_bytes and review:
         review.pop()
         dropped += 1
-        ops = [*lines, f"note 12 KB のため省略: Review {dropped} 件"]
+        ops = [*lines, f"note 12 KB (本文を除く) のため省略: Review {dropped} 件"]
         text = rendered(ops)
     return text, ops
 
