@@ -192,6 +192,44 @@ async def test_a_paragraph_that_restates_a_claim_in_the_questions_terms_is_sent_
         assert json.dumps(FIDELITY_FEEDBACK, ensure_ascii=False)[1:-1][:20] in seen[1]
 
 
+async def test_a_study_name_line_is_not_a_paragraph_to_check(cassette: ClientFactory):
+    """v10-v15 put each study under a bold name line of its own. Checked alone it cites
+    nothing, so it was judged against every claim and could send a whole draft back
+    (2026-10-01: "**Guard Models …**" at 0.83). Only the paragraphs under it are checked."""
+    from jev_research_pipeline.jev import JevClient
+
+    prose = "今日の研究 [1]。\n\n**Mnemon**\n\nMnemon は記録を判定する [1]。"
+
+    async def jev_handler(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        if "exceeds_claims" in body["questions"]:
+            # the name line alone would be judged as going beyond the claims
+            p = 0.9 if "**Mnemon**" in json.dumps(body, ensure_ascii=False) else 0.1
+            return await fake_jev({"exceeds_claims": p})(request)
+        return await fake_jev({"unsupported_statement": 0.1})(request)
+
+    rendering, judged = await rubric_ladder(
+        jev=JevClient(cassette(jev_handler), api_key="replay"),
+        model=qwen_model(cassette(fake_qwen(prose))),
+        ctx=CTX,
+        question=b.question(),
+        report_id=b.report().id,
+        claims=[b.claim().text],
+        meter=GenerationMeter(),
+        now=b.T0,
+        check=None,
+    )
+    assert rendering.rendering == "prose"
+    fidelity = [j for j in judged if j.bundle_sha256 == rubric_report.FIDELITY_ASK.sha256]
+    assert len(fidelity) == 2  # the lead and Mnemon's paragraph, not the name line
+
+
+def test_a_paragraph_below_the_fidelity_bar_is_accepted():
+    """0.7 (2026-10-01): at 0.6 the check templated 25 of 28 v15 drafts the bench judge
+    passed, and its accepted drafts were no more faithful (design "Production check")."""
+    assert rubric_report.FIDELITY_THRESHOLDS[0].value == 0.7
+
+
 async def test_rubric_ladder_template_when_both_drafts_fail(cassette: ClientFactory):
     from jev_research_pipeline.jev import JevClient
 

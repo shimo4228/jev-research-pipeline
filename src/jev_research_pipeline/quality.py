@@ -23,6 +23,7 @@ from .generation.prose import (
     CHECK_INSTRUCTIONS,
     NO_DIRECT_EVIDENCE,
     PROSE_TIMEOUT_S,
+    STUDY_NAME_LINE,
     evidence_text,
 )
 from .jev import JevClient, Judged, rubric_claim, rubric_report
@@ -214,7 +215,9 @@ async def rubric_ladder(
                     now=now,
                 )
                 for p in evidence.split("\n\n")
-                if p.replace(NO_DIRECT_EVIDENCE, "").strip()
+                # a study's bold name line says nothing to check, and citing nothing it
+                # would be judged against every claim
+                if p.replace(NO_DIRECT_EVIDENCE, "").strip() and not STUDY_NAME_LINE.match(p)
             )
         )
         for check in checks:

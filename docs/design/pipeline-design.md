@@ -451,7 +451,7 @@ before it. Built, design unchanged (questions, nets, report format as above):
 - batch size 8 → 1 (slot bleed: 11/20 route agreement, bar 90%).
 - Qwen enable_thinking off everywhere (measured 2–3× faster; the 122 s prose was thinking).
 - question proposals timeout 30 s → 120 s.
-- rubric_report claim_fidelity (new axis, one Noul per evidence paragraph): p ≥ 0.6 that a paragraph exceeds the claims it cites → one rewrite with a fidelity feedback → template (final-run judge, 2026-09-23).
+- rubric_report claim_fidelity (new axis, one Noul per evidence paragraph): p ≥ 0.6 that a paragraph exceeds the claims it cites → one rewrite with a fidelity feedback → template (final-run judge, 2026-09-23). Bar 0.6 → 0.7 and study name lines skipped on 2026-10-01 ("Production check vs the prose bench").
 - Jev transient failure (timeout, connection, 408/429/5xx): one retry after 2 s, counted in 運用.
 - condition 1 relaxed: a tick (3 rotated lines + daily) ≤ 10 min (author, 2026-09-23 15:00).
 - prose (qwen3.8-max) thinks again (`JRP_PROSE_THINKING=always`), timeout 300 → 900 s (≈ 1.8x the slowest draft seen, 496 s under contention; a draft past ~7 min breaks the 10-min tick anyway): blind A/B on 7 question-days, thinking won 6/7 and had no fidelity flag (docs/pilot-log.md). The structured-output site stays without thinking.
@@ -700,6 +700,43 @@ within an eval loop. GPT is kept for the transfer check only (20 requests, used 
   author's blind read of prod / gpt-v14 / opus-v14 (5 cases).
 Review-when: the author's blind read disagrees with the cutoff's direction, or a new GPT
 model makes the transfer check worth re-running.
+
+### Production check vs the prose bench (2026-10-01, plan productize-en-zh P0)
+
+The author chose Opus × v15 + check9 for production (blind read 5/5), but a scratch run on
+the jev line sent every Opus section to the template. Replaying both production checks
+(rubric_report, then claim_fidelity per evidence paragraph) over the 151 bench drafts that
+carry a judge verdict (c10o / c12o / c14o / c15o / prod / g14; scratch `lab.py`, not kept):
+- **The checks did not track fidelity.** At v1 + 0.6 they accepted 24 of the 120 drafts the
+  bench judge passed and 10 of the 31 it failed; on c15o, 3 of 28 passes. AUROC against
+  the judge's verdict: unsupported_statement 0.42, worst paragraph's exceeds_claims 0.54.
+- **Three causes, all in the check.** (1) Each study's bold name line (v10 on) was checked as
+  a paragraph of its own; citing nothing, it was judged against every claim
+  ("**Guard Models …**" 0.83 sent a whole draft back). (2) rubric_report v1 asked whether
+  a fact is backed by `claims` while its state carried `known` (evidence set and source
+  excerpts) for exactly that purpose; v15's background comes from the excerpts by design,
+  so it read as unsupported (u 0.70-0.86 on drafts the judge passed). (3) At 0.6 the
+  fidelity bar sits inside the paragraphs' ordinary spread for v15's paraphrase and glossing
+  (0.4-0.75); scoping a (S)-only paragraph to its own source's claims changed nothing.
+- **Fix (check, not prose).** Name lines skipped; rubric_report v2 names `known`; fidelity
+  bar 0.7. Over the 151: 77 of 120 passes and 14 of 31 fails accepted, so the accepted drafts
+  are faithful 85% of the time against 71% before; Opus drafts (c1x) 65/106 and 7/22
+  (90% vs 79%); holdout Opus 29/46 and 2/10 (old: 4/46 and 0/10). Before the rewrite, so a
+  section's prose rate is higher. Synthetic misattributions of the guard-model paragraph
+  (Jev as subject 0.46, framed as a Jev failure venue 0.54, scope widened 0.40) passed at
+  0.6 already; an explicit conclusion about Jev (0.74) is still sent back at 0.7.
+- **Opus still templates on the jev line.** Replaying the scratch run's three question-days
+  with the fix: 1 of 3 sections prose (0 of 3 before). The two templated sections fell on
+  setup paragraphs the bench rubric allows (0.77-0.84), among them the guard-model paragraph
+  that opens "この研究の対象は Jev ではない" (0.84): the check is primed by a question about
+  Jev. A reworded question (fidelity_v2: glossing a term and saying what the study is not
+  about allowed) separated no better (AUROC 0.67 vs 0.68 on Opus drafts); not kept.
+  Production stays on gpt-6-luna until the author settles the gate below.
+- **Not decided**: whether claim_fidelity should stay a gate at all — it separates weakly
+  (AUROC 0.68 on Opus drafts) and misses the subject swaps it was mandated for; the bench
+  judge catches those (Q4). Keeping it costs about a quarter of good Opus drafts at the first try (95 → 65 of 106).
+Review-when: the author reads a published section as unfaithful, or the template rate in
+the 運用 section stays above one section in three for a week.
 
 ### Non-goals (explicit)
 

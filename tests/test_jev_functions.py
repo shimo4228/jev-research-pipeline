@@ -299,6 +299,15 @@ async def test_rubric_report_unsupported_statement_fails(cassette: ClientFactory
     assert rubric_report.decision(result).outcome == "reject"
 
 
+def test_rubric_report_asks_about_known_as_well_as_claims():
+    """The state carries `known` (the evidence set and the source excerpts) so that prose
+    grounded there is not unsupported; v1's question named `claims` alone, and Jev read v15's
+    excerpt-based background as unsupported (2026-10-01: 0.82 on drafts the bench passed)."""
+    question = rubric_report.Answers.model_fields["unsupported_statement"].description or ""
+    assert "`known`" in question
+    assert rubric_report.ASK.version == "v2"
+
+
 # --- review fixes (1e43f6f): excerpt window, injection scope, subject wiring, per-adapter k --
 
 

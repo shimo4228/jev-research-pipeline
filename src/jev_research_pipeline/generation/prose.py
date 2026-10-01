@@ -46,6 +46,9 @@ NO_DIRECT_EVIDENCE: Final = "この問いの対象への直接の証拠は無い
 """Written verbatim when the claims are about something else (author mandate 2026-09-23);
 it is the pipeline's own statement, not a claim's, so the fidelity check leaves it out."""
 
+STUDY_NAME_LINE: Final = re.compile(r"\s*\*\*[^*\n]+\*\*\s*$")
+"""A paragraph that is only a study's bold name line (v10 on: "**EvalMem**")."""
+
 SOURCE_EXCERPT_CHARS: Final = 1500
 """Per source, sent with the claims: enough of an abstract to say what the work did."""
 
