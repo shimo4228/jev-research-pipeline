@@ -85,7 +85,7 @@ async def test_an_arxiv_canary_openalex_has_not_indexed_is_a_line_not_a_crash():
         now=b.T0,
         env={},
     )
-    assert got == "OpenAlex 未収録 (索引待ち)"
+    assert got == "not_indexed"
 
 
 async def test_an_arxiv_canary_429_quiets_openalex_for_the_rest_of_the_day():

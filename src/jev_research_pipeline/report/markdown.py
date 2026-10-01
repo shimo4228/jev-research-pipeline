@@ -21,6 +21,9 @@
     - [<Jev function>] <source title | claim text | question title>
     ## 運用
 
+The fixed text above is the Japanese of note_text (JRP_NOTE_LANG picks en or zh); the
+marks, `## Review` and the folded Claims are the same in every language.
+
 The machine-read lines are exactly the three `<!-- jrp:… -->` marks above; one checkbox
 per question-day is the primary metric's unit, and its tick propagates to the claims and
 sources cited under it (report.vault).
@@ -41,9 +44,11 @@ from datetime import date
 from typing import Final
 from urllib.parse import quote
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import Claim, JevFunction, Report
 from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.note_text import Lang
 
 CATEGORY: Final = "jrp"
 KIND: Final = "report"
@@ -142,8 +147,8 @@ def safe_url(url: str) -> str | None:
     return quote(url, safe=":/?#@!&=+,;%~-._*'")
 
 
-def _frontmatter(report: Report, ctx: LineContext, n_sections: int) -> str:
-    topic = f"{ctx.line.name} — {n_sections} 問い"
+def _frontmatter(report: Report, ctx: LineContext, n_sections: int, lang: Lang) -> str:
+    topic = t.TOPIC(lang, line=ctx.line.name, n=n_sections)
     fields = [
         f"date: {report.run_date.isoformat()}",
         f"category: {CATEGORY}",
@@ -177,36 +182,37 @@ def qday_mark(question_id: str, run_date: date) -> str:
     return f"{QDAY_MARK}{question_id}:{run_date.isoformat()}"
 
 
-def _question_section(section: QuestionSection, run_date: date) -> str:
-    body = (
-        sanitize(section.prose)
-        if section.prose is not None
-        else "本文生成なし (template)。証拠だけを挙げる。"
-    )
+def _question_section(section: QuestionSection, run_date: date, lang: Lang) -> str:
+    body = sanitize(section.prose) if section.prose is not None else t.TEMPLATE_BODY(lang)
     lines = [
         f"### {sanitize(section.title, one_line=True)}",
         "",
-        "今日の変化",
+        t.CHANGES(lang),
         "",
         body,
         "",
-        "証拠",
+        t.EVIDENCE(lang),
         "",
         *[_source_line(e) for e in section.evidence],
         "",
         *(
-            ["反証", "", *[f"- {sanitize(c, one_line=True)}" for c in section.contradictions], ""]
+            [
+                t.COUNTER_EVIDENCE(lang),
+                "",
+                *[f"- {sanitize(c, one_line=True)}" for c in section.contradictions],
+                "",
+            ]
             if section.contradictions
             else []
         ),
-        f"- [ ] 読む価値があった <!-- {qday_mark(section.question_id, run_date)} -->",
+        f"- [ ] {t.WORTH_READING(lang)} <!-- {qday_mark(section.question_id, run_date)} -->",
         "",
     ]
     return "\n".join(lines)
 
 
-def _bullets(lines: list[str]) -> str:
-    return ("\n".join(lines) + "\n") if lines else "(なし)\n"
+def _bullets(lines: list[str], lang: Lang) -> str:
+    return ("\n".join(lines) + "\n") if lines else t.NONE_LISTED(lang) + "\n"
 
 
 def render_report(
@@ -220,27 +226,29 @@ def render_report(
     unjudged: list[UnjudgedEntry],
     operations: list[str],
     empty_day: str = "",
+    lang: Lang = t.DEFAULT_LANG,
 ) -> str:
     """`sections` = the questions that moved today, in reading order; `claims` is the
     folded list (report.claims). Everything else is display lines, sanitized here.
     `empty_day` says why no question moved (what was fetched, how far it got) — a note
-    that only says "nothing moved" cannot be told apart from a broken run."""
+    that only says "nothing moved" cannot be told apart from a broken run. `lang` picks the
+    fixed text (note_text); the marks and `## Review` / Claims are the same in every one."""
     date_ = report.run_date
     parts = [
-        _frontmatter(report, ctx, len(sections)),
+        _frontmatter(report, ctx, len(sections), lang),
         f"# {sanitize(ctx.line.name, one_line=True)} — {date_.isoformat()}\n",
-        "\n".join(_question_section(s, date_) for s in sections)
+        "\n".join(_question_section(s, date_, lang) for s in sections)
         if sections
-        else f"今日動いた問いはない。{sanitize(empty_day, one_line=True)}\n",
+        else t.NOTHING_MOVED(lang, why=sanitize(empty_day, one_line=True)) + "\n",
         "## Review\n",
-        _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review]),
-        "## 橋渡し\n",
-        _bullets([_source_line(e) for e in bridges]),
+        _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review], lang),
+        f"## {t.BRIDGES(lang)}\n",
+        _bullets([_source_line(e) for e in bridges], lang),
         "> [!note]- Claims\n",
-        _bullets([f"> {claim_line(e)}" for e in claims]),
-        "## 未判定\n",
-        _bullets([f"- [{u.function}] {sanitize(u.text, one_line=True)}" for u in unjudged]),
-        "## 運用\n",
+        _bullets([f"> {claim_line(e)}" for e in claims], lang),
+        f"## {t.UNJUDGED(lang)}\n",
+        _bullets([f"- [{u.function}] {sanitize(u.text, one_line=True)}" for u in unjudged], lang),
+        f"## {t.OPERATIONS(lang)}\n",
         "\n".join(f"- {sanitize(o, one_line=True)}" for o in operations) + "\n",
     ]
     return "\n".join(parts)

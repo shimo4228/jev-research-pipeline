@@ -14,8 +14,10 @@ import shutil
 from datetime import date
 from pathlib import Path
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.model import from_document
 from jev_research_pipeline.model.jsonld import CONTEXT
+from jev_research_pipeline.note_text import Lang
 
 from .graph import Partition
 from .schema import Inspection, StoreSchemaError, inspect_partition
@@ -40,7 +42,7 @@ def _rewrite(path: Path) -> None:
     Partition(path).write_all(nodes)
 
 
-def prepare_store(root: Path) -> list[str]:
+def prepare_store(root: Path, lang: Lang = t.DEFAULT_LANG) -> list[str]:
     notes: list[str] = []
     for path in partition_files(root):
         found = inspect_partition(path)
@@ -48,7 +50,7 @@ def prepare_store(root: Path) -> list[str]:
             raise StoreSchemaError(path, found)
         if found.verdict == "additive":
             _rewrite(path)
-            notes.append(f"store: {_relative(root, path)} を現行 schema に移行 ({found.detail})")
+            notes.append(t.STORE_MIGRATED(lang, path=_relative(root, path), detail=found.detail))
     return notes
 
 

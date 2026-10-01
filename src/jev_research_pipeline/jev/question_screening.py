@@ -18,8 +18,10 @@ from typing import Final, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
 from pydantic_ai import UseEnumMemberDocstrings
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.model import Decision, Question, SourceItem, Threshold
 from jev_research_pipeline.model.nodes import Probability
+from jev_research_pipeline.note_text import Lang
 
 from .context import LineContext, line_state, source_state
 from .core import (
@@ -258,14 +260,15 @@ def _placed(result: Judged[Answers]) -> Route:
     return "keep"
 
 
-def review_reason(result: Judged[Answers]) -> str:
+def review_reason(result: Judged[Answers], lang: Lang = t.DEFAULT_LANG) -> str:
     """One line on why a judged source sits in Review (the author reads it next to the tick)."""
     score = weighted(result)
     keep = threshold(THRESHOLDS, "keep")
     if score < keep:
-        return f"境界: 重み付き {score:.2f} (採用線 {keep:.2f})"
+        return t.BORDERLINE(lang, score=f"{score:.2f}", keep=f"{keep:.2f}")
     sure = certainty(result, ROUTING_FIELDS)
-    return f"確信度不足: {sure:.2f} (< {threshold(THRESHOLDS, 'min_certainty'):.2f})"
+    floor = threshold(THRESHOLDS, "min_certainty")
+    return t.LOW_CERTAINTY(lang, sure=f"{sure:.2f}", floor=f"{floor:.2f}")
 
 
 def review_distance(result: Judged[Answers]) -> float:

@@ -19,7 +19,7 @@ import html
 import re
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Final
+from typing import Final, Literal
 
 import httpx2
 from pydantic import AwareDatetime
@@ -92,6 +92,11 @@ def plan(url: str) -> tuple[Adapter, str] | None:
     return None
 
 
+type CanaryMiss = Literal["not_https", "not_indexed", "empty"]
+"""Why a canary came back with no source and no fetch failure; the note words it
+(note_text.CANARY_NOT_HTTPS / CANARY_NOT_INDEXED / CANARY_EMPTY)."""
+
+
 async def fetch(
     client: httpx2.AsyncClient,
     line: Line,
@@ -99,14 +104,14 @@ async def fetch(
     *,
     now: AwareDatetime,
     env: Mapping[str, str],
-) -> SourceItem | FetchFailure | str:
+) -> SourceItem | FetchFailure | CanaryMiss:
     """The canary as a SourceItem; the FetchFailure when the fetch failed, so the caller
     can tell a rate limit (a policy signal for the whole pool) from any other failure; or
-    a one-line reason for everything else (not https, OpenAlex has not indexed it yet,
-    nothing came back)."""
+    why there is nothing else (not https, OpenAlex has not indexed it yet, nothing came
+    back)."""
     planned = plan(url)
     if planned is None:
-        return "https でない URL"
+        return "not_https"
     adapter, query = planned
     out = await adapter.fetch(client, line, query, now=now, env=env)
     if (
@@ -114,7 +119,7 @@ async def fetch(
         and out.failure is not None
         and out.failure.detail.startswith("404 ")
     ):
-        return "OpenAlex 未収録 (索引待ち)"
+        return "not_indexed"
     if out.failure is not None:
         return out.failure
-    return out.sources[0] if out.sources else "取得結果なし"
+    return out.sources[0] if out.sources else "empty"

@@ -42,6 +42,7 @@ import bm25s  # pyright: ignore[reportMissingTypeStubs]
 import httpx2
 from pydantic import AwareDatetime, JsonValue
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.adapters import (
     Adapter,
     FetchFailure,
@@ -52,6 +53,7 @@ from jev_research_pipeline.adapters import (
     semantic_scholar,
 )
 from jev_research_pipeline.model import DiscoveryNet, Line, SourceItem
+from jev_research_pipeline.note_text import Lang, note_lang
 from jev_research_pipeline.store import Partition
 
 NET_ORDER: Final[tuple[DiscoveryNet, ...]] = (
@@ -335,12 +337,17 @@ class NetOutcome:
     failures: list[str] = field(default_factory=list[str])
     """`<net>/<adapter> <reason>` per failed request, for the run's health (pipeline.health);
     an adapter skipped for an unset key is intended and not listed."""
+    rate_limited: list[str] = field(default_factory=list[str])
+    """`<net>/<adapter>` of every source a rate limit stopped for the day (the empty-day
+    sentence names them)."""
+    lang: Lang = t.DEFAULT_LANG
+    """The language of `notes` (note_text)."""
 
 
-def _fetch_notes(request: NetRequest, out: FetchOutcome) -> list[str]:
+def _fetch_notes(request: NetRequest, out: FetchOutcome, lang: Lang) -> list[str]:
     """Operations lines of one successful fetch: dropped results."""
     if out.skipped:
-        return [f"{_source_key(request)}: 検証落ちで {out.skipped} 件 skip"]
+        return [t.VALIDATION_SKIPPED(lang, source=_source_key(request), n=out.skipped)]
     return []
 
 
@@ -362,7 +369,7 @@ def _held_back(
     if budget.spent >= cap:
         if "openalex_cap" not in budget.reported:
             budget.reported.add("openalex_cap")
-            outcome.notes.append("openalex: 1 日の credit 上限に達したため以降を省略")
+            outcome.notes.append(t.OPENALEX_CAP(outcome.lang))
         return True
     return False
 
@@ -375,7 +382,14 @@ def _record_failure(
     request: NetRequest, failure: FetchFailure, budget: DayBudget, outcome: NetOutcome
 ) -> None:
     """A failed request is a line in the operations section, never the end of the run."""
-    outcome.notes.append(f"{_source_key(request)}: fetch 失敗 ({failure.reason} {failure.detail})")
+    outcome.notes.append(
+        t.FETCH_FAILED(
+            outcome.lang,
+            source=_source_key(request),
+            reason=failure.reason,
+            detail=failure.detail,
+        )
+    )
     if failure.reason != "missing_key":
         outcome.failures.append(f"{_source_key(request)} {failure.reason}")
     if "rate_limit" in failure.detail:
@@ -386,7 +400,8 @@ def _record_failure(
         budget.quiet.add(_source_key(request))
         if request.adapter.credit_cost:
             budget.quiet.add(OPENALEX)
-        outcome.notes.append(f"{_source_key(request)}: rate limit のため本日は打ち切り")
+        outcome.rate_limited.append(_source_key(request))
+        outcome.notes.append(t.RATE_LIMITED(outcome.lang, source=_source_key(request)))
 
 
 async def _sendable(
@@ -408,7 +423,9 @@ async def _sendable(
         _record_failure(request, found, budget, outcome)
         return None
     if found is None:
-        outcome.notes.append(f"{_source_key(request)}: {work} は OpenAlex 未収録のため省略")
+        outcome.notes.append(
+            t.NOT_IN_OPENALEX(outcome.lang, source=_source_key(request), work=work)
+        )
         return None
     return replace(request, query=openalex.cites_token(found))
 
@@ -453,9 +470,9 @@ def _capped(
     dropped = len(fresh) - room
     by_relevance = ranked(fresh, query) if room else None
     if by_relevance is not None:
-        outcome.notes.append(f"firehose: 関連度順に上位 {room} 件 ({dropped} 件を省略)")
+        outcome.notes.append(t.FIREHOSE_RANKED(outcome.lang, room=room, dropped=dropped))
         return by_relevance[:room]
-    outcome.notes.append(f"firehose: 上限 {cap} 件のため {dropped} 件を省略")
+    outcome.notes.append(t.FIREHOSE_CAP(outcome.lang, cap=cap, dropped=dropped))
     return fresh[:room]
 
 
@@ -507,7 +524,7 @@ async def fetch_nets(
     so the caller can start judging them while the later (paced) requests still wait.
     `firehose_query` is the line's English query text the arXiv listing is ranked by when
     it overflows the firehose cap (HF daily keeps its place ahead: it is curated)."""
-    outcome = NetOutcome()
+    outcome = NetOutcome(lang=note_lang(env))
     budget = (day or DayBudget()).for_day(now.date().isoformat())
     cap = config.credit_cap(env)
     seen: set[str] = set()
@@ -535,7 +552,7 @@ async def fetch_nets(
         if sent is None:
             continue
         request, out = sent
-        outcome.notes += _fetch_notes(request, out)
+        outcome.notes += _fetch_notes(request, out, outcome.lang)
         fresh = [s for s in out.sources if s.id not in seen]
         if request.net == "firehose":
             query = firehose_query if request.adapter.kind == "arxiv" else ""

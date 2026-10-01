@@ -17,6 +17,7 @@ Environment (nothing is guessed):
     JRP_QUESTIONS_DIR      optional question-file root (default ./questions)
     JRP_JEV_CONCURRENCY    optional Jev requests in flight (default 12; pipeline.concurrency)
     JRP_PROSE_CONCURRENCY  optional prose calls in flight (default 3)
+    JRP_NOTE_LANG          optional note language, ja | en | zh (default ja; note_text)
 
 The store is checked before anything else (store.migrate.prepare_store).
 """
@@ -31,6 +32,7 @@ from typing import Final
 import httpx2
 from pydantic import AwareDatetime
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.generation import (
     MissingCredentials,
     ModelSpecError,
@@ -40,6 +42,7 @@ from jev_research_pipeline.generation import (
 )
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
 from jev_research_pipeline.model import GraphNodeType, QuestionLog, Report
+from jev_research_pipeline.note_text import DEFAULT_LANG, BadNoteLang, Lang, note_lang
 from jev_research_pipeline.questions import (
     NO_QUESTIONS,
     NoQuestions,
@@ -76,12 +79,19 @@ def keys(env: Mapping[str, str]) -> tuple[Keys, ProseAuth]:
         raise MissingKey(f"missing env: {', '.join(missing)}")
     try:
         prose = prose_auth(env)
-    except (ModelSpecError, MissingCredentials) as e:
+        note_lang(env)
+    except (ModelSpecError, MissingCredentials, BadNoteLang) as e:
         raise MissingKey(str(e)) from e
     return Keys(typesafe=env["TYPESAFE_API_KEY"]), prose
 
 
-def harvest_line(store: GraphStore, vault: Path, slug: str, now: AwareDatetime) -> list[str]:
+def harvest_line(
+    store: GraphStore,
+    vault: Path,
+    slug: str,
+    now: AwareDatetime,
+    lang: Lang = DEFAULT_LANG,
+) -> list[str]:
     """Labels from every jrp note of the line into its partition. Nothing is written to the
     question file: questions are the author's (design "Authored queries")."""
     part = store.line(slug)
@@ -109,7 +119,7 @@ def harvest_line(store: GraphStore, vault: Path, slug: str, now: AwareDatetime) 
         # are a withdrawal worth reporting.
         withdrawn += part.remove(result.cleared)
         labels += len(result.labels)
-    lines = [f"harvest: label {labels} 件 / 取り消し {withdrawn} 件"]
+    lines = [t.HARVEST(lang, labels=labels, withdrawn=withdrawn)]
     return lines + [f"harvest skip: {s}" for s in skipped]
 
 
@@ -155,13 +165,14 @@ async def run_pipeline(
     store = GraphStore(store_dir(env))
     # Before anything is read: an old store is migrated (additive) or stops the run here
     # with one line (incompatible), never halfway through a line.
-    migrated = prepare_store(store.root)
+    lang = note_lang(env)
+    migrated = prepare_store(store.root, lang)
     # A daily track runs on every tick, beside the rotation (daily-research's `daily = true`).
     daily = tuple(t.slug for t in tracks.values() if t.daily)
     harvested = {
         slug: [
             *(n for n in migrated if f"lines/{slug}.jsonld" in n),
-            *harvest_line(store, vault, slug, now),
+            *harvest_line(store, vault, slug, now, lang),
         ]
         for slug in (*rotation.order, *daily)
     }

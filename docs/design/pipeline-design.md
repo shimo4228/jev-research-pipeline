@@ -738,6 +738,19 @@ carry a judge verdict (c10o / c12o / c14o / c15o / prod / g14; scratch `lab.py`,
 Review-when: the author reads a published section as unfaithful, or the template rate in
 the 運用 section stays above one section in three for a week.
 
+### Note language (2026-10-01, plan productize-en-zh P1)
+
+`JRP_NOTE_LANG = ja | en | zh` (default ja; anything else stops the run at the start).
+Every fixed text of a note — headings, the template line, the empty-day sentence, the
+operations section, Review reasons, rule candidates — is one `Msg` in `note_text.py` with
+the three languages side by side; tests/test_note_text.py checks that the three carry the
+same placeholders and that the en column has no Japanese. What is read back does not
+change: the three `<!-- jrp:… -->` marks, `## Review` and `> [!note]- Claims` are the same
+in every language, so ticks harvest alike. Third-party text (claims, titles) stays as
+fetched. Not yet per language: the prose prompt and the rubric's readability question
+(next step of P1), the CLI's own messages, and a store migration's detail text.
+Review-when: a fourth language is asked for, or a text is found that bypasses note_text.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

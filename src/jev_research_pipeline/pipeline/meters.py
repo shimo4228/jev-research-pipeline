@@ -18,8 +18,10 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Final
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.adapters import openalex
 from jev_research_pipeline.model import Claim, DiscoveryNet, Label, SourceItem, Unit
+from jev_research_pipeline.note_text import Lang
 
 MIN_POINTS: Final = 3
 """Below this many runs a fit is a line through noise; the meter says so instead."""
@@ -105,28 +107,30 @@ def lines(
     fit: float | None,
     openalex_credits: int,
     ttd: float | None = None,
+    lang: Lang = t.DEFAULT_LANG,
 ) -> list[str]:
     """The operations section's discovery block."""
+    none = t.NONE_WORD(lang)
+    counts = ", ".join(f"{net} {n}" for net, n in sorted(per_net_sources.items()))
+    net_shares = ", ".join(f"{net} {share:.2f}" for net, share in sorted(shares.items()))
+    before = (
+        t.CLUSTERS_BEFORE(
+            lang,
+            n=previous_clusters,
+            fewer=t.CLUSTERS_FEWER(lang) if clusters < previous_clusters else "",
+        )
+        if previous_clusters is not None
+        else ""
+    )
     out = [
-        "net 取得数: "
-        + (", ".join(f"{net} {n}" for net, n in sorted(per_net_sources.items())) or "なし"),
-        "net 採用率: "
-        + (", ".join(f"{net} {share:.2f}" for net, share in sorted(shares.items())) or "なし"),
-        f"topic クラスタ数: {clusters}"
-        + (
-            f" (前回 {previous_clusters}{'・減少' if clusters < previous_clusters else ''})"
-            if previous_clusters is not None
-            else ""
-        ),
-    ]
-    out.append(
-        f"収束推定 f: {fit:.2f}" if fit is not None else "収束推定 f: データ不足 (3 run 未満)"
-    )
-    out.append(
-        f"Time-to-Discovery 中央値: {ttd:.1f} 日"
+        t.NET_SOURCES(lang, counts=counts or none),
+        t.NET_SHARES(lang, shares=net_shares or none),
+        t.TOPIC_CLUSTERS(lang, n=clusters) + before,
+        t.CONVERGENCE(lang, f=f"{fit:.2f}") if fit is not None else t.CONVERGENCE_NONE(lang),
+        t.TIME_TO_DISCOVERY(lang, days=f"{ttd:.1f}")
         if ttd is not None
-        else "Time-to-Discovery: 未計測"
-    )
+        else t.TIME_TO_DISCOVERY_NONE(lang),
+    ]
     if openalex_credits:
         out.append(f"openalex credit: {openalex_credits}")
     return out

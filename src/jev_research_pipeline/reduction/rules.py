@@ -12,8 +12,10 @@ from collections.abc import Callable
 from datetime import date
 from typing import Final
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.model import Decision, SourceItem
 from jev_research_pipeline.model.jsonld import Value
+from jev_research_pipeline.note_text import Lang
 
 from .log import DecisionLog
 
@@ -21,6 +23,8 @@ from .log import DecisionLog
 class RuleConfig(Value):
     min_n: int = 30
     min_agreement: float = 0.95
+    lang: Lang = t.DEFAULT_LANG
+    """The language of the candidate lines (they go to the note's operations section)."""
 
 
 NUMERIC_CUTS: Final = {
@@ -58,7 +62,14 @@ def _candidate(
     o, rate = _best_outcome(outcomes)
     if rate < config.min_agreement or rest.count(o) / len(rest) >= config.min_agreement:
         return None
-    return f"rule 候補: {function} は {condition} のとき {o} (n={len(outcomes)}, 一致率 {rate:.2f})"
+    return t.RULE_CANDIDATE(
+        config.lang,
+        function=function,
+        condition=condition,
+        outcome=o,
+        n=len(outcomes),
+        rate=f"{rate:.2f}",
+    )
 
 
 def _conditions(

@@ -42,6 +42,7 @@ from typing import Any, Final, override
 import httpx2
 from pydantic import AwareDatetime, BaseModel
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.adapters import (
     Adapter,
     FetchFailure,
@@ -94,6 +95,7 @@ from jev_research_pipeline.model import (
     SourceItem,
     Unit,
 )
+from jev_research_pipeline.note_text import Lang, note_lang
 from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import AuthoredQueries
@@ -138,6 +140,7 @@ def authored_candidates(
     *,
     kinds: Collection[AdapterKind],
     turn: int,
+    lang: Lang = t.DEFAULT_LANG,
 ) -> tuple[list[QueryCandidate], list[str]]:
     """The questions' authored query lines as candidates, and the operations lines.
 
@@ -164,8 +167,8 @@ def authored_candidates(
         listed = list(found.values())
         shift = turn % len(listed)
         out += listed[shift:] + listed[:shift]
-    notes = [f"query: 問いファイルの {len(out)} 件を使用"] if out else []
-    notes += [f"query: 検索語にならない行を skip ({text})" for text in unusable]
+    notes = [t.QUERIES_USED(lang, n=len(out))] if out else []
+    notes += [t.QUERY_UNUSABLE(lang, text=text) for text in unusable]
     return out, notes
 
 
@@ -332,6 +335,8 @@ class _State:
     """Sections sent to the template because the rubric's Jev call failed (the health)."""
     fetch_failures: list[str] = field(default_factory=list[str])
     """nets.NetOutcome.failures of the day's fetch."""
+    rate_limited: list[str] = field(default_factory=list[str])
+    """nets.NetOutcome.rate_limited: the sources a rate limit stopped today."""
 
 
 @dataclass
@@ -484,6 +489,7 @@ class LineRun:
         self.queries: Mapping[str, AuthoredQueries] = queries or {}
         """Authored query lines per Question @id (questions.question_queries)."""
         self.http, self.env, self.now = http, env, now
+        self.lang: Lang = note_lang(env)
         self.known = partition.load()
         self.jev = StoredJev(http, api_key=keys.typesafe, known=self.known)
         self.keys = keys
@@ -545,7 +551,7 @@ class LineRun:
         for kind in self.ctx.line.adapters:
             needed = make_adapter(kind, today=self.now.date()).required_env
             if needed is not None and not self.env.get(needed):
-                self.st.notes.append(f"{kind}: key 未設定のため skip")
+                self.st.notes.append(t.KEY_UNSET(self.lang, kind=kind))
                 continue
             available.append(kind)
         authored, notes = authored_candidates(
@@ -560,10 +566,11 @@ class LineRun:
                 and n.line == self.ctx.line.id
                 and n.run_date < self.now.date()
             ),
+            lang=self.lang,
         )
         self.st.notes += notes
         self.st.notes += [
-            f"query 未設定: {q.slug} (questions/{self.ctx.line.slug}.md に query 行が無い)"
+            t.QUERIES_UNSET(self.lang, question=q.slug, line=self.ctx.line.slug)
             for q in self.questions
             if q.id not in self.queries
         ]
@@ -657,6 +664,7 @@ class LineRun:
         )
         self.st.notes += outcome.notes
         self.st.fetch_failures += outcome.failures
+        self.st.rate_limited += outcome.rate_limited
         self.st.per_net = outcome.per_net
         self.st.openalex_credits = outcome.openalex_credits
         return outcome.sources
@@ -810,6 +818,7 @@ class LineRun:
                 day=self.day,
                 now=self.now,
                 env=self.env,
+                lang=self.lang,
             )
             if isinstance(got, str):
                 return got
@@ -822,7 +831,7 @@ class LineRun:
                 )
             )
             if result is None:
-                return f"canary 未判定 (費用上限): {question.slug} / {url}"
+                return t.CANARY_UNJUDGED(self.lang, question=question.slug, url=url)
             return (
                 f"canary: {question.slug} / {url} → {question_screening.route(result, source=got)}"
             )
@@ -857,17 +866,18 @@ class LineRun:
                 self.st.failed_pairs += 1
             elif route == "review" and isinstance(result, Judged):
                 distance = question_screening.review_distance(result)
-                reason = f"「{question.title}」: {question_screening.review_reason(result)}"
+                why = question_screening.review_reason(result, self.lang)
+                reason = t.REVIEW_REASON(self.lang, question=question.title, why=why)
                 if sid not in review or distance < review[sid][0]:
                     review[sid] = (distance, _entry(s, reason))
         ranked = sorted(review.values(), key=lambda r: r[0])
         self.st.review += [entry for _, entry in ranked[:REVIEW_MAX]]
         if len(ranked) > REVIEW_MAX:
-            self.st.notes.append(f"Review: {len(ranked)} 件のうち境界に近い {REVIEW_MAX} 件を表示")
+            self.st.notes.append(t.REVIEW_CAP(self.lang, total=len(ranked), shown=REVIEW_MAX))
         self.st.bridges += _top_bridges(bridges)
         if len({s.id for _, _, s in bridges}) > len(self.st.bridges):
             self.st.notes.append(
-                f"橋渡し: {len(bridges)} 対が閾値を超え、確率上位 {len(self.st.bridges)} 件を表示"
+                t.BRIDGES_CAP(self.lang, pairs=len(bridges), shown=len(self.st.bridges))
             )
         return kept
 
@@ -1041,11 +1051,23 @@ class LineRun:
             d.outcome == "unjudged" for d in rendering.rubric
         )
         for i, attempt in enumerate(rendering.drafts, start=1):
-            state = "生成" if attempt.prose else f"失敗 ({attempt.failure})"
-            day.notes.append(f"{question.slug} prose 第{i}稿: {state} {attempt.seconds:.1f}s")
+            state = (
+                t.DRAFT_WRITTEN(self.lang)
+                if attempt.prose
+                else t.DRAFT_FAILED(self.lang, why=attempt.failure)
+            )
+            day.notes.append(
+                t.DRAFT(
+                    self.lang,
+                    question=question.slug,
+                    i=i,
+                    state=state,
+                    seconds=f"{attempt.seconds:.1f}",
+                )
+            )
             if attempt.invalid_citations:
                 cited = ", ".join(str(n) for n in attempt.invalid_citations)
-                day.notes.append(f"{question.slug}: 存在しない引用 [{cited}] を削除")
+                day.notes.append(t.BAD_CITATIONS(self.lang, question=question.slug, cited=cited))
         sources = list({i.source.id: i.source for i in items}.values())
         log = QuestionLog.new(
             question=question.id,
@@ -1103,8 +1125,8 @@ class LineRun:
 
     def _empty_day(self, claims: int) -> str:
         """One sentence on how far the day's sources got, for a note with no section."""
-        silenced = [n.split(":")[0] for n in self.st.notes if "rate limit のため" in n]
-        tail = f" {', '.join(silenced)} は rate limit で打ち切り。" if silenced else ""
+        silenced = list(dict.fromkeys(self.st.rate_limited))
+        tail = t.RATE_LIMITED_TAIL(self.lang, nets=", ".join(silenced)) if silenced else ""
         routes = self.st.routes
         where = (
             f" (Keep {routes.get('keep', 0)} / Review {routes.get('review', 0)} / "
@@ -1112,9 +1134,13 @@ class LineRun:
             if self.st.pairs_screened
             else ""
         )
-        return (
-            f"取得 {len(self.st.fetched)} 件のうち、問いに関係しそうな (source, 問い) 対が "
-            f"{self.st.pairs_screened}{where}、採用された claim が {claims} 件。{tail}"
+        return t.EMPTY_DAY(
+            self.lang,
+            fetched=len(self.st.fetched),
+            pairs=self.st.pairs_screened,
+            routes=where,
+            claims=claims,
+            tail=tail,
         )
 
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
@@ -1151,15 +1177,16 @@ class LineRun:
             fit=meters.convergence(running),
             openalex_credits=self.st.openalex_credits,
             ttd=meters.time_to_discovery(labels, sources, claims, units),
+            lang=self.lang,
         )
 
     def _cost_caveats(self) -> str:
         """What the cost line leaves out, said next to it."""
-        caveats = [] if self.budget.jev_price_known else ["Jev 単価未設定"]
+        caveats = [] if self.budget.jev_price_known else [t.JEV_PRICE_UNSET(self.lang)]
         if self.writer.spec.subscription:
-            caveats.append("生成はサブスクリプション定額で 0 計上")
+            caveats.append(t.SUBSCRIPTION_ZERO(self.lang))
         elif generation_price(self.writer.spec) is None:
-            caveats.append("生成単価未設定")
+            caveats.append(t.GENERATION_PRICE_UNSET(self.lang))
         return f" ({', '.join(caveats)})" if caveats else ""
 
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
@@ -1179,40 +1206,55 @@ class LineRun:
             rubric=meters,
             fill_rate_previous=fill,
         )
+        lang = self.lang
         lines = [
-            f"Jev 質問数: {ops.jev_questions}",
-            f"生成 token ({self.writer.spec}): in {ops.generation_input_tokens}"
-            f" / out {ops.generation_output_tokens}",
+            t.JEV_QUESTIONS(lang, n=ops.jev_questions),
+            t.GENERATION_TOKENS(
+                lang,
+                spec=self.writer.spec,
+                tokens_in=ops.generation_input_tokens,
+                tokens_out=ops.generation_output_tokens,
+            ),
             "claude_calls: 0",
             f"cost: ${cost:.4f}" + self._cost_caveats(),
-            f"記入率 (前回・問い日): {fill:.2f}" if fill is not None else "記入率 (前回): なし",
-            f"open な問い: {len(self.questions)} 件",
+            t.FILL_RATE(lang, rate=f"{fill:.2f}") if fill is not None else t.FILL_RATE_NONE(lang),
+            t.OPEN_QUESTIONS(lang, n=len(self.questions)),
             *(
-                f"rubric {m.axis}: 平均 {m.mean_score:.2f} / gold 一致 "
-                + (f"{m.gold_agreement:.2f}" if m.gold_agreement is not None else "未計測")
+                t.RUBRIC_AXIS(
+                    lang,
+                    axis=m.axis,
+                    mean=f"{m.mean_score:.2f}",
+                    gold=f"{m.gold_agreement:.2f}"
+                    if m.gold_agreement is not None
+                    else t.NOT_MEASURED(lang),
+                )
                 if m.mean_score is not None
-                else f"rubric {m.axis}: データなし"
+                else t.RUBRIC_NO_DATA(lang, axis=m.axis)
                 for m in meters
             ),
             *self.st.discovery,
-            *rule_candidates(log, RuleConfig(), today=self.now.date()),
+            *rule_candidates(log, RuleConfig(lang=lang), today=self.now.date()),
         ]
         if self.jev.retries:
-            lines.append(f"Jev 再試行: {self.jev.retries} 回 (一時的な失敗を 2 秒後に 1 回)")
+            lines.append(t.JEV_RETRIES(lang, n=self.jev.retries))
         if self.st.pairs:
             share = self.st.failed_pairs / self.st.pairs
             lines.append(
-                f"(source, 問い) 対の Jev 失敗: {self.st.failed_pairs} / {self.st.pairs}"
-                f" ({share:.1%}); full screen {self.st.pairs_screened} 対"
+                t.PAIR_FAILURES(
+                    lang,
+                    failed=self.st.failed_pairs,
+                    pairs=self.st.pairs,
+                    share=f"{share:.1%}",
+                    screened=self.st.pairs_screened,
+                )
             )
         if self.st.incomplete:
-            lines.append(f"本文なし: {self.st.incomplete} 件 (screening 対象外)")
+            lines.append(t.NO_TEXT(lang, n=self.st.incomplete))
         if self.st.seconds:
-            lines.append(
-                "段の所要: " + " / ".join(f"{k} {v:.0f}s" for k, v in self.st.seconds.items())
-            )
+            times = " / ".join(f"{k} {v:.0f}s" for k, v in self.st.seconds.items())
+            lines.append(t.STAGE_TIMES(lang, times=times))
         if self.st.partial:
-            lines.append("partial: 費用上限に達したため以降の判定を省略")
+            lines.append(t.PARTIAL(lang))
         # The same line from several (question, adapter) pairs says one thing once.
         return ops, list(dict.fromkeys(lines + self.st.notes))
 
@@ -1225,7 +1267,7 @@ class LineRun:
         canaries = {url for q in self.questions for url in q.canary_papers}
         candidates, passing, merged = same_title_merged(sources, passing, canaries=canaries)
         if merged:
-            self.st.notes.append(f"同じタイトルの重複 {merged} 件を 1 件にまとめて判定")
+            self.st.notes.append(t.TITLE_DUPLICATES(self.lang, n=merged))
         with self._stage("triage", sources=len(passing)):
             safe = await self._safe_sources(candidates)
         with self._stage("screen", sources=len(safe)):
@@ -1263,7 +1305,9 @@ class LineRun:
                     chosen.append(item)
             if len(mine) > len(chosen):
                 self.st.notes.append(
-                    f"{question.slug}: claim {len(mine)} 件のうち {len(chosen)} 件を掲載"
+                    t.CLAIMS_SHOWN(
+                        self.lang, question=question.slug, total=len(mine), shown=len(chosen)
+                    )
                 )
             kept += chosen
             self.st.nodes += [i.claim for i in mine if i not in chosen]
@@ -1280,7 +1324,9 @@ class LineRun:
             if not self.st.partial:
                 # A run cut short by the cost cap never screened everything, so a missing
                 # canary would say the screen drifted when the budget simply ran out.
-                self.st.notes += canary_lines(self.questions, screened, self.st.fetched)
+                self.st.notes += canary_lines(
+                    self.questions, screened, self.st.fetched, lang=self.lang
+                )
                 with self._stage("canary"):
                     self.st.notes += await self._probe_canaries()
             self.st.discovery = self._discovery_lines(accepted)
@@ -1349,10 +1395,11 @@ class LineRun:
                 unjudged=[self.st.unjudged[i] for i in report.unjudged],
                 operations=ops,
                 empty_day=self._empty_day(len(accepted)),
+                lang=self.lang,
             )
 
         prose_bytes = sum(len(s.prose.encode()) for s in sections if s.prose)
-        text, lines = _fitted(rendered, lines, review, prose_bytes=prose_bytes)
+        text, lines = _fitted(rendered, lines, review, prose_bytes=prose_bytes, lang=self.lang)
         return LineOutcome(
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
@@ -1380,6 +1427,7 @@ def _fitted(
     review: list[SourceEntry],
     *,
     prose_bytes: int = 0,
+    lang: Lang = t.DEFAULT_LANG,
 ) -> tuple[str, list[str]]:
     """The note within NOTE_MAX_BYTES plus its prose, and the operations lines it was
     rendered with. The body and the claims stay; what goes is Review, farthest from the cut
@@ -1390,9 +1438,16 @@ def _fitted(
     while len(text.encode()) > NOTE_MAX_BYTES + prose_bytes and review:
         review.pop()
         dropped += 1
-        ops = [*lines, f"note 12 KB (本文を除く) のため省略: Review {dropped} 件"]
+        ops = [*lines, t.NOTE_CAP(lang, n=dropped)]
         text = rendered(ops)
     return text, ops
+
+
+CANARY_MISS: Final[dict[canary.CanaryMiss, t.Msg]] = {
+    "not_https": t.CANARY_NOT_HTTPS,
+    "not_indexed": t.CANARY_NOT_INDEXED,
+    "empty": t.CANARY_EMPTY,
+}
 
 
 def _canary_quiet(kind: AdapterKind, quiet: Collection[str]) -> bool:
@@ -1410,6 +1465,7 @@ async def fetch_canary(
     day: nets.DayBudget,
     now: AwareDatetime,
     env: Mapping[str, str],
+    lang: Lang = t.DEFAULT_LANG,
 ) -> SourceItem | str:
     """The canary, or its operations line. An arXiv canary is an OpenAlex request: it goes
     under DayBudget.openalex like the nets' (checked, sent and recorded with no other line
@@ -1420,15 +1476,16 @@ async def fetch_canary(
 
     async def attempt() -> SourceItem | str:
         if kind is not None and _canary_quiet(kind, day.quiet):
-            return f"canary 未取得: {label} ({kind} は本日 rate limit)"
+            return t.CANARY_QUIET(lang, label=label, kind=kind)
         got = await canary.fetch(http, line, url, now=now, env=env)
         if isinstance(got, FetchFailure):
             if kind == "arxiv" and "rate_limit" in got.detail:
                 day.quiet.add(nets.OPENALEX)
-                return f"canary 未取得: {label} (arxiv は本日 rate limit)"
-            return f"canary 取得失敗: {label} ({f'{got.reason} {got.detail}'[:120]})"
+                return t.CANARY_QUIET(lang, label=label, kind="arxiv")
+            why = f"{got.reason} {got.detail}"[:120]
+            return t.CANARY_FAILED(lang, label=label, why=why)
         if isinstance(got, str):
-            return f"canary 取得失敗: {label} ({got})"
+            return t.CANARY_FAILED(lang, label=label, why=CANARY_MISS[got](lang))
         return got
 
     if kind == "arxiv":
@@ -1441,6 +1498,8 @@ def canary_lines(
     questions: list[Question],
     screened: Mapping[str, list[SourceItem]],
     fetched: Collection[str] | None = None,
+    *,
+    lang: Lang = t.DEFAULT_LANG,
 ) -> list[str]:
     """A canary paper the author named must survive screening on a day it was fetched
     (SAFE): a drop means the screen drifted, and the note says so. A canary the nets did
@@ -1449,7 +1508,7 @@ def canary_lines(
     for question in questions:
         kept = {s.url for s in screened.get(question.id, [])}
         lines += [
-            f"canary 落下: {question.slug} / {url}"
+            t.CANARY_DROPPED(lang, question=question.slug, url=url)
             for url in question.canary_papers
             if url not in kept and (fetched is None or url in fetched)
         ]
