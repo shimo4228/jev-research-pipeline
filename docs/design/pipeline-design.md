@@ -803,6 +803,15 @@ the README says so (plan P4).
 Review-when: a Chinese-reading user finds the notes hard going, or production zh notes
 template more often than ja.
 
+**Jev on questions in three languages** (scratch, 2026-10-01): one line, one question
+written in ja / en / zh, `jrp try` three times on the same day (887 sources each, Opus
+writer). Accepted (source, question) pairs: prefilter 79 / 67 / 78, screening 57 / 47 / 60
+sources; overlap of the accepted sets (Jaccard) 0.80-0.87 at the prefilter, 0.75-0.86 at
+the screen; claims kept 107 / 78 / 110. Every run wrote the section (no template), the same
+five claims in each, the same studies leading. The English wording screens a little
+tighter; nothing collapsed. One run per language: the spread between languages is not
+separated from Jev's own run-to-run spread.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

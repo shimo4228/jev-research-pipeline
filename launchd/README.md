@@ -1,5 +1,8 @@
 # launchd jobs (not loaded by the build)
 
+These two plists are the author's (this checkout, run through uv). For any other install,
+`jrp schedule install` writes a job for that machine: [docs/scheduling.md](../docs/scheduling.md).
+
 | plist | when | runs |
 |---|---|---|
 | `com.shimo4228.jrp.run.plist` | daily 05:00 | `jrp run` — harvest ticks, then the next lines in rotation |

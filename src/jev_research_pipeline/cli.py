@@ -6,6 +6,11 @@ jrp doctor         check what a run needs (env, config, questions, keys, the wri
 jrp init           write ~/.config/jrp/{env,config.toml,questions/} where missing (init)
 jrp try --line <slug>
                    one line, once, into a scratch store and vault; prints the note (init)
+jrp schedule install [--hour H --minute M]
+                   write a launchd job for the daily run under ~/.config/jrp/launchd/ and
+                   print how to load it; never loads it (scheduling)
+jrp notify <title> <body>
+                   one message to the configured channels (pipeline.notify)
 jrp questions new --line <slug>
                    a Claude Code session that writes the line's questions (skill jrp-question)
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
@@ -27,6 +32,7 @@ additive differences are migrated in place first, incompatible ones need `jrp mi
 import argparse
 import asyncio
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -63,6 +69,7 @@ from .pipeline.runner import run_pipeline, run_summary, store_dir
 from .quality import agreement, trusted_axes
 from .questions import NoQuestions, questions_path
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
+from .scheduling import install, install_lines
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
 from .telemetry import setup_telemetry
@@ -85,6 +92,13 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor")
     i = sub.add_parser("init", help="write ~/.config/jrp/{env,config.toml,questions/} if missing")
     i.add_argument("--lang", choices=list(LANGS), default="en", help="the notes' language")
+    sc = sub.add_parser("schedule", help="write a launchd job for the daily run (not loaded)")
+    sc.add_argument("action", choices=["install"])
+    sc.add_argument("--hour", type=int, default=5)
+    sc.add_argument("--minute", type=int, default=0)
+    no = sub.add_parser("notify", help="send one message to the configured channels")
+    no.add_argument("title")
+    no.add_argument("body")
     qn = sub.add_parser("questions", help="set up a line's questions with Claude Code")
     qn.add_argument("action", choices=["new"])
     qn.add_argument("--line", required=True, help="line slug (config.toml track)")
@@ -176,6 +190,20 @@ async def _try(env: Mapping[str, str], slug: str) -> int:
         return 1
     sys.stdout.write("\n".join(ran.lines) + "\n")
     return 0 if ran.notes else 1
+
+
+def _schedule(hour: int, minute: int) -> int:
+    if not (0 <= hour < 24 and 0 <= minute < 60):
+        sys.stderr.write(f"not a time of day: {hour:02d}:{minute:02d}\n")
+        return 1
+    found = shutil.which("jrp")
+    if found is None or ".venv" in Path(found).parts:
+        # a checkout's venv goes with the checkout; the job must name a jrp that stays
+        sys.stderr.write("install jrp first, so the job can name it: uv tool install <jrp>\n")
+        return 1
+    jrp = Path(found).resolve()
+    sys.stdout.write("\n".join(install_lines(install(jrp=jrp, hour=hour, minute=minute))) + "\n")
+    return 0
 
 
 def _questions_new(env: Mapping[str, str], slug: str) -> int:
@@ -282,6 +310,10 @@ async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> in
             code = await _try(env, str(args.line))
         case "questions":
             code = _questions_new(env, str(args.line))
+        case "schedule":
+            code = _schedule(int(args.hour), int(args.minute))
+        case "notify":
+            code = 0 if notify(str(args.title), str(args.body), env=env) else 1
         case "queries":
             code = await _check_queries(env, str(args.line))
         case "prose":

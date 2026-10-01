@@ -236,3 +236,33 @@ def test_a_term_to_the_wrapper_reaches_the_run_it_started(tmp_path: Path):
             return
         time.sleep(0.1)
     pytest.fail("the run outlived the wrapper")
+
+
+def test_an_installed_jrp_is_started_directly_and_notifies_through_python(tmp_path: Path):
+    """JRP_BIN (written by `jrp schedule install`): the wrapper starts that jrp, not uv in a
+    checkout, and a webhook / Notification Center message goes through `jrp notify`."""
+    env, vault, _ = _setup(tmp_path)
+    jrp = tmp_path / "jrp"
+    # the fake uv, called as `jrp <args>`; `jrp notify` appends to $NOTIFIED
+    jrp.write_text(
+        FAKE_UV.replace('" jrp doctor "', '" doctor "').replace(
+            "set -euo pipefail\n",
+            'set -euo pipefail\n[[ "$1" == notify && "$2" == -- ]] && { printf "%s|%s\\n" "$3" "$4" >> "$NOTIFIED"; exit 0; }\n',
+            1,
+        )
+    )
+    jrp.chmod(0o755)
+    notified = tmp_path / "notified"
+    env |= {
+        "JRP_BIN": str(jrp),
+        "JRP_UV": str(tmp_path / "no-uv"),
+        "JRP_SLACK_WEBHOOK_URL": "https://hooks.example/x",
+        "NOTIFIED": str(notified),
+        "DOCTOR_STATUS": "1",
+    }
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert "args: run" in out.stdout  # `jrp run`, not `uv run --project … jrp run`
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
+    assert [t for t, _ in _messages(notified)] == ["jrp doctor FAILED"]
