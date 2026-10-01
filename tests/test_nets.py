@@ -538,14 +538,19 @@ async def test_hf_daily_is_cut_in_its_own_order_even_with_query_text(
 # --- meters -------------------------------------------------------------------------------
 
 
+NET_TOPICS = {"firehose": 10001, "recommendation": 10002, "citation": 10003, "keyword": 10004}
+
+
 def _claim(net: str, text: str) -> tuple[Claim, Unit, SourceItem]:
     src = SourceItem.new(
         line=b.LINE_IRI,
         adapter="arxiv",
         net=net,  # pyright: ignore[reportArgumentType]
-        url=f"https://arxiv.org/abs/{abs(hash(text)) % 10000}",
+        # deterministic: str hash() changes per process, and two nets landing on one topic
+        # (1 run in 100) made test_topic_clusters_count_distinct_topics fail at random
+        url=f"https://arxiv.org/abs/{text}",
         title="t",
-        text=f"{text} — OpenAlex topic: T{abs(hash(net)) % 100}",
+        text=f"{text} — OpenAlex topic: T{NET_TOPICS[net]}",
         fetched_at=b.T0,
     )
     unit = Unit.cut(src, start=0, end=len(text), granularity="sentence")
