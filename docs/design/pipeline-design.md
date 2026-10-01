@@ -751,6 +751,36 @@ fetched. Not yet per language: the prose prompt and the rubric's readability que
 (next step of P1), the CLI's own messages, and a store migration's detail text.
 Review-when: a fourth language is asked for, or a text is found that bypasses note_text.
 
+### Prose in English (2026-10-01, plan productize-en-zh P1)
+
+The bench drafts, gates, judges and reads in a language (`jrp prose bench --lang en`;
+Draft.lang): the user prompt's labels, the inference mark (`[Inference]`), the code gates
+(no Japanese left in an en draft), the judge's rubric (docs/prose-rubric.en.md) and the
+reader / grader instructions follow it; the 32 cases (claims, excerpts) are ja-v15's own.
+On Opus, with the English self-check en-check1:
+
+| variant | cutoff | facts | misbeliefs | stuck / draft | chars median |
+|---|---|---|---|---|---|
+| ja v15 + check9 (c15o) | 28/32 | 0.903 | 76 | 1.88 | 2,238 |
+| en1 (v15's design written for English) | 30/32 | 0.967 | 52 | 2.53 | 4,680 |
+| en2 (en1 + English only, no lists, one inference paragraph) | 28/32 | 0.963 | 48 | 2.59 | 4,941 |
+
+- **Same level as ja-v15** on the cutoff (±1 is re-drafting noise) and better on what the
+  reader took away; the reader stops more often (2.5 vs 1.9 a draft, noise ±0.5), mostly
+  on terms left undefined. The two languages' readers and graders differ, so the rows
+  compare levels, not the prompts.
+- **What en1 got wrong, en2 fixes**: one draft came out wholly in Japanese, polite register
+  included, because the question and its brief are Japanese; a few drafts put bulleted
+  lists inside a study paragraph; one split the inference into two paragraphs. en2's 4
+  fails are 3 inference paragraphs stating more than the evidence and 1 uncited setup.
+- **A literal translation of v15 writes Japanese** (en0, 5 of 5 drafts) for the same reason;
+  with the one line "write in English" (en0b) it reads close to en2 on the 5 blind-read
+  cases (5/5, facts 0.98, stuck 3.4). The author's blind read of en0b vs en2 decides.
+- English chars are not Japanese chars: 4,900 English chars is about 800 words, two
+  studies of 200-350 words plus the lead and the inference.
+Review-when: the author's blind read prefers en0b, or a native English reader finds the
+drafts hard going.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
