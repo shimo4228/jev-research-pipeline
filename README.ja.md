@@ -1,8 +1,8 @@
-# jev-research-pipeline
+# jrp — jev-research-pipeline
 
 [English](README.md) | **日本語**
 
-**立てた問いを毎朝追いかける、リサーチの見張り番です。ループはコードが回し、判定は判定専用モデルの Jev、文章は選んだ LLM が受け持ちます。**
+**追いかけているテーマについて、毎朝リサーチのノートを。探す先は立てた問いが決め、何が効くかは判定専用モデルの Jev が決め、説明は選んだ LLM が英語・中国語・日本語で書きます。**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
@@ -12,133 +12,130 @@
   <img src="assets/overview.ja.svg" width="760" alt="「あなたの問い」を中心に 4 つの枠が回るループの図。毎朝、新しい論文と repo を集める。Jev が一つずつ、あなたの問いの答えに役立つかを判定し、採る・保留・捨てるに振り分ける。LLM が問いごとに短い節を書く。その日のノートが Obsidian に届き、読む価値があったものに印を付けると、点線の矢印のとおり、その印が翌朝の実行に効く。">
 </p>
 
-jev-research-pipeline は、1 人で使うリサーチ用のパイプラインです。研究テーマごとに、まだ答えの出ていない問いをいくつか立てておきます。すると毎朝、新しい論文とリポジトリをその問いに照らして確かめ、テーマごとに 1 枚のノートを Obsidian の vault に書きます。ノートには、その日に動きのあった問いごとの節が並びます。ループは、毎回同じ手順で動く Python のコードが回します。各資料が問いの答えに役立つかを決めるのは、API 企業 TypeSafe の判定モデル Jev です。Jev は文章を書かず、答えの決まった質問（Yes/No、点数、一覧から 1 つ選ぶ質問）に確率で答えます。本文だけは汎用の LLM が書きます。既定は ChatGPT／Codex のサブスクリプション経由の GPT-6 Luna で、環境変数 1 つで Alibaba Cloud の DashScope の Qwen に切り替えられます（[本文を書くモデル](#本文を書くモデル)）。ノートのチェックボックスに印を付けるとループが閉じ、その印が次の実行に効きます。
+jrp は、1 人でリサーチを追いかけるためのコマンドラインのパイプラインです。テーマ（ここでは「ライン」と呼びます）ごとに、まだ答えの出ていない問いを 2〜4 本立てておきます。すると jrp は毎朝、ラインを輪番で選び（既定は 1 朝 3 ライン）、新しい論文とリポジトリをその問いに照らして確かめ、ラインごとに 1 枚の Markdown のノートをフォルダ（ふつうは Obsidian の vault）に書きます。ノートには、その日に動きのあった問いごとの節が並びます。ループは、毎回同じ手順で動く Python のコードが回します。各資料が問いの答えに役立つかを決めるのは、API 企業 TypeSafe の判定モデル Jev です。Jev は文章を書かず、答えの決まった質問（Yes/No、点数、一覧から 1 つ選ぶ質問）に確率で答えます。説明の文章だけは汎用の LLM が書きます。ノートのチェックボックスに印を付けるとループが閉じ、その印が次の実行に効きます。
 
-まだ試験運用（pilot）の段階で、作者が毎日使っています。Python 3.12 と、Jev 用の TypeSafe の有料 API key が要ります。本文には、Codex を含む ChatGPT のプラン（既定）か、DashScope の API key のどちらかが要ります。定期実行には macOS の launchd を使います（手動の実行は、Python 3.12 が動く環境ならどこでもできます）。ライセンスは MIT です。ノートは今のところ日本語で書かれます。本文への指示と節見出しがソースに日本語の文字列で入っていて、言語の切り替えはまだありません。
+まだ試験運用（pilot）の段階で、私が 2026-09-24 から毎朝動かしています。ライセンスは MIT で、Python 3.12 が要ります。macOS（launchd で定期実行）と Linux（cron か systemd）で動きます。
 
-これを作ったのは、前の仕組みの [daily-research](https://github.com/shimo4228/daily-research) では、Web 検索ができる Opus の agent に、Claude Code の非対話モード `claude -p` でループ全体を任せていたからです。研究テーマ 3〜4 本で 1 日あたり $8〜15 の利用額が報告され、agent は同じ主題に戻り続けました。agent がこれまでに選んだ調査題目 238 件のうち、88 件（37%）が同じ 1 つの主題でした。ここでは、判定はすべて答えの決まった安い質問で、一つひとつをコードが確かめられます。どこを探すかを、モデルが決めることもありません。研究テーマ 4 本の朝の費用は、Qwen が従量課金で本文を書いていた間、ノート自身の費用欄で $1〜2 でした（[現状](#現状2026-09-25-時点)を見てください）。既定のサブスクリプションなら、本文にトークン単位の費用はかかりません。経緯の全体は記事「[LLMに任せていたリサーチの判定を、判定専用モデルJevに移す](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)」（[英語版](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)）に書きました。Jev を使ったほかの実験と、このパイプラインが見張っているプロジェクトは「[著者のほかの仕事](#著者のほかの仕事)」にあります。
+## 必要なもの
+
+Python 3.12 と [uv](https://docs.astral.sh/uv/) のほかに、省けないアカウントが 2 つあります。
+
+- **Jev 用の TypeSafe の有料 API key**（[docs.typesafe.ai](https://docs.typesafe.ai)）。Jev がこの設計の中心で、ループの判定はすべて Jev への質問です。
+- **本文の書き手を 1 つ**。次のどれかです。
+
+| 書き手 | `JRP_PROSE_MODEL` | 要るもの |
+|---|---|---|
+| ChatGPT のサブスクリプション（既定） | `openai-codex:gpt-6-luna` | Codex を含む ChatGPT のプランと、1 回の `jrp codex login` |
+| Claude のサブスクリプション | `claude-code:claude-opus-5-5` | ログイン済みの Claude Code CLI（`claude auth login`） |
+| Qwen（従量課金） | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio） |
+
+ほかは任意です。資料側の API key を入れると無料枠が広がり、`TAVILY_API_KEY` を入れると Web 検索が加わります。
+
+## はじめかた
+
+```bash
+uv tool install git+https://github.com/shimo4228/jev-research-pipeline
+jrp init --lang ja              # ~/.config/jrp/ に env、config.toml、questions/agent-memory.md を書く
+```
+
+`~/.config/jrp/env` を開いて、`JRP_VAULT_DIR`（ノートの置き場）と `TYPESAFE_API_KEY` を埋め、`JRP_PROSE_MODEL` で書き手を選びます。それから設定を確かめ、その場でノートを 1 枚作ります。
+
+```bash
+set -a; source ~/.config/jrp/env; set +a
+jrp doctor                      # 実行に要るものを、実行せずにすべて確かめる
+jrp try --line agent-memory     # 使い捨てのフォルダに 1 回だけ回し、ノートの path を出す
+```
+
+`jrp init` はすでにあるファイルには触れません。`jrp try` は vault にも store（jrp が過去の資料と判定を残す記録。ライン 1 本に JSON-LD 1 ファイル）にも書きません。毎朝走らせるときは、次を実行します。
+
+```bash
+jrp schedule install --hour 5   # macOS: launchd の job を書き、読み込み方を表示する
+```
+
+Linux の cron と systemd の例は [docs/scheduling.md](docs/scheduling.md)（英語）にあります。通知は Slack の webhook、macOS の通知センター、またはその両方に送れます（同じページ）。すべての環境変数と `config.toml` の全体は [docs/configuration.md](docs/configuration.md)（英語）にあります。jrp が PyPI に載ったあとは、1 行目の代わりに `uv tool install jrp` でインストールでき、`uvx jrp init` ならインストールせずに試せます。
+
+## ノートの見本
+
+同じラインと同じ問いを、同じ朝に、書き手を Claude Opus にして各言語で回したものです: [英語](docs/samples/agent-memory.en.md) · [中国語](docs/samples/agent-memory.zh.md) · [日本語](docs/samples/agent-memory.ja.md)。見本からは第三者の文を省き、claim（jrp が出典から引く原文の 1 文）と出典の横の抜粋はリンクに置き換えました。本文と運用節（ノートの最後のブロック。質問数、費用、検索ごとの取得数）は jrp 自身の出力です。
+
+## 費用
+
+私の環境で、ノート自身の運用節から測った値です（2026-09-24〜10-01）。
+
+| | ライン 1 本の 1 回（問い 3 本） | 1 朝（4 ライン） |
+|---|---|---|
+| Jev への質問数 | 200〜2,600 | 2,470〜8,191 |
+| Jev の費用（1 問 $0.00002 のとき） | $0.004〜0.05 | $0.05〜0.16 |
+| 書いた本文の節 | 0〜3（動いた問いごとに 1 つ） | 5〜8 |
+
+1 つの節には、書き手の下書き 1 回と自己点検 1 回がかかります。`openai-codex:gpt-6-luna` で入力およそ 8,000〜12,000、出力 1,500〜4,000 トークン、`claude-code:claude-opus-5-5` で入力およそ 11,000、出力 5,000 トークンです。落ちた下書きはもう 1 回書き直します。サブスクリプションの書き手では、これはドルではなくプランの利用量に数えられます。DashScope では、モデルのトークン単価を掛けてください。$0.00002 は、私が費用欄のために env に設定した Jev の単価です。TypeSafe の今の料金を確かめてください。資料の検索は、key が無ければ費用はかかりません。OpenAlex の 1 日の無料枠は、全ラインで共有します。
+
+## 中心にあるのは問い
+
+ライン 1 本につき 1 ファイルを `~/.config/jrp/questions/<slug>.md`（または `JRP_QUESTIONS_DIR` の指す場所）に置きます。実行が見つけられるものの上限は問いで決まるので、問いには専用の手順があります。テーマを聞き、まだ誰も決着を付けていない問いを 2〜4 本立て、それぞれが何についての問いで *ない* かを書き、今週の語彙を検索し、資料ごとの検索語を書いて試し打ちし、その問いなら必ず残すべき論文をいくつか挙げます。手順は Claude Code の skill [`jrp-question`](.claude/skills/jrp-question/SKILL.md)（英語）にあり、`jrp questions new --line <slug>` でその手順を進める Claude Code のセッションが開きます。問いの例です。
+
+```markdown
+<!-- jrp:questions:agent-memory -->
+
+## LLM エージェントの記憶の設計は、正答をどれだけ変えるか
+- slug: memory-designs
+- version: 1
+- status: open
+- opened: 2026-10-01
+- retire: 三ヶ月 evidence が増えなければ閉じる
+- brief: どの設計の選択が下流の正答率を、公開ベンチマークでどれだけ動かすか
+- method: 回答モデルを固定したベンチマーク比較
+- evidence: 測定された結果。数値の無い主張は採らない
+- not: プロンプト技法一般
+- canary: https://arxiv.org/abs/2608.20664
+- arxiv: agent memory benchmark
+- github: agent memory
+- hf: long-term memory for LLM agents
+```
+
+`slug` と `version` が問いを識別します。文面を変えたら version を上げてください。`brief`、`method`、`evidence` は、Jev が (資料, 問い) の組ごとに見る材料に入ります。`not:` の行は、放っておくと毎日通ってしまう隣の話題を、Jev の Yes/No の判定に渡します。`canary:` は、その問いなら必ず残すべき論文かリポジトリです。どの検索にもかからなかった日も URL から取ってきてふるいにかけ、落ちればノートに出るので、ふるい分けがずれたことが分かります。`arxiv:`、`github:`、`hf:`、`web:` の行はこの問いの検索語で、書いたとおりに送られます。`jrp queries check --line <slug>` は各検索語を 1 回ずつ送って上位の結果を表示し、何も保存しません。実行がこのファイルを書き換えることはありません。
+
+## 言語
+
+`JRP_NOTE_LANG`（`en`、`zh`、`ja`）でノートの言語を決めます。見出し、運用節、本文が切り替わります。本文のプロンプトと点検は、訳したのではなく言語ごとに書き起こしました。ノートのうち機械が読み戻す部分はどの言語でも同じなので、印は同じように効きます。
+
+私が読めるのは日本語だけです。日本語のプロンプトは私自身の blind 読み（版の名前を伏せた読み比べ）で選びました。英語と中国語のプロンプトは、本文のベンチ（過去の日の節を候補のプロンプトで書き直し、判定にかける開発用の仕組み）の測定だけで受け入れています。過去の同じ 32 件の問いの日（1 つの問いの 1 日分）で、Claude Opus が書いた草稿が忠実さの判定（別の Opus が草稿を出典と照らす）を通ったのは、英語 32 件中 28 件、中国語 32 件中 32 件でした（日本語は 32 件中 28 件）。草稿だけを読む読み手のシミュレーションが各研究から持ち帰った中身も、日本語版と同じかそれ以上でした。既定の書き手の GPT-6 Luna は、英語と中国語ではまだ測っていません。英語と中国語を読む人はまだ誰も読んでいません。どこが読みにくいかを書いた issue が、このプロジェクトにとっていちばん役に立つ反応です。記録は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)（英語、「Prose in English」「Prose in Chinese」）にあります。
 
 ## 毎朝の実行の流れ
 
-研究テーマ 1 つを、ここでは「ライン」と呼びます。固有の語彙を持つ、長期の研究テーマです。毎朝、次のように動きます。
+毎朝、次のように動きます。
 
 1. そのラインの過去のノートから、あなたが付けた印を取り込みます。
 2. 輪番で次の 3 ラインと、毎日走るラインを選びます。
 3. 未解決の問いごとに、固定された 5 本の探索経路（[探索の網](#探索の網)）から候補を集めます。
 4. Jev が (資料, 問い) の組を 1 つずつふるいにかけます。まず安い「話題に合うか」の確認、次に Yes/No の関門と、重み付きの採点です。閾値を当てるのはコードで、組を Keep（採る）、Review（保留。境界のもの）、Drop（捨てる）、Incomplete（判定できる要旨が無い）、Unjudged（Jev への問い合わせが失敗した）に振り分けます。
 5. Keep になった資料は原文の文に切り分けられ、どの文が問いを前に進めるか、あるいは問いに反するかを Jev が見分けます。こうして選び出した文を claim と呼びます。claim は常に原文の 1 文で、言い換えではないので、引用は必ずたどれます。
-6. 本文を書くモデル（既定は GPT-6 Luna）が、今日新しい証拠が出た問いごとに短い節を書きます。材料はそれらの claim と出典の短い抜粋で、推論の段落を 1 つだけ明示します。モデルは自分の下書きを 1 回点検し、そのあと Jev が節を採点基準（rubric）で採点し、証拠の段落が claim と合っているかを 1 段落ずつ確かめます。通らなかった下書きは 1 回だけ書き直し、それでも通らなければテンプレートに戻します。
+6. 本文を書くモデル（既定は GPT-6 Luna）が、今日新しい証拠が出た問いごとに短い節を書きます。材料はそれらの claim と出典の短い抜粋で、推論の段落を 1 つだけ明示します。モデルは自分の下書きを 1 回点検し、そのあと Jev が節を採点基準（rubric）で採点し、証拠の段落が claim と合っているかを 1 段落ずつ確かめます。通らなかった下書きは 1 回だけ書き直し、それでも通らなければ、その節は出典の一覧に戻ります。
 7. ノートを運用節つきで vault に書きます。運用節には、Jev への質問数、トークン数、費用、網ごとの採用率、canary の結果（その問いなら必ず残すべき論文が残ったか）が並びます。
 
 あなたが付ける印が、そのままラベルになります。推薦の網（印を付けた論文に近い論文を探す網）の種になり、`jrp fit` が書く閾値の見直し案（適用するのはあなたです）に効き、評価用のケースにもなります。Jev の呼び出しはすべて Pydantic AI の `typesafe:` モデルを通るので、判定はどれも Pydantic の出力型で、確率分布の生の値も判定と一緒に保存されます。
 
-## 現状（2026-10-01 時点）
-
-- **評価のための実行は 11 回で、2026-09-23 に終えました。** 最後の回は、7 つの目標条件のうち 5 つを満たしました。どのノートも 12 KB 未満で Review の一覧が短い、証拠のある問いにはすべて本文がある、話題外の論文は捨てて canary はすべて残した（canary とは、その問いなら必ず残すべき論文やリポジトリのことです。[中心にあるのは問い](#中心にあるのは問い)を見てください）、その回は資料 API の取得失敗がなかった、stack trace がない、の 5 つです。時間と費用の条件は、時間だけで落ちました。上限 600 秒に対して 601 秒です（費用は上限 $0.30 に対して $0.297）。もう 1 つ、独立した判定者（完成したノートだけを 7 軸の採点基準で読む、別の Opus）が、3 本中 1 本しか公開できると判定しませんでした。1 回ごとの記録は [docs/pilot-log.md](docs/pilot-log.md)（英語）にあります。
-- **2026-09-24 からは毎朝動いています。** launchd が毎朝、本物の vault に対して、私の 7 つのラインを約 15 分で回します。本文は Codex サブスクリプションの GPT-6 Luna が書くので、費用欄は Jev の分だけです。測定ではなく理論を問うライン（瞑想のモデル、当事者の語り）は何も出さない日が続いていました。2026-10-01 から、形式モデルを求める問いではそれを証拠として数え、arXiv の検索語は直近 90 日を関連度順に並べ、ラインごとに firehose を止められるようにしました。それでも 1 つのラインはまだ claim が付きません。理由は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)（英語）にあります。
-- **本文は、忠実さの検査を半分ほどしか通っていません。** 本番の本文を出典と照らし合わせる別のモデルは、直近 10 件のうち 5〜6 件を通しました。落ちるのは主に冒頭の要約（2 つの研究を 1 つの結論にまとめる、限定を落とす）と、数値の写し間違いです。書き直したプロンプトは Claude Opus では 32 件中 31 件を通しましたが、GPT-6 Luna では改善しませんでした。私が 3 つを読み比べるまで、本番のプロンプトとモデルは変えません。本文は `claude -p` 経由で Claude にも書かせられます（[本文を書くモデル](#本文を書くモデル)）。
-- **通知。** 劣化した朝（本文がテンプレートに戻った、書き手のログインが失敗した、取得が失敗した、未判定が多い）は Slack の通知にそう書きます。固まった実行は 1 時間で止め、毎回の実行の前に `jrp doctor` が設定を確かめます。
-- **閾値。** Jev の振り分けの閾値は、TypeSafe が公開している例（cookbook）の値から始めて、評価の間に手で調整しました。印からの再推定はまだしていないので、境界の判定は出てきます。`jrp fit` は、印に `[x]` と `[-]` の両方がそろうまで何も提案しません。それが各ノートの Review に並び、そこに付けた印が、再推定の材料になります。
-
-## はじめかた
-
-- Python 3.12 と [uv](https://docs.astral.sh/uv/)。
-- TypeSafe の API key（[docs.typesafe.ai](https://docs.typesafe.ai)）。
-- 本文用に、次のどちらか。Codex を含む ChatGPT のプラン（既定。`uv run jrp codex login` で 1 回ログインする）か、Qwen 用の DashScope の API key（Alibaba Cloud Model Studio）。[本文を書くモデル](#本文を書くモデル)を見てください。
-- 実行に要る環境変数（path と key）は `~/.config/jrp/env` の 1 ファイルに書きます。ラインと網の予算は `config.toml` に、問いはリポジトリの `questions/` ディレクトリに置きます。定期実行では `scripts/launchd-jrp.sh` がこの env ファイルを読みます。手動で実行するときは、先に `set -a; source ~/.config/jrp/env; set +a` を実行します。
-
-最小の `~/.config/jrp/env`:
-
-```bash
-export JRP_VAULT_DIR="/path/to/your/obsidian/vault"     # ノートは <vault>/daily-research/ に書かれる
-export JRP_STORE_DIR="/path/to/store"                   # パイプラインの状態。ライン 1 本に JSON-LD 1 ファイル
-export TYPESAFE_API_KEY="..."
-export JRP_COST_CAP_USD="0.50"                          # 1 回の実行の、ライン 1 本あたりの上限
-export JRP_DAILY_RESEARCH_CONFIG="/path/to/config.toml" # ラインの一覧
-```
-
-`config.toml` にラインを並べます。ライン 1 本が `[tracks.<slug>]` の表 1 つです（「track」と「line」は同じ意味です）。ラインは研究用のリポジトリを前提に設計しています。輪番に入るのは、`[[tracks.<slug>.repos]]` の項目と `target_repo` でリポジトリを指しているラインだけで、そのリポジトリから読むのは `graph.jsonld` だけです。`graph.jsonld` があれば、その中の `Concept` と `DefinedTerm`（schema.org の型）のノード名がラインの語彙になり、Jev のふるい分けと本文で使われます。無ければ、ラインの名前だけが語彙になります。リポジトリの無いテーマは、`daily = true` のラインにすれば、輪番とは別に毎朝走ります。
-
-```toml
-[general]
-lines_per_day = 3
-
-[tracks.akc]
-name = "Agent Knowledge Cycle"
-[[tracks.akc.repos]]
-target_repo = "~/projects/agent-knowledge-cycle"   # 輪番に必要。読むのは graph.jsonld だけ
-
-[tracks.jev]
-name = "TypeSafe Jev"
-daily = true                                       # 輪番のラインと並んで毎朝走る
-```
-
-ラインごとに未解決の問いを 1 つ以上書いてから（次の節）、次を実行します。
-
-```bash
-uv sync
-uv run jrp codex login        # 1 回だけ。既定の本文モデルのため、ブラウザで ChatGPT にログインする
-uv run jrp doctor             # env・config・問い・key・書き手のログインを確かめる。何も書かない
-uv run jrp run                # 印を取り込み、次のラインを走らせ、ノートを書く
-```
-
-未解決の問いが 1 つも無いラインは飛ばされ、そのことが報告されます。印が溜まったら、`jrp fit` が閾値の再推定案を出し（提案ファイルを書くだけで、適用はしません）、`jrp export-cases` が印の付いた claim を pydantic-evals のケースに変えます。保守用のコマンドは `uv run jrp --help` で一覧できます。すべての変数と `config.toml` の全体は [docs/configuration.md](docs/configuration.md)（英語）にあります。
-
-## 中心にあるのは問い
-
-ライン 1 本につき、リポジトリの `questions/<slug>.md`（または `JRP_QUESTIONS_DIR` が指す場所）に 1 ファイルです。問いの出来が、実行で見つけられるものの上限を決めます。実際の `questions/jev.md` から一部を抜いた例です。
-
-```markdown
-<!-- jrp:questions:jev -->
-
-## Jev（判定モデル）はどこで失敗するか — 較正の崩れ、LLM に戻された判断、framework 統合で落ちた表現力
-- slug: jev-failure-modes
-- version: 1
-- status: open
-- opened: 2026-09-23
-- retire: TypeSafe が失敗条件を版ごとに公開し、第三者の再現が揃ったら answered
-- brief: 確率出力が崩れる条件（分布外、答えの無い問い、質問の型）、LLM から Jev に置き換えて戻した事例とその理由、pydantic-ai 等の統合で失われるもの
-- method: 公開 repo の再現実験（較正・ECE・一致率）
-- evidence: 数値か、失敗を再現できるコードがあるもの
-- not: Jev を使ってみた感想だけの投稿
-- canary: https://github.com/scienthoon/jev-ood-calibration
-- arxiv: jev system one
-- github: jev calibration
-- hf: judge model calibration
-- web: TypeSafe Jev calibration failure
-```
-
-パーサーはすべての欄を読みます。`slug` と `version` が問いを識別します。文面を変えたら version を上げてください。上げないと、前の文面で下した判定が、新しい文面の判定として数えられます。`status` は実行するかどうかを決めます（`open` / `answered` / `dropped`。未解決の問いは `open` です）。`brief`、`method`、`evidence` は、Jev が (資料, 問い) の組ごとに見る状態に入ります。`not:` の行は、隣り合っていて放っておくと毎日通ってしまう話題を、関門に教えます。Jev のためでなく、あなたのための欄が 2 つあります。`opened` は問いを立てた日で、`retire:` は問いを閉じる条件を前もって書いておくものです。
-
-`canary:` の行には、この問いなら必ず残すべき論文やリポジトリを書きます。その日どの網もそれを持ってこなければ、URL から取りにいって、同じようにふるいにかけます。canary が落とされると、ノートの運用節に出ます。ふるい分けがずれた合図です。
-
-`arxiv:`、`github:`、`hf:`、`web:` の行は、この問いのためのキーワード網の検索語で、1 行に 1 つ書きます。英語で書きますが、`web:` の検索語は日本語でもかまいません。検索語は問いと一緒に、自分で書くか、自分のセッションでアシスタントに下書きさせ、実行に使う前に試します。`uv run jrp queries check --line <slug>` が各検索語を 1 回ずつ投げ、件数と先頭のタイトルを表示します（何も保存しません）。`arxiv:` の検索語は、直近 90 日の arXiv の論文に絞った OpenAlex の検索に送られて関連度順に返り、すべての語に一致するものだけが返るので、2〜4 語に収めてください。検索語の行が無い問いはキーワード検索を送りません（ノートの運用節にそう出ます）。ほかの網は、その問いのためにも走ります。書き方の手順は [AGENTS.md](AGENTS.md)（coding agent 向けの作業手順）にあります。
-
-実行中にこのファイルが書き換わることはありません。問いと検索語が変わるのは、あなたが変えたときだけです。
-
 ## ノートの見た目
-
-見出しと本文は日本語で、構成は次のとおりです。
 
 ```
 # <ライン> — <日付>
-### <問い>                      今日新しい証拠が出た問いだけが節になる
-今日の変化                      本文。[n] は claim の番号。推論と印した段落だけが推論
-証拠                            この問いの今日の資料
+### <問い>                      その日に新しい証拠が出た問いごとに 1 節
+今日の変化                       本文。[n] は claim の引用。最後の【推論】の段落が推論
+証拠                            この問いに対する、その日の資料
 反証                            答えに反する claim（あれば）
-- [ ] 読む価値があった            問い × 日に 1 つ。印は引用した claim にも伝わる
+- [ ] 読む価値があった            問いの日ごとに 1 つのチェックボックス。印はその claim に伝わる
 ## Review                       境界の資料。最大 10 件、1 件に 1 つのチェックボックス
 ## 橋渡し                         ラインの語彙の外にあるものと問いをつなぐ、と Jev が判定した資料
-> [!note]- Claims               畳まれた claim の一覧。出典とチェックボックスつき
+> [!note]- Claims               すべての claim を出典とチェックボックスつきで畳んだ一覧
 ## 未判定                         Jev への問い合わせが失敗したもの。失敗した Jev の関数名つき
-## 運用                          運用節
+## 運用                          質問数、トークン数、費用、網ごとの採用率、canary
 ```
 
-印は次の実行で読み戻されます。`[x]` は「はい」（読む価値があった、正しい）、`[-]` は「いいえ」、`[ ]` は印なしです。Obsidian でクリックすると `[x]` になります。`[-]` は手で入力してください。
+印は次の実行で読み戻されます。`[x]` は Yes（読む価値があった、正しい）、`[-]` は No、`[ ]` はラベルなしです。Obsidian ではクリックで `[x]` が付きます。`[-]` は手で打ってください。見出しの文言はノートの言語に従います（上は日本語の場合）。Obsidian 以外のビューアでは、畳んだ claim の一覧は普通の引用ブロックとして表示されます（[docs/scheduling.md](docs/scheduling.md#reading-the-notes-outside-obsidian)、英語）。
 
 ## 探索の網
 
-どこを探すかを agent 自身に任せると、探索は同じところに集まります（冒頭の 37%）。そこで、どの網をどの順で走らせ、それぞれが何回問い合わせてよいかは、コードが固定します。実行中にモデルが検索語を書くことはありません。キーワード網は問いのファイルに書いた検索語を送り、推薦の網と引用の網は、Jev のふるい分けが残した論文を種にします。モデルが網を足したり、飛ばしたり、順番を変えたりすることもありません。
+どこを探すかをエージェント自身に任せると、探索は同じところに集まります（[なぜ生成でなく判定なのか](#なぜ生成でなく判定なのか)の 37%）。そこで、どの網をどの順で走らせ、それぞれが何回問い合わせてよいかは、コードが固定します。実行中にモデルが検索語を書くことはありません。キーワード網は問いのファイルに書いた検索語を送り、推薦の網と引用の網は、Jev のふるい分けが残した論文を種にします。モデルが網を足したり、飛ばしたり、順番を変えたりすることもありません。
 
 | 網 | 何を取ってくるか | 既定の予算（1 回の実行での API 呼び出し数） |
 |---|---|---|
@@ -148,48 +145,41 @@ uv run jrp run                # 印を取り込み、次のラインを走らせ
 | keyword（キーワード） | 問いごとに書いた検索語を、arXiv（OpenAlex の検索経由）、Hugging Face papers、GitHub、key があれば Tavily の Web 検索に送る | 10。設定の 12 から、exploration 用に 20%（2）を取り分けた残り |
 | exploration（探索） | Keep の論文に隣り合う OpenAlex の topic。store に OpenAlex の論文が入るまでは何もしない | 1。取り分けた 2 のうち 1（残りは使わない） |
 
-資料側の API key が無くても、どの網も動きます（Jev 用の TypeSafe の key と、本文を書くモデルのログインか key は常に要ります）。例外はキーワード網の中の 1 つで、`TAVILY_API_KEY` が無ければ Tavily の Web 検索は飛ばされ、ノートにそう書かれます。Semantic Scholar、OpenAlex、GitHub には key なしの共有枠があり、key を入れると上限が上がります。予算、exploration に回す割合、arXiv のカテゴリ、OpenAlex の 1 日の credit 上限は、`config.toml` の `[nets]` で変えられます。運用節には網ごとの採用率と、Keep の論文に含まれる OpenAlex の topic の種類数が出ます。topic の数が減っていくのは、探索が集まり始めた警報です。
+資料側の API key が無くても、どの網も動きます（Jev 用の TypeSafe の key と、本文を書くモデルのログインか key は常に要ります）。例外はキーワード網の中の 1 つで、`TAVILY_API_KEY` が無ければ Tavily の Web 検索は飛ばされ、ノートにそう書かれます。Semantic Scholar、OpenAlex、GitHub には key なしの共有枠があり、key を入れると上限が上がります。予算、exploration に回す割合、arXiv のカテゴリ、OpenAlex の 1 日のクレジットの上限は、`config.toml` の `[nets]` で変えられます。運用節には網ごとの採用率と、Keep の論文に含まれる OpenAlex の topic の種類数が出ます。topic の数が減っていくのは、探索が集まり始めた警報です。
 
 ## 本文を書くモデル
 
-文章を生成するのは、問いごとの節を書く 1 か所だけです。どのモデルが書くかは、環境変数 `JRP_PROSE_MODEL` 1 つで、`<backend>:<model>` の形で決めます。
+文章を生成するのは、問いごとの節を書く 1 か所だけです。`JRP_PROSE_MODEL=<backend>:<model>` で書き手を選びます（[必要なもの](#必要なもの)）。どの backend も同じプロンプト、自己点検、Jev の検査（[毎朝の実行の流れ](#毎朝の実行の流れ)の 6）を通ります。backend を足すときは `src/jev_research_pipeline/generation/client.py` に加えます。`jrp codex login` は、パイプライン専用の ChatGPT のログインを `~/.config/jrp/codex-auth.json` に保存します。Codex CLI のログインとは別です（refresh token は 1 回しか使えないため）。サブスクリプションをこの形で使うことの扱いは、それぞれの提供元との契約に従います。
 
-| backend | 例 | 要るもの | ノートの費用欄 |
-|---|---|---|---|
-| `openai-codex`（既定） | `openai-codex:gpt-6-luna` | Codex を含む ChatGPT のプランと、1 回の `uv run jrp codex login` | トークン単位では 0。プランの利用上限に数えられる |
-| `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio、国際版の endpoint） | トークン単位。単価の記録が無いモデルはそう表示される |
-| `claude-code` | `claude-code:sonnet` | Claude のプランでサインインした Claude Code CLI（`claude -p`。PATH に無ければ `JRP_CLAUDE_BIN`） | トークン単価なし。プランの利用上限を消費する |
+## 現状（2026-10-01 時点）
 
-どちらの backend も Pydantic AI（`OpenAICodexProvider`、`AlibabaProvider`）を通るので、それぞれが提供するモデルなら名前で指定できます。backend を足すのは `src/jev_research_pipeline/generation/client.py` の分岐 1 つです。`JRP_PROSE_THINKING`（`always` / `rewrite` / `off`）は、backend ごとのスイッチ（DashScope の thinking、Codex のモデルの reasoning effort）に対応します。ただし `gpt-6-luna` には Pydantic AI 2.47 が reasoning の設定を送らないので、このスイッチは効きません。
-
-`jrp codex login` は、Codex CLI と同じ ChatGPT のログイン画面をブラウザで開き、結果を `~/.config/jrp/codex-auth.json`（所有者だけが読める。`JRP_CODEX_AUTH` で場所を変えられる）に保存します。ブラウザが `localhost:1455` に戻ってくるので、launchd を動かす機械で実行してください。これはパイプライン専用のログインで、Codex CLI の `~/.codex/auth.json` とは別です。refresh token は 1 回しか使えないので、CLI と共有すると、最初の refresh のあとでどちらかが失効した grant を持つことになります。refresh のたびにファイルへ書き戻すので、次の定期実行は有効な token から始まります。運用節で本文の下書きが `CredentialsRefreshError` で失敗していたら（`JRP_SLACK_NOTIFY=1` なら、その実行の通知が `jrp run DEGRADED` と `writer auth failed` を伝えます）、grant が拒否されたということなので、もう一度ログインしてください。この使い方がサブスクリプションの規約上どう扱われるかは、OpenAI との契約に従います。
-
-今の本文のプロンプトは `openai-codex:gpt-6-luna` で読んだものです（難しいケース 3 件。holdout ではまだ読んでいません）。本文のベンチ（AGENTS.md）の `--model` も同じ `<backend>:<model>` の形なので、凍結した同じ入力で両方のモデルを比べられます。
+- **2026-09-24 から毎朝**、私の 7 つのラインを 1 朝およそ 15 分で回し、`openai-codex:gpt-6-luna` で日本語のノートを書いています。それより前の 11 回の評価の記録は [docs/pilot-log.md](docs/pilot-log.md)（英語）にあります。
+- **本文がいちばんの課題です。** 私の blind 読みでは、今のプロンプトで Claude Opus が書いた節がいちばん良いものでした。ところが 1 ラインでの試しの実行では、Jev の段落ごとの検査が Opus の 3 節すべてを出典の一覧に戻しました。出典の要旨をもとに背景を説明した段落を、claim を超えていると判定するからです。本文のベンチで検査の誤りが示された箇所は直しました（ベンチの 32 件で、Opus の初稿が通る割合は、およそ 10 本に 1 本から 2 本に 1 本になりました）が、同じ試しの実行ではまだ 3 節中 2 節が落ちます。検査が忠実な節を落とさなくなるまで、本番は GPT-6 Luna のままです。
+- **閾値。** Jev の振り分けの閾値は、TypeSafe が公開している例から始めて手で調整しました。印からの再推定はまだしていないので、各ノートの Review には境界の判定が出てきます。`jrp fit` は、印を付けた claim が 10 件以上あり、`[x]` と `[-]` の両方がそろうと再推定を提案しますが、適用はしません。
+- **通知。** 劣化した朝（下書きが失敗したか検査できなかった、書き手のログインが失敗した、取得が失敗した、未判定が多い）は通知にそう書きます。Jev の検査で落ちて一覧に戻った節は通知しません。macOS の launchd の job は、固まった実行を 1 時間で止め、毎回の実行の前に `jrp doctor` で設定を確かめます。
 
 ## なぜ生成でなく判定なのか
 
-設計の賭けは、agent のループが LLM にさせていることの大半は判定で、判定なら、答えの決まった質問として、較正された確率を返すモデルに聞ける、というものです。評価で分かった 3 つのことが、今の形を決めました。
+jrp を作ったのは、前の仕組みの [daily-research](https://github.com/shimo4228/daily-research) では、Web 検索ができる Opus のエージェントに、Claude Code の非対話モード `claude -p` でループ全体を任せていたからです。研究テーマ 3〜4 本で 1 日あたり $8〜15 の利用額が報告され、エージェントは同じ主題に戻り続けました。エージェントがこれまでに選んだ調査題目 238 件のうち、88 件（37%）が同じ 1 つの主題でした。設計の賭けは、エージェントのループが LLM にさせていることの大半は判定で、判定なら、答えの決まった質問として、較正された確率を返すモデルに聞ける、というものです。経緯の全体は記事「[LLMに任せていたリサーチの判定を、判定専用モデルJevに移す](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)」（[英語版](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)）に書きました。評価で分かった 3 つのことが、今の形を決めました。
 
 - 判定の基準になる問いが無いと、Jev の関連度の判定は、ラインと言葉を 1 つでも共有するものをほとんど通しました。瞑想と無我についてのラインが、transformer の attention についての claim で埋まったほどです。すべての判定を (資料, 問い) の組に結び付けたことで、これは直りました。
-- ふるい分けを段階に分ける前の実行では、1 ラインに Jev への質問が 20,573 問、ノートは 283 KB になりました。まず各資料を問いに照らしてふるい（安い「話題に合うか」の確認のあとに本番の判定）、claim は Keep の資料からだけ切り出すようにしたことで、1 ラインの質問はおよそ 900〜1,900 問、ノートは 12 KB 未満になりました。
-- 難しいのは本文です。評価の間、独立した判定者が公開できると判定したのは多くても 3 本中 1 本で、よくある失敗は、論文の主張を問いの言い回しに合わせて曲げることでした。そこで本文の工程を作り直しました。新しいプロンプトとモデル qwen3.7-max、原文の claim と並べて渡す出典の短い抜粋、下書きの自己点検、そしてノートを書く前に、証拠の段落が claim と合っているかを Jev が 1 段落ずつ確かめることです。これらの点検は、どのモデルが書くかに依存しません。既定の書き手は、その後 GPT-5.6 Sol に、さらに GPT-6 Luna に替わりました。
+- ふるい分けを段階に分ける前の実行では、1 ラインに Jev への質問が 20,573 問、ノートは 283 KB になりました。まず各資料を問いに照らしてふるい（安い「話題に合うか」の確認のあとに本番の判定）、claim は Keep の資料からだけ切り出すようにしたことで、評価の間、1 ラインの質問はおよそ 900〜1,900 問になりました（その後の毎日の運用では 200〜2,600 問）。今は大きさの上限が、ノートのうち本文以外の部分を、Review の行を削って 12 KB 未満に保っています。
+- 難しいのは本文です。評価の間、独立した判定者が公開できると判定したのは多くても 3 本中 2 本、最後の回は 3 本中 1 本で、よくある失敗は、論文の主張を問いの言い回しに合わせて曲げることでした。そこで本文の工程を、原文の claim と並べて渡す出典の短い抜粋、下書きの自己点検、証拠の段落が claim と合っているかを Jev が 1 段落ずつ確かめる検査を軸に作り直しました。これらの点検は、どのモデルが書くかに依存しません。
 
-すべての判断と、その根拠にした外部の証拠を含む設計の記録は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)（英語）にあります。
-
-## 観測・定期実行・開発
-
-トレースは OpenTelemetry です。`OTEL_EXPORTER_OTLP_ENDPOINT` が未設定なら SDK は初期化されず、span はすべて何もしません。定期実行はトレースを送りません。endpoint は、デバッグしている実行のコマンドラインにだけ付けてください。Docker の要らないローカルの viewer、そのコマンドライン、span の名前は [docs/observability.md](docs/observability.md)（英語）にあります。
-
-launchd の plist は [launchd/](launchd/README.md) に 2 つあります。`jrp run` を毎日 05:00 に、`jrp drift`（Jev の確率がずれていないかを、記録した入力を投げ直して確かめる）を毎週月曜 05:30 に走らせます。読み込む前に、絶対 path を自分の環境に合わせて直してください。vault が iCloud Drive にある場合、wrapper はノートを `<JRP_STORE_DIR>/vault-stage/` 経由でコピーします。macOS は、launchd の bash には iCloud のファイルを開かせますが、uv が管理する Python には開かせないからです。wrapper は、`JRP_RUN_TIMEOUT_S`（既定は 1 時間）を過ぎても終わらない実行を止めます。Python が起動する前に wrapper 自身が失敗したときと同じく、`JRP_SLACK_NOTIFY=1` なら Slack に知らせます。
+## 開発
 
 ```bash
+uv sync
 .claude/verify.sh     # format、lint、型、bandit、deptry、テスト。offline で key 不要
 uv run pytest -q      # 記録済みの cassette を再生する。実際の API を使う記録は明示したときだけ（docs/configuration.md）
 ```
 
+トレースは OpenTelemetry で、`OTEL_EXPORTER_OTLP_ENDPOINT` を設定しない限り動きません（[docs/observability.md](docs/observability.md)、英語）。プロンプトを選んだ本文のベンチと、その回し方は [AGENTS.md](AGENTS.md) にあります。すべての判断と、その根拠にした証拠を含む設計の記録は [docs/design/pipeline-design.md](docs/design/pipeline-design.md)（英語）です。
+
 ## 関連
 
 - [TypeSafe Jev](https://docs.typesafe.ai) と [Pydantic AI の `typesafe:` モデル](https://pydantic.dev/docs/ai/models/typesafe/)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`claude-code:` の書き手）
 - [Pydantic AI の OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md)（ChatGPT／Codex のサブスクリプション）
 - [DashScope の Qwen](https://www.alibabacloud.com/help/en/model-studio/models)
 

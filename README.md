@@ -1,8 +1,8 @@
-# jev-research-pipeline
+# jrp — jev-research-pipeline
 
 **English** | [日本語](README.ja.md)
 
-**A daily research monitor for your open questions: code owns the loop, Jev (a judgment-only model) judges, an LLM you choose writes.**
+**A research note each morning for the topics you follow: your questions steer the search, Jev (a judgment-only model) decides what counts, an LLM you choose explains it, in English, Chinese or Japanese.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
@@ -12,38 +12,148 @@
   <img src="assets/overview.svg" width="760" alt="A loop of four boxes around a center labelled Your questions: gather new papers and repos every morning; Jev judges whether each one helps answer one of your questions and marks it keep, review or drop; an LLM writes a short section per question; you read the day's note in your Obsidian vault and tick what was worth reading, and a dashed arrow shows the ticks steering tomorrow's run.">
 </p>
 
-jev-research-pipeline is a single-user pipeline for keeping up with research. You keep a few open
-questions for each research topic. Every morning it checks new papers and repositories against those
-questions and writes one note per topic into your Obsidian vault, with a section for each question
-that moved. Plain Python code runs the loop the same way every time. Jev, a judgment model from the
-API company TypeSafe, never writes text: it answers questions that have a fixed set of answers (yes or
-no, a score, one pick from a list) with probabilities, and here it decides whether each source helps
-answer a question. A general-purpose LLM writes only the prose: by default GPT-6 Luna through a
-ChatGPT/Codex subscription, or Qwen on Alibaba Cloud's DashScope, switched with one environment
-variable ([The writing model](#the-writing-model)). You close the loop by ticking checkboxes in the
-note, and the ticks steer the next run.
+jrp is a command-line pipeline for one person keeping up with research. For each topic (a *line*) you
+keep two to four open questions. Every morning jrp takes the next lines in turn (three a morning by
+default), checks new papers and repositories against their questions, and writes one Markdown note
+per line into a folder, usually an Obsidian vault, with a section for each question that moved. Plain Python code runs the loop the same way every time. Jev,
+a judgment model from the API company TypeSafe, never writes text: it answers questions with a fixed
+set of answers (yes or no, a score, one pick from a list) with probabilities, and here it decides
+whether each source helps answer a question. A general-purpose LLM writes only the explanation. You
+close the loop by ticking checkboxes in the note, and the ticks steer the next run.
 
-It is a pilot, in daily use by its author. It needs Python 3.12, a paid TypeSafe API key for Jev,
-and for the prose either a ChatGPT plan that includes Codex (the default) or a DashScope API key. It
-is scheduled with macOS launchd (a manual run works anywhere Python 3.12 runs), and is MIT licensed. Notes are written in Japanese today: the prose instruction and the section
-headings are Japanese strings in the source, and there is no language switch yet.
+It is a pilot that I have run every morning since 2026-09-24. It is MIT licensed, needs Python 3.12,
+and runs on macOS (scheduled with launchd) or Linux (cron or systemd).
 
-I built it because my previous setup, [daily-research](https://github.com/shimo4228/daily-research),
-let an Opus agent with web search run the whole loop through `claude -p`, Claude Code's
-non-interactive mode. It reported $8 to $15 of usage a day for three or four topics, and the agent
-kept returning to the same theme: 88 of its 238 past topics (37%) landed on one. Here every judgment
-is a cheap question with a fixed set of answers, code can check each one, and no model decides where
-to look. A morning over four topics cost $1 to $2 by the notes' own cost lines while Qwen wrote the
-prose on pay-per-token pricing (see [Status](#status-as-of-2026-09-25)); on the default subscription the
-prose adds no per-token cost.
-The full story is in the article
-[Moving My Research Pipeline's Judgment Calls from an LLM to Jev, a Judgment-Only Model](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)
-([Japanese](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)). Other experiments
-with Jev, and the projects this pipeline watches, are under [More from the author](#more-from-the-author).
+## What you need
+
+Besides Python 3.12 and [uv](https://docs.astral.sh/uv/), two accounts cannot be avoided:
+
+- **A paid TypeSafe API key** for Jev ([docs.typesafe.ai](https://docs.typesafe.ai)). Jev is the design:
+  every judgment in the loop is a Jev question.
+- **One writer** for the prose, any of:
+
+| writer | `JRP_PROSE_MODEL` | what it needs |
+|---|---|---|
+| ChatGPT subscription (default) | `openai-codex:gpt-6-luna` | a ChatGPT plan that includes Codex; `jrp codex login` once |
+| Claude subscription | `claude-code:claude-opus-5-5` | the Claude Code CLI, signed in (`claude auth login`) |
+| Qwen, pay per token | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio) |
+
+Everything else is optional: source-API keys raise free quotas, and `TAVILY_API_KEY` adds web search.
+
+## Quick start
+
+```bash
+uv tool install git+https://github.com/shimo4228/jev-research-pipeline
+jrp init --lang en              # writes ~/.config/jrp/{env, config.toml, questions/agent-memory.md}
+```
+
+Open `~/.config/jrp/env` and fill in `JRP_VAULT_DIR` (where notes go) and `TYPESAFE_API_KEY`, and pick
+a writer with `JRP_PROSE_MODEL`. Then check the setup and see a note the same hour:
+
+```bash
+set -a; source ~/.config/jrp/env; set +a
+jrp doctor                      # every check a run needs, without running one
+jrp try --line agent-memory     # one run into a throwaway folder; prints the note's path
+```
+
+`jrp init` leaves any file that already exists alone, and `jrp try` writes neither to your vault nor to
+the store (jrp's own record of past sources and judgments, one JSON-LD file per line). To run it every
+morning:
+
+```bash
+jrp schedule install --hour 5   # macOS: writes a launchd job and prints how to load it
+```
+
+On Linux, [docs/scheduling.md](docs/scheduling.md) has cron and systemd examples. Notifications go
+to a Slack webhook, macOS Notification Center, or both (same page). Every variable and the full
+`config.toml` are in [docs/configuration.md](docs/configuration.md). Once jrp is on PyPI,
+`uv tool install jrp` does the same as the first line, and `uvx jrp init` tries it without installing.
+
+## Sample notes
+
+The same line and question, run on the same morning in each language with Claude Opus as the writer:
+[English](docs/samples/agent-memory.en.md) · [Chinese](docs/samples/agent-memory.zh.md) ·
+[Japanese](docs/samples/agent-memory.ja.md). Third-party text is left out of the samples: each claim
+(a sentence jrp quotes from a source) and the excerpts beside sources are replaced by links. The prose
+and the operations section (the note's last block: questions asked, cost, what each search returned)
+are jrp's own output.
+
+## What it costs
+
+Measured on my machine from the notes' own operations sections, 2026-09-24 to 2026-10-01.
+
+| | per line-run (3 open questions) | per morning (4 lines) |
+|---|---|---|
+| Jev questions | 200 to 2,600 | 2,470 to 8,191 |
+| Jev cost at $0.00002 a question | $0.004 to $0.05 | $0.05 to $0.16 |
+| prose sections written | 0 to 3 (one per question that moved) | 5 to 8 |
+
+A section costs the writer one draft and one self-check, about 8,000 to 12,000 input and 1,500 to
+4,000 output tokens on `openai-codex:gpt-6-luna`, and about 11,000 input and 5,000 output tokens on
+`claude-code:claude-opus-5-5`; a rejected draft is written once more. On a subscription writer
+these count against the plan's usage, not in dollars; on DashScope multiply by the model's token
+price. The $0.00002 is the Jev price set in my env for the cost line: check TypeSafe's
+current pricing. Searching costs nothing without keys; OpenAlex's free daily budget is shared by
+all lines.
+
+## Questions are the unit
+
+One file per line at `~/.config/jrp/questions/<slug>.md` (or wherever `JRP_QUESTIONS_DIR` points).
+The questions set the ceiling on what a run can find, so they get their own procedure: ask the theme,
+draft two to four questions nobody has settled yet, name what each one is *not* about, search this
+week's vocabulary, write the search queries per source, try them, and name a few papers each question
+must always keep. The procedure is the Claude Code skill
+[`jrp-question`](.claude/skills/jrp-question/SKILL.md), and `jrp questions new --line <slug>` opens a
+Claude Code session that walks you through it. An example block:
+
+```markdown
+<!-- jrp:questions:agent-memory -->
+
+## Which memory designs measurably change what an LLM agent gets right?
+- slug: memory-designs
+- version: 1
+- status: open
+- opened: 2026-10-01
+- retire: close it when three months bring no new evidence
+- brief: Which design choices move downstream accuracy, and by how much, on public benchmarks.
+- method: benchmark comparisons with the answering model held fixed
+- evidence: measured results; a claim without a number is not enough
+- not: prompt techniques in general
+- canary: https://arxiv.org/abs/2608.20664
+- arxiv: agent memory benchmark
+- github: agent memory
+- hf: long-term memory for LLM agents
+```
+
+`slug` and `version` identify the question: change the wording, bump the version. `brief`, `method`
+and `evidence` go into what Jev sees for every (source, question) pair; `not:` lines give Jev's
+yes/no checks the neighbouring topics that would otherwise pass every day. `canary:` names a paper or
+repo the question must always keep: if no search brings it in, it is fetched and screened anyway, and a
+dropped canary shows up in the note as a sign that screening drifted. The `arxiv:`, `github:`, `hf:`
+and `web:` lines are this question's search queries, sent as written; `jrp queries check --line
+<slug>` sends each one once and prints the first hits, storing nothing. A run never edits this file.
+
+## Languages
+
+`JRP_NOTE_LANG` (`en`, `zh` or `ja`) sets the note's language: the headings, the operations section and
+the prose, whose prompt and checks were written for each language rather than translated. The
+machine-read parts of a note are the same in every language, so ticks work alike.
+
+I read Japanese only. The Japanese prompt was chosen by my own blind reading. The English and
+Chinese prompts were accepted on the prose bench's measurements alone (the bench redrafts the
+sections of past days with each candidate prompt and has them judged): over the same 32 past
+question-days (one question on one day), drafts written by Claude Opus passed a fidelity judge
+(another Opus, checking each draft against its sources) 28 of 32 times in English and 32 of 32 in
+Chinese (Japanese: 28 of 32), and a simulated reader that saw only the draft took away at least as
+much of each study as from the Japanese one. The default writer, GPT-6 Luna, has not been measured
+in English or Chinese. No English or Chinese reader has read them yet;
+an issue saying where they read badly is the most useful feedback this project can get. The record
+is in [docs/design/pipeline-design.md](docs/design/pipeline-design.md) ("Prose in English", "Prose in
+Chinese").
 
 ## How a morning run works
 
-Each research topic is a *line*: one long-running topic with its own vocabulary. Each morning:
+Each morning:
 
 1. Harvest your ticks from the line's earlier notes.
 2. Pick the next three lines in rotation, plus any line marked daily.
@@ -58,7 +168,7 @@ Each research topic is a *line*: one long-running topic with its own vocabulary.
 6. The writing model (GPT-6 Luna by default) writes one short section per question that got new
    evidence today, from those claims and short excerpts of their sources, with one paragraph marked
    as inference. It checks its own draft once. Jev then scores the section on a rubric and checks each evidence paragraph against its
-   claims; a failing draft is rewritten once, then falls back to a template.
+   claims; a failing draft is rewritten once, then the section falls back to a list of its sources.
 7. The note is written to the vault with an operations block: Jev question count, tokens, cost,
    per-net acceptance, and canary results (whether the papers a question must always keep were kept).
 
@@ -67,167 +177,29 @@ feed the threshold proposals that `jrp fit` writes for you to apply, and become 
 Every Jev call goes through Pydantic AI's native `typesafe:` model, so each judgment is a Pydantic
 output type and the raw probability distributions are stored with the decision.
 
-## Status as of 2026-10-01
-
-- **The evaluation: 11 runs, ended 2026-09-23.** The last run passed 5 of its 7 goal conditions:
-  every note under 12 KB with a short Review list; prose for every question that had evidence;
-  off-topic papers dropped and every canary kept (a canary is a paper or repo a question must always
-  keep; see [Questions are the unit](#questions-are-the-unit)); no failed fetch from any source API in
-  that run; no stack traces. The time-and-cost condition failed on time alone: 601 s against a 600 s
-  cap (cost was $0.297 against $0.30). And an independent judge, a separate Opus model reading only the
-  finished notes against a seven-axis rubric, rated 1 of 3 notes publishable. The record, run by run,
-  is in [docs/pilot-log.md](docs/pilot-log.md).
-- **Daily since 2026-09-24.** launchd runs it every morning against the real vault, over my seven
-  active lines, in about 15 minutes. The prose is written by GPT-6 Luna on a Codex subscription,
-  so a morning's cost line counts Jev alone. Two lines whose questions ask about theory rather
-  than measurements (meditation models, first-hand accounts) kept producing nothing; since
-  2026-10-01 a question that asks for a formal model counts one as evidence, arXiv queries rank
-  the last 90 days by relevance, and a line can turn the firehose off. One of them still gets no
-  claim, for a reason recorded in [docs/design/pipeline-design.md](docs/design/pipeline-design.md).
-- **The prose passes a fidelity check about half the time.** A separate model comparing each
-  production section with its sources passed 5 to 6 of 10 recent ones; the failures sit mostly in
-  the opening summary (two studies merged into one claim, a hedge dropped) and in copied numbers.
-  A rewritten prompt passes 31 of 32 on Claude Opus but not on GPT-6 Luna, so production keeps its
-  prompt and model until I have read the three side by side. The prose can also be written by
-  Claude through `claude -p` ([The writing model](#the-writing-model)).
-- **Alerts.** A morning that ran degraded (a section fell back to the template, the writer's login
-  failed, a source failed, too many unjudged pairs) says so in its Slack message, a run that hangs
-  is stopped after an hour, and `jrp doctor` checks the setup before every run.
-- **Thresholds.** Jev's routing thresholds started from the values in TypeSafe's published examples
-  and were adjusted by hand during the evaluation. They have not been refit on ticks yet, so expect
-  borderline calls; `jrp fit` proposes nothing until ticks include both `[x]` and `[-]`. Those land in each note's Review section, and your ticks there are what a refit
-  learns from.
-
-## Quick start
-
-- Python 3.12 and [uv](https://docs.astral.sh/uv/).
-- A TypeSafe API key ([docs.typesafe.ai](https://docs.typesafe.ai)).
-- For the prose, one of: a ChatGPT plan that includes Codex (the default; sign in once with
-  `uv run jrp codex login`), or a DashScope API key (Alibaba Cloud Model Studio) for Qwen. See
-  [The writing model](#the-writing-model).
-- One file, `~/.config/jrp/env`, holding the environment variables a run needs (paths and keys); research lines
-  and net budgets live in `config.toml`, questions in the repo's `questions/` directory.
-  `scripts/launchd-jrp.sh` sources the env file before a scheduled run; for a manual run:
-  `set -a; source ~/.config/jrp/env; set +a`.
-
-A minimal `~/.config/jrp/env`:
-
-```bash
-export JRP_VAULT_DIR="/path/to/your/obsidian/vault"     # notes go to <vault>/daily-research/
-export JRP_STORE_DIR="/path/to/store"                   # pipeline state, one JSON-LD file per line
-export TYPESAFE_API_KEY="..."
-export JRP_COST_CAP_USD="0.50"                          # per line per run
-export JRP_DAILY_RESEARCH_CONFIG="/path/to/config.toml" # your research lines
-```
-
-`config.toml` names the lines. Each line is a `[tracks.<slug>]` table ("track" and "line" mean the
-same thing). Lines were designed around research repositories: a line enters the rotation only if it points at
-one with a `[[tracks.<slug>.repos]]` entry and its `target_repo`, and the only file read from that
-repository is its `graph.jsonld`. If there is one, the names of its `Concept` and `DefinedTerm` nodes (schema.org types) become
-the line's vocabulary, which Jev's screening and the prose use; otherwise the line's name is the only
-vocabulary. A topic with no repository can run as a `daily = true` line, which runs every morning
-beside the rotation.
-
-```toml
-[general]
-lines_per_day = 3
-
-[tracks.akc]
-name = "Agent Knowledge Cycle"
-[[tracks.akc.repos]]
-target_repo = "~/projects/agent-knowledge-cycle"   # required for rotation; only graph.jsonld is read
-
-[tracks.jev]
-name = "TypeSafe Jev"
-daily = true                                       # every morning, beside the rotated lines
-```
-
-Write at least one open question per line (next section), then:
-
-```bash
-uv sync
-uv run jrp codex login        # once: sign in to ChatGPT in the browser for the default prose model
-uv run jrp doctor             # check env, config, questions, keys and the writer's login; writes nothing
-uv run jrp run                # harvest ticks, run the next lines, write notes
-```
-
-A line with no open question is skipped and reported as such. Once ticks exist, `jrp fit` proposes
-refit thresholds (it writes a proposal file and never applies it), and `jrp export-cases` turns ticked
-claims into pydantic-evals cases. `uv run jrp --help` lists the maintenance commands. Every variable
-and the full `config.toml` are in [docs/configuration.md](docs/configuration.md).
-
-## Questions are the unit
-
-One file per line at `questions/<slug>.md` in the repository (or wherever `JRP_QUESTIONS_DIR`
-points). The questions set the ceiling on what a run can find. An abridged example, translated from the
-real `questions/jev.md` (which is in Japanese):
-
-```markdown
-<!-- jrp:questions:jev -->
-
-## Where does Jev fail: broken calibration, judgments handed back to an LLM, expressiveness lost in framework integrations?
-- slug: jev-failure-modes
-- version: 1
-- status: open
-- opened: 2026-09-23
-- retire: answered once TypeSafe publishes failure conditions per version and third parties reproduce them
-- brief: when the probabilities break (out of distribution, questions with no answer, question types); cases that moved a judgment from an LLM to Jev and then moved it back; what integrations such as pydantic-ai lose
-- method: reproduction experiments in public repos (calibration, ECE, agreement)
-- evidence: numbers, or code that reproduces the failure
-- not: posts that only share impressions of using Jev
-- canary: https://github.com/scienthoon/jev-ood-calibration
-- arxiv: jev system one
-- github: jev calibration
-- hf: judge model calibration
-- web: TypeSafe Jev calibration failure
-```
-
-The parser reads every field. `slug` and `version` identify the question: change the wording, bump
-the version, or old judgments count as judgments of the new wording. `status` gates the run (`open` /
-`answered` / `dropped`). `brief`, `method` and `evidence` go into the state Jev sees for every
-(source, question) pair. `not:` lines feed the hard gates with adjacent topics that would otherwise
-pass every day. Two fields are for you rather than for Jev: `opened` is the date you opened the
-question, and `retire:` is the rule you set in advance for closing it.
-
-`canary:` lines name papers or repos this question must always keep. If no net brings one on a given
-day it is fetched by its URL and screened anyway, and a dropped canary shows up in the note's
-operations block as a sign that screening drifted.
-
-`arxiv:`, `github:`, `hf:` and `web:` lines are the keyword net's search queries for this question,
-one per line, in English except that a `web:` query may be in Japanese. You write them together with
-the question, or have an assistant draft them in your session, and try them before a run uses them:
-`uv run jrp queries check --line <slug>` sends each query once and prints the hit count and the first
-titles, storing nothing. An `arxiv:` query is sent to OpenAlex's search, limited to arXiv papers of
-the last 90 days and ranked by relevance, which requires every word to match, so keep its queries to two to four words. A question without query lines sends no keyword query (the note's operations block
-says so); the other nets still run for it. The authoring procedure is in [AGENTS.md](AGENTS.md)
-(in Japanese, written for coding agents).
-
-A run never edits this file. Questions and their queries change only when you change them.
-
 ## What a note looks like
-
-Headings and prose are Japanese; the layout is:
 
 ```
 # <line> — <date>
 ### <question>                 one section per question that got new evidence today
-今日の変化                      prose; [n] cites a claim; the paragraph marked 推論 is inference
-証拠                            today's sources for this question
-反証                            claims that count against the answer, if any
-- [ ] 読む価値があった            one checkbox per question-day; a tick propagates to its claims
+What changed today             prose; [n] cites a claim; the last paragraph, marked [Inference], is inference
+Evidence                       today's sources for this question
+Counter-evidence               claims that count against the answer, if any
+- [ ] Worth reading            one checkbox per question-day; a tick propagates to its claims
 ## Review                       borderline sources, at most 10, one checkbox each
-## 橋渡し                         sources Jev judged to tie the question to something outside the line's vocabulary
+## Bridges                      sources Jev judged to tie the question to something outside the line
 > [!note]- Claims               folded list of every claim with its source and a checkbox
-## 未判定                         items whose Jev request failed, each tagged with the Jev function
-## 運用                          the operations block
+## Unjudged                     items whose Jev request failed, each tagged with the Jev function
+## Operations                   questions asked, tokens, cost, per-net acceptance, canaries
 ```
 
 Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `[-]` means no, and
-`[ ]` means no label. Obsidian's click toggles `[x]`; type `[-]` by hand.
+`[ ]` means no label. Obsidian's click toggles `[x]`; type `[-]` by hand. In a viewer other than
+Obsidian the folded claim list shows as an ordinary quote block ([docs/scheduling.md](docs/scheduling.md#reading-the-notes-outside-obsidian)).
 
 ## Source nets
 
-An agent left to choose its own searches converges (the 37% above). So code fixes which nets run, in
+An agent left to choose its own searches converges (the 37% in [Why judgment, not generation](#why-judgment-not-generation)). So code fixes which nets run, in
 what order, and how many requests each may make. No model writes a query at run time: the keyword net
 sends the queries written into the question file, and the recommendation and citation nets are seeded
 by papers that Jev's screening kept. No model can add a net, skip one, or change the order.
@@ -250,40 +222,44 @@ convergence alarm.
 
 ## The writing model
 
-Only one step generates text: the per-question section. Which model writes it is one environment
-variable, `JRP_PROSE_MODEL`, in the form `<backend>:<model>`:
+Only one step generates text: the per-question section. `JRP_PROSE_MODEL=<backend>:<model>` picks the
+writer ([What you need](#what-you-need)); every backend goes through the same prompt, self-check and
+Jev checks (step 6 of [How a morning run works](#how-a-morning-run-works)), and adding a backend means
+adding it to `src/jev_research_pipeline/generation/client.py`. `jrp codex login` keeps the pipeline's own ChatGPT login in `~/.config/jrp/codex-auth.json`,
+separate from the Codex CLI's (refresh tokens are single-use). How you use a subscription this way is
+governed by your agreement with its provider.
 
-| backend | example | what it needs | in the note's cost line |
-|---|---|---|---|
-| `openai-codex` (default) | `openai-codex:gpt-6-luna` | a ChatGPT plan that includes Codex, and `uv run jrp codex login` once | nothing per token; use counts against the plan's limits |
-| `dashscope` | `dashscope:qwen3.7-max` | `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio, international endpoint) | per token; a model with no price on record is flagged |
-| `claude-code` | `claude-code:sonnet` | the Claude Code CLI signed in to a Claude plan (`claude -p`; `JRP_CLAUDE_BIN` if it is not on PATH) | nothing per token; use counts against the plan's limits |
+## Status as of 2026-10-01
 
-Both backends go through Pydantic AI (`OpenAICodexProvider`, `AlibabaProvider`), so any model either
-one serves can be named, and adding another backend is one branch in
-`src/jev_research_pipeline/generation/client.py`. `JRP_PROSE_THINKING` (`always` / `rewrite` / `off`)
-maps to each backend's own switch: DashScope's thinking flag, or the Codex model's reasoning effort
-(for `gpt-6-luna` Pydantic AI 2.47 sends no reasoning setting, so the switch has no effect there).
-
-`jrp codex login` opens the same ChatGPT sign-in the Codex CLI uses and keeps the result in
-`~/.config/jrp/codex-auth.json` (owner-only; `JRP_CODEX_AUTH` moves it). Run it on the machine that
-runs launchd, because the browser redirects to `localhost:1455`. It is a login of the pipeline's own,
-separate from the Codex CLI's `~/.codex/auth.json`: refresh tokens are single-use, so sharing one
-with the CLI would leave one of them holding a dead grant after the first refresh. Every refresh is
-written back to the file, so the next scheduled run starts from a live one. If the operations
-block shows the prose drafts failing with `CredentialsRefreshError` (with `JRP_SLACK_NOTIFY=1` the
-run's message says `jrp run DEGRADED` and `writer auth failed`), the grant was rejected: sign in
-again. How you use your subscription this way is governed by your agreement with OpenAI.
-
-The current prose prompt was read on `openai-codex:gpt-6-luna` (three hard cases; not yet on the
-held-out set). The prose bench (AGENTS.md) takes
-`--model` in the same `<backend>:<model>` form, so both models can be compared on the same frozen
-inputs.
+- **Daily since 2026-09-24** on my seven lines, in about 15 minutes a morning, writing
+  Japanese with `openai-codex:gpt-6-luna`. An evaluation of 11 runs before that is in
+  [docs/pilot-log.md](docs/pilot-log.md).
+- **The prose is the open problem.** On my blind reading, Claude Opus with the current prompt wrote
+  the best sections. In a test run on one line, though, Jev's paragraph check sent all three Opus
+  sections back to the list of sources: it judges background explained from a source's abstract as
+  going beyond the claims. I corrected the check where the prose bench showed it wrong (on the bench's
+  32 question-days, Opus first drafts now pass about one time in two, against one in ten before), and
+  the same test run still lost two of three sections. Until the check stops rejecting faithful
+  sections, production stays on GPT-6 Luna.
+- **Thresholds.** Jev's routing thresholds started from TypeSafe's published examples and were tuned
+  by hand; they have not been refit on ticks yet, so expect borderline calls in each note's Review
+  section. `jrp fit` proposes a refit once at least 10 ticked claims include both `[x]` and `[-]`, and
+  never applies it.
+- **Alerts.** A degraded morning (a draft that failed or could not be checked, the writer's login
+  failed, a source failed, too many unjudged pairs) says so in its notification; a section the Jev
+  check rejected falls back without one. On macOS the launchd job also stops a run that
+  hangs after an hour and runs `jrp doctor` before every run.
 
 ## Why judgment, not generation
 
-The design bet is that most of what an agent loop does with an LLM is judgment, and judgment can be
-asked of a model that returns calibrated probabilities for a fixed set of answers. Three findings
+I built jrp because my previous setup, [daily-research](https://github.com/shimo4228/daily-research),
+let an Opus agent with web search run the whole loop through `claude -p`, Claude Code's
+non-interactive mode. It reported $8 to $15 of usage a day for three or four topics, and the agent
+kept returning to the same theme: 88 of its 238 past topics (37%) landed on one. The design bet is
+that most of what an agent loop does with an LLM is judgment, and judgment can be asked of a model
+that returns calibrated probabilities for a fixed set of answers. The full story is in the article
+[Moving My Research Pipeline's Judgment Calls from an LLM to Jev, a Judgment-Only Model](https://dev.to/shimo4228/moving-my-research-pipelines-judgment-calls-from-an-llm-to-jev-a-judgment-only-model-4ncj)
+([Japanese](https://zenn.dev/shimo4228/articles/jev-research-judgment-offload)). Three findings
 from the evaluation shaped the current form:
 
 - Without a question as the anchor, Jev's relevance judgments passed almost anything that shared a
@@ -291,41 +267,32 @@ from the evaluation shaped the current form:
   attention. Anchoring every judgment on a (source, question) pair fixed this.
 - A run before screening was staged asked Jev 20,573 questions for one line and produced a 283 KB
   note. Screening each source against the question first (a cheap on-topic check, then the full
-  screen), and cutting claims only from kept sources, brings a line to roughly 900 to 1,900 questions
-  and a note under 12 KB.
-- Prose is the hard part. The independent judge never rated more than 1 of 3 notes publishable
-  during the evaluation, and the usual failure was a paper's claim bent to fit the wording of the
-  question. So the prose step was rebuilt: a new prompt and the model qwen3.7-max, short source
-  excerpts beside the verbatim claims, a self-check pass, and Jev's check of each evidence paragraph
-  against its claims before the note is written. The checks do not depend on which model writes;
-  the default writer has since moved to GPT-5.6 Sol, then GPT-6 Luna.
+  screen), and cutting claims only from kept sources, brought a line to roughly 900 to 1,900 questions
+  during the evaluation (200 to 2,600 in daily use since). A size guard keeps everything in a note
+  except the prose under 12 KB, by dropping Review lines.
+- Prose is the hard part. The independent judge rated at most 2 of 3 notes publishable during the
+  evaluation, and 1 of 3 on the last run; the usual failure was a paper's claim bent to fit the
+  wording of the question. So the prose step was rebuilt around short source excerpts beside the
+  verbatim claims, a self-check pass, and Jev's check of each evidence paragraph against its claims.
+  These checks do not depend on which model writes.
 
-The design record, including every decision and the external evidence it rests on, is
-[docs/design/pipeline-design.md](docs/design/pipeline-design.md).
-
-## Observability, scheduling, development
-
-Traces are OpenTelemetry. With `OTEL_EXPORTER_OTLP_ENDPOINT` unset the SDK is never initialised and
-every span is a no-op. Scheduled runs send no traces: set the endpoint only on the command line of a
-run you are debugging. A Docker-free local viewer, that command line and the span names are in
-[docs/observability.md](docs/observability.md).
-
-Two launchd plists live in [launchd/](launchd/README.md): `jrp run` every day at 05:00 and
-`jrp drift` (a live replay that reports whether Jev's probabilities have shifted) on Mondays at 05:30.
-Edit the absolute paths for your machine before loading them. If your vault is in iCloud Drive, the
-wrapper copies the notes through `<JRP_STORE_DIR>/vault-stage/`, because macOS lets launchd's bash
-open iCloud files but not the uv-managed Python. The wrapper kills a run that is still going after
-`JRP_RUN_TIMEOUT_S` (default one hour) and, like a failure before Python starts, reports it to Slack
-when `JRP_SLACK_NOTIFY=1`.
+## Development
 
 ```bash
+uv sync
 .claude/verify.sh     # format, lint, types, bandit, deptry, tests; offline, no keys
 uv run pytest -q      # replays committed cassettes; live recording is opt-in (docs/configuration.md)
 ```
 
+Traces are OpenTelemetry and off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+([docs/observability.md](docs/observability.md)). The prose bench that chose the prompts, and how to
+run it, is in [AGENTS.md](AGENTS.md) (Japanese, for coding agents). The design record, every
+decision and the evidence it rests on, is [docs/design/pipeline-design.md](docs/design/pipeline-design.md).
+
 ## Related
 
 - [TypeSafe Jev](https://docs.typesafe.ai) and the [Pydantic AI `typesafe:` model](https://pydantic.dev/docs/ai/models/typesafe/)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the `claude-code:` writer)
 - [Pydantic AI's OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md) (ChatGPT/Codex subscription)
 - [Qwen on DashScope](https://www.alibabacloud.com/help/en/model-studio/models)
 

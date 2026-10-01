@@ -46,9 +46,11 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 dev と holdout を合わせた 32 件で比べ、改善は holdout で崩れないことを確かめる。usage limit に当たると
 コマンドは止まる（再試行しない）。
 
-本番の本文プロンプトは `bench/prose/prompts/v10.md` + `check6.md`（`generation/prose.py` の
-`INSTRUCTIONS` と同文）。本番のモデルは `openai-codex:gpt-6-luna`。候補は v14 + check8 で、Opus では
-足切り 31/32 だが GPT-6 Luna には転移しなかった（design「Prose bench on claude -p」）。
+本番の本文プロンプトは言語ごとに `src/jev_research_pipeline/generation/prompts/` にあり、bench の
+ファイルと同文であることをテストが固定している: ja = `v15.md` + `check9.md`、en = `en2.md` + `en-check1.md`、
+zh = `zh1.md` + `zh-check1.md`。言語のベンチは `jrp prose bench --lang en|zh`（判定役の rubric と
+読み手の指示文も言語に従う）。本番のモデルは `openai-codex:gpt-6-luna`。著者は Opus を選んだが、本番の
+点検が Opus の節を落とすため据え置き（design「Production check vs the prose bench」）。
 
 ## trace を見る（OTel）
 
