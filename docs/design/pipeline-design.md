@@ -749,8 +749,8 @@ Every fixed text of a note — headings, the template line, the empty-day senten
 operations section, Review reasons, rule candidates — is one `Msg` in `note_text.py` with
 the three languages side by side; tests/test_note_text.py checks that the three carry the
 same placeholders and that the en column has no Japanese. What is read back does not
-change: the three `<!-- jrp:… -->` marks, `## Review` and `> [!note]- Claims` are the same
-in every language, so ticks harvest alike. Third-party text (claims, titles) stays as
+change: the three `<!-- jrp:… -->` marks are the same in every language, so ticks harvest
+alike (the folded lists' titles follow the language since "Note layout" below). Third-party text (claims, titles) stays as
 fetched. The prose follows the same setting: the prompt and the self-check
 (`PROSE_PROMPTS` / `CHECK_PROMPTS`, shipped in generation/prompts/ and pinned to the bench
 files they were chosen as), the rewrite feedback, and rubric_report's asks (the readability
@@ -816,6 +816,34 @@ the five claims a section shows: their sources overlap two or three of five betw
 languages, DreamBench-SWE in all three (samples: docs/samples/). The English wording
 screens a little tighter; nothing collapsed. One run per language: the spread between languages is not
 separated from Jev's own run-to-run spread.
+
+### Note layout (author request 2026-10-04, plan note-layout)
+
+Supersedes the reading-surface parts of "Question-centric redesign" (folded Claims, Review
+and 未判定 / 運用 as `##` sections). The author found the prose readable and the rest of the
+note in the way. Measured on the vault's 54 jrp notes: all 19 ticks were qday ticks; Review
+(`jrp:source`) and Claims (`jrp:claim`) had none. The Claims callout was also broken on all
+16 notes from 10-01 to 10-04: a blank line after `> [!note]- Claims` ended it, so the claim
+list showed unfolded.
+
+- Reading surface = per question `##` title, `### 今日の変化` + prose, `### 証拠`
+  (`[title](url) — gist`), `### 反証`, the qday checkbox. A template section has no
+  今日の変化 heading; its sentence stands alone in italics.
+- After a `---`, one closed `> [!info]-` callout per non-empty list: Review, 橋渡し, Claims,
+  未判定, 運用, each titled with its count. No blank line inside a callout, no nesting
+  (`_MARK_LINE_RE` reads one `>`), no `(なし)`. Marks and the harvester are unchanged.
+- Chosen by eval, not by taste: the 16 notes re-rendered in six layouts and shown blind
+  as "what Obsidian shows with callouts closed" to fresh-context Sonnet judges, two
+  rounds × two judges, different notes per round. Round 1: the folded variants beat
+  today's note on every note; the two judges split on the 今日の変化 heading. Round 2:
+  the heading version won 7 of 8 notes. Dropped on the judges' word: titles without the
+  English gist (the gist is what the reader decides the checkbox on) and a list of the
+  day's questions at the top (it repeats the headings; with a template section it reads as
+  "moved"). Reading-surface share of the visible note: 0.22 → 0.50 (mean of 16).
+- Left as the judges' open points, not changed here (they are the prose's): long
+  paragraphs, the 推論 paragraph's length, `[n]` next to `(S1)`.
+Review-when: the author's ticks start landing in a folded list (then it is read, and
+belongs on the surface), or the fill rate drops after this change.
 
 ### Non-goals (explicit)
 

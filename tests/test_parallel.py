@@ -64,7 +64,7 @@ async def test_jev_requests_in_flight_never_exceed_the_limit(env: dict[str, str]
 def _timed(line: str) -> bool:
     """Operations lines that carry a wall time (stages, prose drafts): no two runs share
     them, and under load a 0.0 s draft reads 0.1 s."""
-    return line.lstrip("- ").startswith("段の所要:") or " prose 第" in line
+    return line.lstrip("> -").startswith("段の所要:") or " prose 第" in line
 
 
 def _stable(text: str) -> str:

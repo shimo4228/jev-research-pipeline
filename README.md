@@ -189,21 +189,22 @@ output type and the raw probability distributions are stored with the decision.
 
 ```
 # <line> — <date>
-### <question>                 one section per question that got new evidence today
-What changed today             prose; [n] cites a claim; the last paragraph, marked [Inference], is inference
-Evidence                       today's sources for this question
-Counter-evidence               claims that count against the answer, if any
+## <question>                  one section per question that got new evidence today
+### What changed today         prose; [n] cites a claim; the last paragraph, marked [Inference], is inference
+### Evidence                   today's sources for this question
+### Counter-evidence           claims that count against the answer, if any
 - [ ] Worth reading            one checkbox per question-day; a tick propagates to its claims
-## Review                       borderline sources, at most 10, one checkbox each
-## Bridges                      sources Jev judged to tie the question to something outside the line
-> [!note]- Claims               folded list of every claim with its source and a checkbox
-## Unjudged                     items whose Jev request failed, each tagged with the Jev function
-## Operations                   questions asked, tokens, cost, per-net acceptance, canaries
+---                            below: closed callouts, one per non-empty list
+> [!info]- Review — N …        borderline sources, at most 10, one checkbox each
+> [!info]- Bridges — N         sources Jev judged to tie the question to something outside the line
+> [!info]- Claims — N          every claim with its source and a checkbox
+> [!info]- Unjudged — N        items whose Jev request failed, each tagged with the Jev function
+> [!info]- Operations          questions asked, tokens, cost, per-net acceptance, canaries
 ```
 
 Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `[-]` means no, and
 `[ ]` means no label. Obsidian's click toggles `[x]`; type `[-]` by hand. In a viewer other than
-Obsidian the folded claim list shows as an ordinary quote block ([docs/scheduling.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/scheduling.md#reading-the-notes-outside-obsidian)).
+Obsidian the folded lists show as ordinary quote blocks ([docs/scheduling.md](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/scheduling.md#reading-the-notes-outside-obsidian)).
 
 ## Source nets
 

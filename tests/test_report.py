@@ -19,6 +19,7 @@ from jev_research_pipeline.report import (
     render_report,
     safe_url,
     sanitize,
+    ticks,
     vault_dir,
     write_note,
 )
@@ -151,25 +152,67 @@ def test_frontmatter_has_daily_research_keys_plus_line_and_report():
 
 
 def test_body_sections_in_order():
-    text = _render([_entry()])
+    text = _render([_entry()], review=[_review_entry()])
     body = text.split("---\n", 2)[2]
     positions = [
         body.index(h)
         for h in (
             "# ",
-            "### ",
-            "今日の変化",
+            "## ",
+            "### 今日の変化",
             "本文です",
-            "証拠",
+            "### 証拠",
             "jrp:qday:",
-            "## Review",
-            "## 橋渡し",
-            "> [!note]- Claims",
-            "## 未判定",
-            "## 運用",
+            "\n---\n",
+            "> [!info]- Review — 境界の資料 1 件",
+            "> [!info]- Claims — 1 件",
+            "> [!info]- 未判定 — 1 件",
+            "> [!info]- 運用",
         )
     ]
     assert positions == sorted(positions)
+
+
+def _review_entry() -> SourceEntry:
+    return SourceEntry(
+        source_id="https://shimo4228.github.io/shimo4228/jrp/source/r1",
+        title="Borderline [v2] paper",
+        gist="境界: 重み付き 0.58",
+        url="https://arxiv.org/abs/2",
+    )
+
+
+def test_folded_lists_hold_no_blank_line_and_empty_ones_are_absent():
+    """Obsidian ends a callout at a blank line, and the list after it shows unfolded (the
+    Claims of every note before plan note-layout). An empty list writes nothing."""
+    text = _render([_entry()])
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("> [!info]-"):
+            assert lines[i + 1].startswith("> "), line
+    assert "Review" not in text and "橋渡し" not in text and "(なし)" not in text
+
+
+def test_every_mark_is_harvested_from_the_folded_layout():
+    e = _entry()
+    review = _review_entry()
+    ticked = _render([e], review=[review]).replace("- [ ] ", "- [x] ")
+    assert ticks(ticked, "claim") == {e.claim.id: "correct"}
+    assert ticks(ticked, "source") == {review.source_id: "correct"}
+    assert ticks(ticked, "qday") == {f"{b.question().id}:{DAY.isoformat()}": "correct"}
+
+
+def test_a_source_title_stays_inside_its_link():
+    line = next(
+        ln for ln in _render([_entry()], review=[_review_entry()]).splitlines() if "r1" in ln
+    )
+    assert line.startswith("> - [ ] [Borderline \\[v2\\] paper](https://arxiv.org/abs/2) — ")
+
+
+def test_a_template_section_has_no_empty_changes_heading():
+    text = _render([_entry()], prose=None)
+    assert "### 今日の変化" not in text
+    assert "*本文生成なし (template)。証拠だけを挙げる。*" in text
 
 
 def test_claim_line_format():
@@ -187,11 +230,6 @@ def test_hostile_claim_cannot_forge_a_second_claim_line():
     lines = [ln for ln in _render([e]).splitlines() if "jrp:claim" in ln and ln.startswith("> ")]
     assert len(lines) == 1
     assert "[[Note]]" not in lines[0]
-
-
-def test_template_report_lists_claims_without_prose():
-    text = _render([_entry()], prose=None)
-    assert "本文生成なし" in text
 
 
 # --- vault ---------------------------------------------------------------------------------
@@ -284,7 +322,7 @@ def test_write_note_survives_an_undecodable_old_note(tmp_path: Path):
     path.parent.mkdir()
     path.write_bytes(b"\xff\xfe broken")
     write_note(tmp_path, "akc", DAY, _render([_entry()]))
-    assert "> [!note]- Claims" in path.read_text(encoding="utf-8")
+    assert "> [!info]- Claims — 1 件" in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("run", ["%%%", "%%%%%", "a %%% b"])
@@ -389,11 +427,11 @@ def test_unjudged_says_which_judgment_failed():
         unjudged=unjudged,
         operations=[],
     )
-    block = text.split("## 未判定\n", 1)[1].split("\n## ", 1)[0]
+    block = text.split("> [!info]- 未判定 — 3 件\n", 1)[1].split("\n\n", 1)[0]
     assert block.strip().splitlines() == [
-        "- [question_screening] Narrow questions",
-        "- [novelty] Narrow questions beat one broad question.",
-        f"- [question_movement] {b.question().title}",
+        "> - [question_screening] Narrow questions",
+        "> - [novelty] Narrow questions beat one broad question.",
+        f"> - [question_movement] {b.question().title}",
     ]
 
 

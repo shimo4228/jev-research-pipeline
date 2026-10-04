@@ -2,9 +2,9 @@
 
 JRP_NOTE_LANG = ja | en | zh picks the language of the note's headings, its operations
 section and the empty-day sentence (default ja, the author's notes). The machine-read parts
-of a note do not change with it: the three `<!-- jrp:… -->` marks, `## Review` and the
-folded `> [!note]- Claims` are the same in every language (report.vault reads only the
-marks), so a tick is harvested the same way from a note in any language.
+of a note do not change with it: the three `<!-- jrp:… -->` marks are the same in every
+language (report.vault reads only the marks), so a tick is harvested the same way from a
+note in any language.
 
 One Msg per text, the three languages side by side: a text added in one language and not
 the others does not type-check, and tests/test_note_text.py checks that the three carry the
@@ -59,9 +59,13 @@ TEMPLATE_BODY: Final = Msg(
     "No prose generated (template). Evidence only.",
     "未生成正文 (template)。仅列出证据。",
 )
-NONE_LISTED: Final = Msg("(なし)", "(none)", "(无)")
-BRIDGES: Final = Msg("橋渡し", "Bridges", "桥接")
-UNJUDGED: Final = Msg("未判定", "Unjudged", "未判定")
+# Titles of the folded callouts after the reading surface (one per non-empty list).
+REVIEW: Final = Msg(
+    "Review — 境界の資料 {n} 件", "Review — {n} borderline sources", "Review — 边界资料 {n} 条"
+)
+BRIDGES: Final = Msg("橋渡し — {n} 件", "Bridges — {n}", "桥接 — {n} 条")
+CLAIMS: Final = Msg("Claims — {n} 件", "Claims — {n}", "Claims — {n} 条")
+UNJUDGED: Final = Msg("未判定 — {n} 件", "Unjudged — {n}", "未判定 — {n} 条")
 OPERATIONS: Final = Msg("運用", "Operations", "运行")
 NOTHING_MOVED: Final = Msg(
     "今日動いた問いはない。{why}", "No question moved today. {why}", "今天没有问题出现变化。{why}"

@@ -75,7 +75,8 @@ reason) to every channel the env names; none is required.
 ## Reading the notes outside Obsidian
 
 The notes are plain Markdown written for Obsidian. In another viewer (GitHub, VS Code, any
-CommonMark renderer) they read the same, with two differences: the folded claim list
-`> [!note]- Claims` shows as an ordinary quote block whose first line is `[!note]- Claims`, and
-a tick written as `- [-]` (incorrect) shows as the text `[-]` instead of a checkbox. Ticks are
+CommonMark renderer) they read the same, with two differences: the folded lists after the
+question sections (`> [!info]- Review — …`, Claims, 未判定, 運用) show as ordinary quote blocks
+whose first line is the `[!info]-` title, and a tick written as `- [-]` (incorrect) shows as the
+text `[-]` instead of a checkbox. Ticks are
 read back from the text itself, so they work from any editor.

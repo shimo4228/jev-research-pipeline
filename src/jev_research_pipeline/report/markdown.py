@@ -1,28 +1,36 @@
-"""Report markdown (packet "Question-centric redesign").
+"""Report markdown (packet "Question-centric redesign"; layout: plan note-layout).
 
     ---                                  frontmatter: daily-research keys (date / category /
     date / category: jrp / kind / tags /   kind / tags / topic) + line + jrp_report
     topic / line / jrp_report
     ---
     # <line name> — <date>
-    ### <question title>                 one section per question that moved today
-    今日の変化
-    <prose, with [n] and one inference paragraph marked 推論>
-    証拠
-    - <source title> — <gist> — [link](url)
-    反証                                 claims that count against the answer, if any
+    ## <question title>                  one section per question that moved today
+    ### 今日の変化                          absent when the ladder fell to template: the
+    <prose, with [n] and one inference      template sentence stands alone, in italics
+     paragraph marked 推論>
+    ### 証拠
+    - [<source title>](url) — <gist>
+    ### 反証                               claims that count against the answer, if any
     - [ ] 読む価値があった <!-- jrp:qday:<question @id>:<date> -->
-    ## Review                            borderline sources, one checkbox each
-    - [ ] <title> — <why> <!-- jrp:source:<source @id> -->
-    ## 橋渡し                              what the exploration nets connected
-    > [!note]- Claims                    folded: the wall of claims is not the reading surface
+    ---                                  everything below is folded: not the reading surface
+    > [!info]- Review — 境界の資料 N 件     borderline sources, one checkbox each
+    > - [ ] [<title>](url) — <why> <!-- jrp:source:<source @id> -->
+    > [!info]- 橋渡し — N 件                what the exploration nets connected
+    > [!info]- Claims — N 件
     > - [ ] <verbatim> — [source](url) <!-- jrp:claim:<claim @id> -->
-    ## 未判定
-    - [<Jev function>] <source title | claim text | question title>
-    ## 運用
+    > [!info]- 未判定 — N 件
+    > - [<Jev function>] <source title | claim text | question title>
+    > [!info]- 運用
+
+The reading surface is the question sections only (the author's ticks, 2026-09-23 to
+10-04, all landed on the qday line; none on Review or Claims). A callout holds no blank
+line — Obsidian ends the quote at one, and the list after it shows unfolded — and an empty
+list writes no callout at all. Callouts are never nested: report.vault reads a mark behind
+one `>` at most.
 
 The fixed text above is the Japanese of note_text (JRP_NOTE_LANG picks en or zh); the
-marks, `## Review` and the folded Claims are the same in every language.
+three marks are the same in every language.
 
 The machine-read lines are exactly the three `<!-- jrp:… -->` marks above; one checkbox
 per question-day is the primary metric's unit, and its tick propagates to the claims and
@@ -34,7 +42,8 @@ syntax, not markdown: outside text may render as an ordinary link, a bare URL, a
 an inline code span, but never as a wikilink / embed / remote image / HTML / code fence
 (``` or ~~~) / Dataview or Templater expression / javascript: or data: link — and it
 must never be able to forge a `<!-- jrp:… -->` line. Source URLs pass through
-safe_url() (http(s) only, markdown-breaking characters percent-encoded).
+safe_url() (http(s) only, markdown-breaking characters percent-encoded); a title used as
+link text has its brackets escaped so it cannot close the link early.
 """
 
 import json
@@ -169,13 +178,20 @@ def claim_line(entry: ClaimEntry) -> str:
     return f"- [ ] {cite}{text}{link} <!-- {CLAIM_MARK}{entry.claim.id} -->"
 
 
+def _link_text(text: str) -> str:
+    """One-line text that stays inside `[...]` of a link: backslashes and brackets are
+    escaped before sanitize, so a title cannot close the link or escape its closing `]`."""
+    escaped = re.sub(r"([\\\[\]])", r"\\\1", text)
+    return sanitize(escaped, one_line=True)
+
+
 def _source_line(entry: SourceEntry, mark: str | None = None) -> str:
     url = safe_url(entry.url)
-    link = f" — [link]({url})" if url else ""
+    title = f"[{_link_text(entry.title)}]({url})" if url else sanitize(entry.title, one_line=True)
     gist = f" — {sanitize(entry.gist, one_line=True)}" if entry.gist else ""
     box = "- [ ] " if mark else "- "
     tail = f" <!-- {mark} -->" if mark else ""
-    return f"{box}{sanitize(entry.title, one_line=True)}{gist}{link}{tail}"
+    return f"{box}{title}{gist}{tail}"
 
 
 def qday_mark(question_id: str, run_date: date) -> str:
@@ -183,21 +199,23 @@ def qday_mark(question_id: str, run_date: date) -> str:
 
 
 def _question_section(section: QuestionSection, run_date: date, lang: Lang) -> str:
-    body = sanitize(section.prose) if section.prose is not None else t.TEMPLATE_BODY(lang)
+    body = (
+        [f"### {t.CHANGES(lang)}", "", sanitize(section.prose)]
+        if section.prose is not None
+        else [f"*{t.TEMPLATE_BODY(lang)}*"]
+    )
     lines = [
-        f"### {sanitize(section.title, one_line=True)}",
+        f"## {sanitize(section.title, one_line=True)}",
         "",
-        t.CHANGES(lang),
+        *body,
         "",
-        body,
-        "",
-        t.EVIDENCE(lang),
+        f"### {t.EVIDENCE(lang)}",
         "",
         *[_source_line(e) for e in section.evidence],
         "",
         *(
             [
-                t.COUNTER_EVIDENCE(lang),
+                f"### {t.COUNTER_EVIDENCE(lang)}",
                 "",
                 *[f"- {sanitize(c, one_line=True)}" for c in section.contradictions],
                 "",
@@ -211,8 +229,12 @@ def _question_section(section: QuestionSection, run_date: date, lang: Lang) -> s
     return "\n".join(lines)
 
 
-def _bullets(lines: list[str], lang: Lang) -> str:
-    return ("\n".join(lines) + "\n") if lines else t.NONE_LISTED(lang) + "\n"
+def _folded(title: str, items: list[str]) -> str | None:
+    """One closed callout, or None for an empty list. `items` are single lines (sanitized
+    one-line), so none can end the quote or open a nested one."""
+    if not items:
+        return None
+    return "\n".join([f"> [!info]- {title}", *(f"> {i}" for i in items)]) + "\n"
 
 
 def render_report(
@@ -232,23 +254,31 @@ def render_report(
     folded list (report.claims). Everything else is display lines, sanitized here.
     `empty_day` says why no question moved (what was fetched, how far it got) — a note
     that only says "nothing moved" cannot be told apart from a broken run. `lang` picks the
-    fixed text (note_text); the marks and `## Review` / Claims are the same in every one."""
+    fixed text (note_text); the marks are the same in every one."""
     date_ = report.run_date
+    folded = [
+        f
+        for f in (
+            _folded(
+                t.REVIEW(lang, n=len(review)),
+                [_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review],
+            ),
+            _folded(t.BRIDGES(lang, n=len(bridges)), [_source_line(e) for e in bridges]),
+            _folded(t.CLAIMS(lang, n=len(claims)), [claim_line(e) for e in claims]),
+            _folded(
+                t.UNJUDGED(lang, n=len(unjudged)),
+                [f"- [{u.function}] {sanitize(u.text, one_line=True)}" for u in unjudged],
+            ),
+            _folded(t.OPERATIONS(lang), [f"- {sanitize(o, one_line=True)}" for o in operations]),
+        )
+        if f is not None
+    ]
     parts = [
         _frontmatter(report, ctx, len(sections), lang),
         f"# {sanitize(ctx.line.name, one_line=True)} — {date_.isoformat()}\n",
         "\n".join(_question_section(s, date_, lang) for s in sections)
         if sections
         else t.NOTHING_MOVED(lang, why=sanitize(empty_day, one_line=True)) + "\n",
-        "## Review\n",
-        _bullets([_source_line(e, f"{SOURCE_MARK}{e.source_id}") for e in review], lang),
-        f"## {t.BRIDGES(lang)}\n",
-        _bullets([_source_line(e) for e in bridges], lang),
-        "> [!note]- Claims\n",
-        _bullets([f"> {claim_line(e)}" for e in claims], lang),
-        f"## {t.UNJUDGED(lang)}\n",
-        _bullets([f"- [{u.function}] {sanitize(u.text, one_line=True)}" for u in unjudged], lang),
-        f"## {t.OPERATIONS(lang)}\n",
-        "\n".join(f"- {sanitize(o, one_line=True)}" for o in operations) + "\n",
+        *(["---\n", *folded] if folded else []),
     ]
     return "\n".join(parts)

@@ -68,8 +68,7 @@ def _note(lang: Lang) -> str:
 
 
 def test_the_machine_read_lines_do_not_change_with_the_language():
-    """Only the three marks are read back; their lines (and Review / Claims) are the same
-    in every language, so a tick in an en or zh note is harvested like one in ja."""
+    """Only the three marks are read back; their lines are the same in every language, so a tick in an en or zh note is harvested like one in ja."""
     marks = {lang: re.findall(r"<!-- jrp:\S+ -->", _note(lang)) for lang in LANGS}
     assert marks["ja"] and marks["ja"] == marks["en"] == marks["zh"]
     for lang in LANGS:
@@ -79,7 +78,7 @@ def test_the_machine_read_lines_do_not_change_with_the_language():
 
 def test_an_english_note_has_english_headings():
     text = _note("en")
-    for heading in ("What changed today", "Evidence", "## Bridges", "## Unjudged", "## Operations"):
+    for heading in ("### Evidence", "borderline sources"):
         assert heading in text
     assert "No prose generated (template). Evidence only." in text
     assert "- [ ] Worth reading <!-- jrp:qday:" in text
@@ -95,7 +94,7 @@ async def test_an_english_run_writes_no_japanese_of_its_own(
     env = {**env, "JRP_NOTE_LANG": "en"}
     (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(fake_world()), pacing=False)
     text = Path(outcome.note).read_text(encoding="utf-8")
-    ops = text.split("## Operations\n", 1)[1]
+    ops = text.split("> [!info]- Operations\n", 1)[1]
     assert [line for line in ops.splitlines() if CJK.search(line)] == []
     assert any("web_search: skipped, key not set" in ln for ln in outcome.operations)
     assert "jrp:qday:" in text

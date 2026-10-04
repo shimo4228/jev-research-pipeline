@@ -73,7 +73,7 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     note = Path(env["JRP_VAULT_DIR"]) / "daily-research" / "2026-09-22_jrp_akc.md"
     assert outcome.note == note
     text = note.read_text(encoding="utf-8")
-    assert "category: jrp" in text and "> [!note]- Claims" in text and "## 運用" in text
+    assert "category: jrp" in text and "> [!info]- Claims — " in text and "> [!info]- 運用" in text
     assert "jrp:qday:" in text  # the primary unit: one checkbox per question-day
     assert "claude_calls: 0" in text
     claim_lines = [ln for ln in text.splitlines() if "jrp:claim:" in ln]
@@ -124,8 +124,8 @@ async def test_a_failed_movement_check_is_listed_as_one(
 
     (outcome,) = await run_pipeline(env, now=b.T0, http=cassette(handle), pacing=False)
     text = outcome.note.read_text(encoding="utf-8")
-    block = text.split("## 未判定\n", 1)[1].split("\n## ", 1)[0]
-    assert "- [question_movement] " in block, block
+    block = text.split("> [!info]- 未判定", 1)[1].split("\n\n", 1)[0]
+    assert "> - [question_movement] " in block, block
 
 
 async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env: dict[str, str]):
