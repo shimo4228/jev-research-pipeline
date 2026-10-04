@@ -8,13 +8,13 @@ line: agent-memory
 jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f9917c890fff29782"
 ---
 
-<!-- jrp のノートの見本 (JRP_NOTE_LANG=ja)。2026-10-01 に 1 ラインを試しに回したもの。第三者の文は省いている: claim の原文、出典の横の抜粋、未判定の claim の文はリンクだけにした。本文と運用欄は jrp 自身の出力。 -->
+<!-- jrp のノートの見本 (JRP_NOTE_LANG=ja)。2026-10-01 に 1 ラインを試しに回したもの。第三者の文は省いている: claim の原文、出典の横の抜粋、未判定の claim の文はリンクだけにした。本文と運用欄は jrp 自身の出力。 レイアウトは 2026-10-04 の描画 (plan note-layout) で描き直した。 -->
 
 # Agent memory — 2026-10-01
 
-### LLM エージェントの記憶の設計は、正答をどれだけ変えるか
+## LLM エージェントの記憶の設計は、正答をどれだけ変えるか
 
-今日の変化
+### 今日の変化
 
 ソフトウェア作業を何回かのセッションに分けて行うエージェントの試験の追加の検証では、外部の記憶を持たない条件で 180 回中 21 回だった合格が、記憶を持たせた三つの条件では 180 回中 82〜97 回に増えた。科学論文を読んで答えるエージェントでは、制御役・資料・呼び出し回数の上限 6 回をそろえたうえで、記録の形だけを変えた。順序のない概念のつながりから、順序を保った経路の形の記録に替えると、正しい出典を拾える割合が 61.3% から 82.9% に上がった。[3][2]
 
@@ -32,7 +32,7 @@ jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f99
 
 【推論】二つの研究を合わせると、このラインにとって次の見方がありうる。記憶を持つかどうかの差は大きい。一方、どの記憶方式を選ぶかの差は、測り方によっては見えにくい。DreamBench-SWE では、記憶ありの方式どうしの差がはっきりしなかった。PathAnchor では、ほかの条件をそろえて記録の形だけを変えると、出典を拾える割合が大きく動いた。もしこの違いが、作業の種類や記録に求められる順序の重要さから来ているなら、設計の効き目は課題ごとに大きく違うことになる。次に確かめたいのは、条件をそろえた比較で、記録の形の違いが最終的な正答や合格の数まで動かすかである。PathAnchor の比較で動いたのは、出典の拾い方と引用の完全さだった。DreamBench-SWE の数字は 180 回という規模であり、方式どうしの小さな差を見分けるには足りないおそれもある。この読みが外れるとすれば、次のような場合である。科学論文での差が、その分野の材料からシステムへという特有の順序に強く依存していたなら、一般の記憶設計には広がらない。また、ソフトウェア作業での方式どうしの差が、試行を増やしてもやはり小さいままなら、この読みも外れる。
 
-証拠
+### 証拠
 
 - MemCodex: Self-Programming Hierarchical Memory for Language Agents — [link](https://arxiv.org/abs/2609.39765)
 - PathAnchor: Path-Structured Evidence for Scientific Agents — [link](https://arxiv.org/abs/2609.38766)
@@ -42,68 +42,65 @@ jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f99
 
 - [ ] 読む価値があった <!-- jrp:qday:https://shimo4228.github.io/shimo4228/jrp/question/f15c2baf731e8b33a676e725a8b71258:2026-10-01 -->
 
-## Review
+---
 
-- [ ] LongEmo: Towards Emotion Understanding and Reasoning in Long Videos — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.48 (< 0.50) — [link](https://arxiv.org/abs/2609.40079) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/eaaf429e430ae9faf1850e237bab0f36 -->
-- [ ] EvoAgentBench: Benchmarking Agent Self-Evolution via Ability Transfer — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.59 (採用線 0.60) — [link](https://arxiv.org/abs/2607.05202) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/0c11c6b6bd47fae3be10dc33d891ae42 -->
-- [ ] Learning Reliable GUI Agents under Imperfect Priors — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.58 (採用線 0.60) — [link](https://arxiv.org/abs/2609.39547) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/beaf215cb18c2aa2183e62a896c05aca -->
-- [ ] APM-Bench: Benchmarking Cross-session Persistent Memory for Egocentric Streaming Video Assistants — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.58 (採用線 0.60) — [link](https://huggingface.co/papers/2609.37559) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/3d859952ceacfc8c57b0cd102ddda498 -->
-- [ ] EngramBench: A Capability-Grounded Benchmark for Skill-Evolution Harnesses — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.45 (< 0.50) — [link](https://arxiv.org/abs/2609.39284) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ce4dcebd44b0d8d15d60d61f1cd5ed50 -->
-- [ ] RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.46 (< 0.50) — [link](https://arxiv.org/abs/2607.16716) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/6784acf1e645fa1e1e2a1885ab6e0451 -->
-- [ ] CoMemBench: Benchmarking Collaborative Memory Boundaries across Multi-Agent Workflow Topologies — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.55 (採用線 0.60) — [link](https://arxiv.org/abs/2609.32192) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/23252a2b413fce0692e6b4c3d30a2526 -->
-- [ ] Locomo-Plus: Beyond-Factual Cognitive Memory Evaluation Framework for LLM Agents — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.54 (採用線 0.60) — [link](https://huggingface.co/papers/2602.10715) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ef35b15027ea01c1f4c0dc3e554faf5f -->
-- [ ] EnSIMem: Entity-Structured Indexing for Long-Term Agent Memory — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.34 (< 0.50) — [link](https://arxiv.org/abs/2609.27279) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/18ee36829a0ff3873178b1150ce39284 -->
-- [ ] Autoresearch in Mixed-Integer Linear and Nonlinear Programming — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.44 (< 0.50) — [link](https://arxiv.org/abs/2609.39360) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/4f9a0690b733c0b4bc7b7653133d318b -->
+> [!info]- Review — 境界の資料 10 件
+> - [ ] [LongEmo: Towards Emotion Understanding and Reasoning in Long Videos](https://arxiv.org/abs/2609.40079) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.48 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/eaaf429e430ae9faf1850e237bab0f36 -->
+> - [ ] [EvoAgentBench: Benchmarking Agent Self-Evolution via Ability Transfer](https://arxiv.org/abs/2607.05202) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.59 (採用線 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/0c11c6b6bd47fae3be10dc33d891ae42 -->
+> - [ ] [Learning Reliable GUI Agents under Imperfect Priors](https://arxiv.org/abs/2609.39547) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.58 (採用線 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/beaf215cb18c2aa2183e62a896c05aca -->
+> - [ ] [APM-Bench: Benchmarking Cross-session Persistent Memory for Egocentric Streaming Video Assistants](https://huggingface.co/papers/2609.37559) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.58 (採用線 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/3d859952ceacfc8c57b0cd102ddda498 -->
+> - [ ] [EngramBench: A Capability-Grounded Benchmark for Skill-Evolution Harnesses](https://arxiv.org/abs/2609.39284) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.45 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ce4dcebd44b0d8d15d60d61f1cd5ed50 -->
+> - [ ] [RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts](https://arxiv.org/abs/2607.16716) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.46 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/6784acf1e645fa1e1e2a1885ab6e0451 -->
+> - [ ] [CoMemBench: Benchmarking Collaborative Memory Boundaries across Multi-Agent Workflow Topologies](https://arxiv.org/abs/2609.32192) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.55 (採用線 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/23252a2b413fce0692e6b4c3d30a2526 -->
+> - [ ] [Locomo-Plus: Beyond-Factual Cognitive Memory Evaluation Framework for LLM Agents](https://huggingface.co/papers/2602.10715) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 境界: 重み付き 0.54 (採用線 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ef35b15027ea01c1f4c0dc3e554faf5f -->
+> - [ ] [EnSIMem: Entity-Structured Indexing for Long-Term Agent Memory](https://arxiv.org/abs/2609.27279) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.34 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/18ee36829a0ff3873178b1150ce39284 -->
+> - [ ] [Autoresearch in Mixed-Integer Linear and Nonlinear Programming](https://arxiv.org/abs/2609.39360) — 「LLM エージェントの記憶の設計は、正答をどれだけ変えるか」: 確信度不足: 0.44 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/4f9a0690b733c0b4bc7b7653133d318b -->
 
-## 橋渡し
+> [!info]- 橋渡し — 3 件
+> - Persistent Context Graphs for Efficient Memory Compaction in LLM Agents — [link](https://arxiv.org/abs/2609.40118)
+> - ElasticMem: Latent Memory as a Learnable Resource for LLM Agents — [link](https://huggingface.co/papers/2605.30690)
+> - Working Around the Compute Ceiling: Byte-Exact Memory in Galahad Makes LLM Reading a One-Time Cost LLM Reading a One-Time Cost — [link](https://arxiv.org/abs/2609.39358)
 
-- Persistent Context Graphs for Efficient Memory Compaction in LLM Agents — [link](https://arxiv.org/abs/2609.40118)
-- ElasticMem: Latent Memory as a Learnable Resource for LLM Agents — [link](https://huggingface.co/papers/2605.30690)
-- Working Around the Compute Ceiling: Byte-Exact Memory in Galahad Makes LLM Reading a One-Time Cost LLM Reading a One-Time Cost — [link](https://arxiv.org/abs/2609.39358)
-
-> [!note]- Claims
-
+> [!info]- Claims — 5 件
 > - [ ] **memory-designs [1]** (見本では claim の原文を省略。出典を参照) — [source](https://arxiv.org/abs/2609.39765) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/306a1a4b5ac102074153ffb0e2cc7801 -->
 > - [ ] **memory-designs [2]** (見本では claim の原文を省略。出典を参照) — [source](https://arxiv.org/abs/2609.38766) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/769c3bcb291a12ec0182d52beefc0103 -->
 > - [ ] **memory-designs [3]** (見本では claim の原文を省略。出典を参照) — [source](https://arxiv.org/abs/2608.20664) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/15f3f348fa7d9102d866a007892e46eb -->
 > - [ ] **memory-designs [4]** (見本では claim の原文を省略。出典を参照) — [source](https://huggingface.co/papers/2605.30690) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/3aa697bcddbaf5308726e41829421004 -->
 > - [ ] **memory-designs [5]** (見本では claim の原文を省略。出典を参照) — [source](https://huggingface.co/papers/2609.37725) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/d10a23f3b9bbf7724e31e4e381877d8d -->
 
-## 未判定
+> [!info]- 未判定 — 1 件
+> - [novelty] (見本では claim の原文を省略。出典を参照)
 
-- [novelty] (見本では claim の原文を省略。出典を参照)
-
-## 運用
-
-- Jev 質問数: 2170
-- 生成 token (claude-code:claude-opus-5-5): in 28366 / out 13431
-- claude_calls: 0
-- cost: $0.0434 (生成はサブスクリプション定額で 0 計上)
-- 記入率 (前回): なし
-- open な問い: 1 件
-- rubric grounded: 平均 0.98 / gold 一致 未計測
-- rubric relevant: 平均 0.86 / gold 一致 未計測
-- rubric novel: 平均 0.98 / gold 一致 未計測
-- rubric actionable: 平均 0.77 / gold 一致 未計測
-- net 取得数: firehose 300, keyword 58
-- net 採用率: firehose 0.60, keyword 0.40
-- topic クラスタ数: 0
-- 収束推定 f: データ不足 (3 run 未満)
-- Time-to-Discovery: 未計測
-- openalex credit: 10
-- rule 候補: relevance_triage は adapter=arxiv のとき accept (n=43, 一致率 1.00)
-- rule 候補: relevance_triage は text_len>=100 のとき accept (n=76, 一致率 0.96)
-- rule 候補: relevance_triage は text_len>=300 のとき accept (n=73, 一致率 0.97)
-- rule 候補: relevance_triage は text_len>=1000 のとき accept (n=67, 一致率 1.00)
-- (source, 問い) 対の Jev 失敗: 0 / 358 (0.0%); full screen 73 対
-- 段の所要: queries 0s / fetch 7s / prefilter 1s / triage 3s / screen 6s / claims 7s / novelty 3s / support 0s / canary 0s / sections 135s / rubric 0s
-- harvest: label 0 件 / 取り消し 0 件
-- query: 問いファイルの 3 件を使用
-- firehose: 関連度順に上位 250 件 (529 件を省略)
-- keyword/arxiv: 検証落ちで 2 件 skip
-- 同じタイトルの重複 1 件を 1 件にまとめて判定
-- Review: 13 件のうち境界に近い 10 件を表示
-- 橋渡し: 37 対が閾値を超え、確率上位 3 件を表示
-- memory-designs: claim 107 件のうち 5 件を掲載
-- memory-designs prose 第1稿: 生成 70.9s
-- memory-designs prose 第2稿: 生成 62.8s
+> [!info]- 運用
+> - Jev 質問数: 2170
+> - 生成 token (claude-code:claude-opus-5-5): in 28366 / out 13431
+> - claude_calls: 0
+> - cost: $0.0434 (生成はサブスクリプション定額で 0 計上)
+> - 記入率 (前回): なし
+> - open な問い: 1 件
+> - rubric grounded: 平均 0.98 / gold 一致 未計測
+> - rubric relevant: 平均 0.86 / gold 一致 未計測
+> - rubric novel: 平均 0.98 / gold 一致 未計測
+> - rubric actionable: 平均 0.77 / gold 一致 未計測
+> - net 取得数: firehose 300, keyword 58
+> - net 採用率: firehose 0.60, keyword 0.40
+> - topic クラスタ数: 0
+> - 収束推定 f: データ不足 (3 run 未満)
+> - Time-to-Discovery: 未計測
+> - openalex credit: 10
+> - rule 候補: relevance_triage は adapter=arxiv のとき accept (n=43, 一致率 1.00)
+> - rule 候補: relevance_triage は text_len>=100 のとき accept (n=76, 一致率 0.96)
+> - rule 候補: relevance_triage は text_len>=300 のとき accept (n=73, 一致率 0.97)
+> - rule 候補: relevance_triage は text_len>=1000 のとき accept (n=67, 一致率 1.00)
+> - (source, 問い) 対の Jev 失敗: 0 / 358 (0.0%); full screen 73 対
+> - 段の所要: queries 0s / fetch 7s / prefilter 1s / triage 3s / screen 6s / claims 7s / novelty 3s / support 0s / canary 0s / sections 135s / rubric 0s
+> - harvest: label 0 件 / 取り消し 0 件
+> - query: 問いファイルの 3 件を使用
+> - firehose: 関連度順に上位 250 件 (529 件を省略)
+> - keyword/arxiv: 検証落ちで 2 件 skip
+> - 同じタイトルの重複 1 件を 1 件にまとめて判定
+> - Review: 13 件のうち境界に近い 10 件を表示
+> - 橋渡し: 37 対が閾値を超え、確率上位 3 件を表示
+> - memory-designs: claim 107 件のうち 5 件を掲載
+> - memory-designs prose 第1稿: 生成 70.9s
+> - memory-designs prose 第2稿: 生成 62.8s

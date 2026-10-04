@@ -8,15 +8,13 @@ line: agent-memory
 jrp_report: "https://shimo4228.github.io/shimo4228/jrp/report/f37bc927de604c7f9917c890fff29782"
 ---
 
-<!-- jrp 笔记样例 (JRP_NOTE_LANG=zh)，来自 2026-10-01 对单个方向的一次试运行。第三方文本已省略: claim 原句、出处旁的摘录、未判定的 claim 文本都只保留链接。正文和运行部分是 jrp 自己的输出。 -->
-
-> 请读后告诉我们哪里读不顺、哪里让人误解：[提交阅读反馈](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml)（可用中文）。
+<!-- jrp 笔记样例 (JRP_NOTE_LANG=zh)，来自 2026-10-01 对单个方向的一次试运行。第三方文本已省略: claim 原句、出处旁的摘录、未判定的 claim 文本都只保留链接。正文和运行部分是 jrp 自己的输出。 版式已用 2026-10-04 的渲染重新生成 (plan note-layout)。 -->
 
 # Agent memory — 2026-10-01
 
-### 哪些记忆设计能可测地改变 LLM 智能体的正确率?
+## 哪些记忆设计能可测地改变 LLM 智能体的正确率?
 
-今日变化
+### 今日变化
 
 今天有两项研究提供了带数字的结果。第一项面向软件智能体：后面的任务要依赖前几轮工作留下的信息。在这种多轮设定的后续一轮审核中，不带外部记忆时只通过了 180 次中的 21 次，带上三种记忆配置后，通过次数为 82 到 97 次。第二项面向个性化对话智能体：在一个长期记忆评测上逐项调整六个设计维度，检索阶段几项调整带来的提升，大于存入阶段把对话按句切分带来的提升。[4][5]
 
@@ -34,7 +32,7 @@ MemMachine 面向需要长期记忆的个性化 LLM 智能体，这类智能体�
 
 【推论】如果这两项结果在别的设定下也成立，那么值得投入的问题可能会变化：不再只是“要不要加记忆”，而是“记忆存什么、检索阶段怎么调”。软件任务里，有无记忆的差距远大于不同记忆配置之间的差距。对话记忆里，检索深度这类检索端参数的影响，大于存入时的切分方式。下一步该确认三件事。第一，Mem0 字面存储的领先，换到其他固定配置或其他任务时是否还在。第二，检索深度 +4.2% 这类数字，究竟是百分点还是相对提升。第三，换用别的模型或评测集后，各项调整的贡献排序是否不变。以下几种情况会让这个判断落空：后续实验里，记忆配置之间的差异随设定反复翻转；有无记忆的差距，只出现在“后续任务必须依赖前次信息”这种专门构造的评测中；或者检索端的收益，只在某一个模型上才出现。
 
-证据
+### 证据
 
 - PathAnchor: Path-Structured Evidence for Scientific Agents — [link](https://arxiv.org/abs/2609.38766)
 - VideoLoop: Looped Working Memory Against Semantic Thrashing in Long-Form Video Agents — [link](https://huggingface.co/papers/2609.38119)
@@ -44,67 +42,64 @@ MemMachine 面向需要长期记忆的个性化 LLM 智能体，这类智能体�
 
 - [ ] 值得一读 <!-- jrp:qday:https://shimo4228.github.io/shimo4228/jrp/question/f15c2baf731e8b33a676e725a8b71258:2026-10-01 -->
 
-## Review
+---
 
-- [ ] APM-Bench: Benchmarking Cross-session Persistent Memory for Egocentric Streaming Video Assistants — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.31 (< 0.50) — [link](https://huggingface.co/papers/2609.37559) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/3d859952ceacfc8c57b0cd102ddda498 -->
-- [ ] CoMemBench: Benchmarking Collaborative Memory Boundaries across Multi-Agent Workflow Topologies — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) — [link](https://arxiv.org/abs/2609.32192) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/23252a2b413fce0692e6b4c3d30a2526 -->
-- [ ] Learning Reliable GUI Agents under Imperfect Priors — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.41 (< 0.50) — [link](https://arxiv.org/abs/2609.39547) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/beaf215cb18c2aa2183e62a896c05aca -->
-- [ ] LongEmo: Towards Emotion Understanding and Reasoning in Long Videos — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.47 (< 0.50) — [link](https://arxiv.org/abs/2609.40079) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/eaaf429e430ae9faf1850e237bab0f36 -->
-- [ ] VoxMem: Benchmarking Multimodal Memory in Large Audio Language Models — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) — [link](https://huggingface.co/papers/2609.32607) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/471e167467b0fa5187868801f38b85c5 -->
-- [ ] RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) — [link](https://arxiv.org/abs/2607.16716) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/6784acf1e645fa1e1e2a1885ab6e0451 -->
-- [ ] Locomo-Plus: Beyond-Factual Cognitive Memory Evaluation Framework for LLM Agents — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.54 (采纳线 0.60) — [link](https://huggingface.co/papers/2602.10715) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ef35b15027ea01c1f4c0dc3e554faf5f -->
-- [ ] Autoresearch in Mixed-Integer Linear and Nonlinear Programming — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.47 (< 0.50) — [link](https://arxiv.org/abs/2609.39360) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/4f9a0690b733c0b4bc7b7653133d318b -->
-- [ ] When Context Changes: Understanding Update Failures in LLMs — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.48 (< 0.50) — [link](https://arxiv.org/abs/2609.38866) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/cb5b6c9e10d5e802c9668da6f927d394 -->
+> [!info]- Review — 边界资料 9 条
+> - [ ] [APM-Bench: Benchmarking Cross-session Persistent Memory for Egocentric Streaming Video Assistants](https://huggingface.co/papers/2609.37559) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.31 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/3d859952ceacfc8c57b0cd102ddda498 -->
+> - [ ] [CoMemBench: Benchmarking Collaborative Memory Boundaries across Multi-Agent Workflow Topologies](https://arxiv.org/abs/2609.32192) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/23252a2b413fce0692e6b4c3d30a2526 -->
+> - [ ] [Learning Reliable GUI Agents under Imperfect Priors](https://arxiv.org/abs/2609.39547) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.41 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/beaf215cb18c2aa2183e62a896c05aca -->
+> - [ ] [LongEmo: Towards Emotion Understanding and Reasoning in Long Videos](https://arxiv.org/abs/2609.40079) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.47 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/eaaf429e430ae9faf1850e237bab0f36 -->
+> - [ ] [VoxMem: Benchmarking Multimodal Memory in Large Audio Language Models](https://huggingface.co/papers/2609.32607) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/471e167467b0fa5187868801f38b85c5 -->
+> - [ ] [RECON: Benchmarking Agent Memory for Compositional Reasoning over Long Contexts](https://arxiv.org/abs/2607.16716) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.56 (采纳线 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/6784acf1e645fa1e1e2a1885ab6e0451 -->
+> - [ ] [Locomo-Plus: Beyond-Factual Cognitive Memory Evaluation Framework for LLM Agents](https://huggingface.co/papers/2602.10715) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 临界: 加权 0.54 (采纳线 0.60) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/ef35b15027ea01c1f4c0dc3e554faf5f -->
+> - [ ] [Autoresearch in Mixed-Integer Linear and Nonlinear Programming](https://arxiv.org/abs/2609.39360) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.47 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/4f9a0690b733c0b4bc7b7653133d318b -->
+> - [ ] [When Context Changes: Understanding Update Failures in LLMs](https://arxiv.org/abs/2609.38866) — 「哪些记忆设计能可测地改变 LLM 智能体的正确率?」: 置信度不足: 0.48 (< 0.50) <!-- jrp:source:https://shimo4228.github.io/shimo4228/jrp/source/cb5b6c9e10d5e802c9668da6f927d394 -->
 
-## 桥接
+> [!info]- 桥接 — 3 条
+> - Persistent Context Graphs for Efficient Memory Compaction in LLM Agents — [link](https://arxiv.org/abs/2609.40118)
+> - Keep It InMind: Benchmarking the Implicit-Association Blind Spot in Agent Memory — [link](https://arxiv.org/abs/2607.24368)
+> - MemLife: Curating and Reasoning over Long-Term Egocentric Video Memories — [link](https://arxiv.org/abs/2609.40195)
 
-- Persistent Context Graphs for Efficient Memory Compaction in LLM Agents — [link](https://arxiv.org/abs/2609.40118)
-- Keep It InMind: Benchmarking the Implicit-Association Blind Spot in Agent Memory — [link](https://arxiv.org/abs/2607.24368)
-- MemLife: Curating and Reasoning over Long-Term Egocentric Video Memories — [link](https://arxiv.org/abs/2609.40195)
-
-> [!note]- Claims
-
+> [!info]- Claims — 5 条
 > - [ ] **memory-designs [1]** (样例中省略 claim 原文，请见出处) — [source](https://arxiv.org/abs/2609.38766) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/769c3bcb291a12ec0182d52beefc0103 -->
 > - [ ] **memory-designs [2]** (样例中省略 claim 原文，请见出处) — [source](https://huggingface.co/papers/2609.38119) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/a824cc071bfde1378bb546f08950616c -->
 > - [ ] **memory-designs [3]** (样例中省略 claim 原文，请见出处) — [source](https://arxiv.org/abs/2609.38353) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/f273aacd9af966e46927e27b99523a2b -->
 > - [ ] **memory-designs [4]** (样例中省略 claim 原文，请见出处) — [source](https://arxiv.org/abs/2608.20664) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/15f3f348fa7d9102d866a007892e46eb -->
 > - [ ] **memory-designs [5]** (样例中省略 claim 原文，请见出处) — [source](https://huggingface.co/papers/2604.04853) <!-- jrp:claim:https://shimo4228.github.io/shimo4228/jrp/claim/3ccec6bf1e7bc98aa9a96d9f962c5f27 -->
 
-## 未判定
+> [!info]- 未判定 — 1 条
+> - [claim_detection] (样例中省略 claim 原文，请见出处)
 
-- [claim_detection] (样例中省略 claim 原文，请见出处)
-
-## 运行
-
-- Jev 问题数: 2263
-- 生成 token (claude-code:claude-opus-5-5): in 27538 / out 11852
-- claude_calls: 0
-- cost: $0.0453 (生成按订阅定额计为 0)
-- 填写率 (上次): 无
-- 开放问题: 1 个
-- rubric grounded: 平均 0.96 / gold 一致率 未测量
-- rubric relevant: 平均 0.84 / gold 一致率 未测量
-- rubric novel: 平均 0.99 / gold 一致率 未测量
-- rubric actionable: 平均 0.73 / gold 一致率 未测量
-- 各 net 获取数: firehose 300, keyword 58
-- 各 net 采纳率: firehose 0.60, keyword 0.40
-- topic 聚类数: 0
-- 收敛估计 f: 数据不足 (少于 3 次 run)
-- Time-to-Discovery: 未测量
-- openalex credit: 10
-- rule 候选: relevance_triage 在 adapter=arxiv 时为 accept (n=44, 一致率 1.00)
-- rule 候选: relevance_triage 在 text_len>=100 时为 accept (n=75, 一致率 0.96)
-- rule 候选: relevance_triage 在 text_len>=300 时为 accept (n=73, 一致率 0.97)
-- rule 候选: relevance_triage 在 text_len>=1000 时为 accept (n=69, 一致率 1.00)
-- (source, 问题) 对的 Jev 失败: 0 / 357 (0.0%); full screen 72 对
-- 无正文: 1 条 (未筛选)
-- 各阶段耗时: queries 0s / fetch 7s / prefilter 1s / triage 3s / screen 5s / claims 8s / novelty 3s / support 0s / canary 0s / sections 128s / rubric 0s
-- harvest: label 0 条 / 撤销 0 条
-- query: 使用问题文件中的 3 条
-- firehose: 按相关度取前 250 条 (省略 529 条)
-- keyword/arxiv: 2 条未通过校验，跳过
-- 1 条同标题重复合并为 1 条判定
-- 桥接: 48 对超过阈值，显示概率最高的 3 条
-- memory-designs: 110 条 claim 中刊载 5 条
-- memory-designs prose 第1稿: 已生成 64.8s
-- memory-designs prose 第2稿: 已生成 62.0s
+> [!info]- 运行
+> - Jev 问题数: 2263
+> - 生成 token (claude-code:claude-opus-5-5): in 27538 / out 11852
+> - claude_calls: 0
+> - cost: $0.0453 (生成按订阅定额计为 0)
+> - 填写率 (上次): 无
+> - 开放问题: 1 个
+> - rubric grounded: 平均 0.96 / gold 一致率 未测量
+> - rubric relevant: 平均 0.84 / gold 一致率 未测量
+> - rubric novel: 平均 0.99 / gold 一致率 未测量
+> - rubric actionable: 平均 0.73 / gold 一致率 未测量
+> - 各 net 获取数: firehose 300, keyword 58
+> - 各 net 采纳率: firehose 0.60, keyword 0.40
+> - topic 聚类数: 0
+> - 收敛估计 f: 数据不足 (少于 3 次 run)
+> - Time-to-Discovery: 未测量
+> - openalex credit: 10
+> - rule 候选: relevance_triage 在 adapter=arxiv 时为 accept (n=44, 一致率 1.00)
+> - rule 候选: relevance_triage 在 text_len>=100 时为 accept (n=75, 一致率 0.96)
+> - rule 候选: relevance_triage 在 text_len>=300 时为 accept (n=73, 一致率 0.97)
+> - rule 候选: relevance_triage 在 text_len>=1000 时为 accept (n=69, 一致率 1.00)
+> - (source, 问题) 对的 Jev 失败: 0 / 357 (0.0%); full screen 72 对
+> - 无正文: 1 条 (未筛选)
+> - 各阶段耗时: queries 0s / fetch 7s / prefilter 1s / triage 3s / screen 5s / claims 8s / novelty 3s / support 0s / canary 0s / sections 128s / rubric 0s
+> - harvest: label 0 条 / 撤销 0 条
+> - query: 使用问题文件中的 3 条
+> - firehose: 按相关度取前 250 条 (省略 529 条)
+> - keyword/arxiv: 2 条未通过校验，跳过
+> - 1 条同标题重复合并为 1 条判定
+> - 桥接: 48 对超过阈值，显示概率最高的 3 条
+> - memory-designs: 110 条 claim 中刊载 5 条
+> - memory-designs prose 第1稿: 已生成 64.8s
+> - memory-designs prose 第2稿: 已生成 62.0s
