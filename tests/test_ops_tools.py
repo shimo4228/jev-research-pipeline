@@ -210,6 +210,31 @@ def test_schedule_install_writes_a_job_for_this_jrp_and_keeps_existing_files(tmp
     assert again.created == (False, False) and s.plist.read_text(encoding="utf-8") == "mine"
 
 
+@pytest.mark.parametrize(
+    "found",
+    [
+        "/home/u/.cache/uv/archive-v0/QCHy0zYg/bin/jrp",  # uvx: a cache entry uv may delete
+        "/home/u/src/jev-research-pipeline/.venv/bin/jrp",  # a checkout's venv
+        None,
+    ],
+)
+def test_schedule_install_refuses_a_jrp_that_will_not_stay(
+    found: str | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    from jev_research_pipeline import cli
+
+    def which(_: str) -> str | None:
+        return found
+
+    def install(**_: object) -> object:
+        pytest.fail("wrote a job for a jrp that will not stay")
+
+    monkeypatch.setattr(cli.shutil, "which", which)
+    monkeypatch.setattr(cli, "install", install)
+    assert cli.main(["schedule", "install", "--hour", "5"]) == 1
+    assert "uv tool install" in capsys.readouterr().err
+
+
 def test_the_packaged_wrapper_is_the_repos_wrapper():
     repo = Path(__file__).parents[1]
     packaged = repo / "src" / "jev_research_pipeline" / "scheduling" / "launchd-jrp.sh"

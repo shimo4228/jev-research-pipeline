@@ -197,8 +197,9 @@ def _schedule(hour: int, minute: int) -> int:
         sys.stderr.write(f"not a time of day: {hour:02d}:{minute:02d}\n")
         return 1
     found = shutil.which("jrp")
-    if found is None or ".venv" in Path(found).parts:
-        # a checkout's venv goes with the checkout; the job must name a jrp that stays
+    if found is None or {".venv", "archive-v0"} & set(Path(found).parts):
+        # the job must name a jrp that stays: a checkout's .venv goes with the checkout, and
+        # `uvx jrp` runs from an archive-v0 entry of uv's cache, which `uv cache clean` deletes
         sys.stderr.write("install jrp first, so the job can name it: uv tool install <jrp>\n")
         return 1
     jrp = Path(found).resolve()
