@@ -16,3 +16,7 @@ var/
 # article dossiers and pre-pilot store snapshots stay local
 drafts/
 /store.pre-pilot-*/
+
+# html-plan の pack 副産物
+*.packed.html
+*.artifact.html
