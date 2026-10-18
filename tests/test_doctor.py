@@ -118,6 +118,14 @@ def test_dashscope_needs_its_key(env: dict[str, str]):
     assert by_name(doctor(env))["writer"].ok
 
 
+def test_the_claude_api_needs_its_key(env: dict[str, str]):
+    env["JRP_PROSE_MODEL"] = "anthropic:claude-opus-5-5"
+    check = by_name(doctor(env))["writer"]
+    assert not check.ok and "ANTHROPIC_API_KEY not set" in check.detail
+    env["ANTHROPIC_API_KEY"] = "k"
+    assert by_name(doctor(env))["writer"].ok
+
+
 def test_an_unknown_prose_model_fails(env: dict[str, str]):
     env["JRP_PROSE_MODEL"] = "gpt-6-luna"
     check = by_name(doctor(env))["writer"]

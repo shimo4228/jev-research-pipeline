@@ -20,8 +20,8 @@ uv run jrp run
 (`ok` or `FAIL`), exiting non-zero on a failure: `JRP_VAULT_DIR` and `JRP_STORE_DIR` are set,
 `config.toml` loads and its lines resolve, the question files parse (a line without an open
 question is named, not failed), `TYPESAFE_API_KEY` is set, and the `JRP_PROSE_MODEL` writer is
-reachable — for `openai-codex:` the login file reads (it is never refreshed), for `dashscope:` the
-key is set, for `claude-code:` the CLI is found and `claude auth status` reports it logged in. It
+reachable — for `openai-codex:` the login file reads (it is never refreshed), for `dashscope:` and
+`anthropic:` the key is set (not tried), for `claude-code:` the CLI is found and `claude auth status` reports it logged in. It
 writes nothing, does not open the vault, and calls no API. The launchd wrapper runs it before
 every scheduled run (see [launchd/README.md](../launchd/README.md)).
 
@@ -32,11 +32,12 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_VAULT_DIR` | yes | vault root; notes go to `<vault>/daily-research/`. Unset: nothing is written |
 | `JRP_STORE_DIR` | no | pipeline store, one JSON-LD file per line (default `~/.local/share/jrp/store`) |
 | `TYPESAFE_API_KEY` | yes | Jev ([docs.typesafe.ai](https://docs.typesafe.ai)) |
-| `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-6-luna`; or e.g. `dashscope:qwen3.7-max`). See [The writing model](how-it-works.md#the-writing-model) |
+| `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-6-luna`; or e.g. `claude-code:claude-opus-5-5`, `anthropic:claude-opus-5-5`, `dashscope:qwen3.7-max`). See [The writing model](how-it-works.md#the-writing-model) |
 | `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
 | `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
+| `ANTHROPIC_API_KEY` | for `anthropic:` | the Claude API, billed per token to the key's Console organization (a Claude Max plan's monthly API credits pay it once that organization is linked to the plan); only needed when `JRP_PROSE_MODEL` names an `anthropic:` model. The `claude-code:` backend never passes it to the CLI |
 | `JRP_DAILY_RESEARCH_CONFIG` | no | the `config.toml` with your lines and `[nets]` (default `~/.config/jrp/config.toml`) |
-| `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`) counts 0 toward it |
+| `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`, `claude-code:`) counts 0 toward it; `anthropic:` counts at API prices (about $0.3 to $0.5 a line on Opus 5.5) |
 | `JRP_JEV_USD_PER_QUESTION` | recommended | Jev unit price for the note's cost line; unset, Jev is not counted |
 | `JRP_QUESTIONS_DIR` | no | question files (default `~/.config/jrp/questions`) |
 | `JRP_NOTE_LANG` | no | the note's language: `ja` (default), `en` or `zh` — headings, the operations section and the prose (its prompt and its checks). Anything else stops the run at the start |

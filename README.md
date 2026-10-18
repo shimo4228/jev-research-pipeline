@@ -100,6 +100,8 @@ You need Python 3.12, [uv](https://docs.astral.sh/uv/), and two accounts:
   - ChatGPT subscription (default), `openai-codex:gpt-6-luna`: a ChatGPT plan that includes Codex.
   - Claude subscription, `claude-code:claude-opus-5-5`: the Claude Code CLI, signed in
     (`claude auth login`).
+  - Claude API, pay per token, `anthropic:claude-opus-5-5`: `ANTHROPIC_API_KEY`. The monthly API
+    credits of a Claude Max plan pay for it (they do not cover the Claude Code CLI).
   - Qwen, pay per token, `dashscope:qwen3.7-max`: `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio).
 
 **What leaves your machine:** your questions' search queries go to arXiv (through OpenAlex), Hugging Face, GitHub and, if you set `TAVILY_API_KEY`, Tavily; the IDs of papers you ticked and papers Jev kept go to Semantic Scholar's recommender (with the papers you marked `[-]` as negatives, or random papers when there are none yet) and to OpenAlex to find papers citing them; the papers and passages Jev judges go to TypeSafe; and each section's evidence goes to the writer you picked. Notes stay in your folder; the optional Slack notification carries note names, claim counts, failure reasons and the path of any question file with no open question, not the notes' content.

@@ -45,6 +45,8 @@ JRP_NOTE_LANG={lang}         # the note's language: ja | en | zh
 # The writer of the prose, <backend>:<model>:
 #   openai-codex:gpt-6-luna        (default) your ChatGPT subscription; sign in once: jrp codex login
 #   claude-code:claude-opus-5-5    your Claude subscription through the Claude Code CLI (claude auth login)
+#   anthropic:claude-opus-5-5      the Claude API, pay as you go, needs ANTHROPIC_API_KEY
+#                                  (a Claude Max plan's monthly API credits pay it)
 #   dashscope:qwen3.7-max          pay as you go, needs DASHSCOPE_API_KEY
 # JRP_PROSE_MODEL=openai-codex:gpt-6-luna
 

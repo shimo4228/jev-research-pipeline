@@ -1,7 +1,7 @@
 """Cost meter and cap (decision 8: cost cap → partial report).
 
 Generation is priced per prose model (generation.client.ModelSpec). A subscription backend
-(openai-codex) is a flat plan: its tokens are counted but add nothing. A pay-per-token model
+(openai-codex, claude-code) is a flat plan: its tokens are counted but add nothing. A pay-per-token model
 is priced from PRICES, USD per million tokens (input, output); one missing from it counts 0
 and the operations section says so. Jev has no published per-question price in the packet;
 it comes from env JRP_JEV_USD_PER_QUESTION (default 0 — the operations section says so).
@@ -12,9 +12,15 @@ from typing import Final
 
 from jev_research_pipeline.generation import GenerationMeter, ModelSpec
 
-PRICES: Final = {"dashscope:qwen3.7-max": (2.5, 7.5)}
-"""USD per Mtok (input, output) of the pay-per-token prose models: qwen3.7-max, Singapore,
-thinking and non-thinking alike (alibabacloud.com model-pricing, as-of 2026-09-23)."""
+PRICES: Final = {
+    "dashscope:qwen3.7-max": (2.5, 7.5),
+    "anthropic:claude-opus-5-5": (4.0, 20.0),
+    "anthropic:claude-sonnet-5-5": (2.0, 10.0),
+}
+"""USD per Mtok (input, output) of the pay-per-token prose models, base input (no cache):
+qwen3.7-max, Singapore, thinking and non-thinking alike (alibabacloud.com model-pricing,
+as-of 2026-09-23); the Claude models on the Claude API (platform.claude.com pricing, as-of
+2026-10-19). The Claude API's are what a Max plan's monthly credits are spent at."""
 JEV_PRICE_ENV: Final = "JRP_JEV_USD_PER_QUESTION"
 COST_CAP_ENV: Final = "JRP_COST_CAP_USD"
 

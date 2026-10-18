@@ -21,7 +21,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 requires-python = ">=3.12"
-# pydantic-ai is pinned exactly (weekly releases) and carries both models: its `typesafe`
+# pydantic-ai is pinned exactly (weekly releases) and carries the models: `anthropic` and
+# `openai` are the prose backends (generation.client), its `typesafe`
 # extra brings typesafe-sdk, which no module of ours imports any more, and its injected
 # http_client is what the cassette layer depends on.
 dependencies = [
@@ -35,7 +36,7 @@ dependencies = [
     "opentelemetry-instrumentation-httpx==0.65b0",
     "opentelemetry-sdk==1.44.0",
     "pydantic>=2.13.5",
-    "pydantic-ai-slim[openai,typesafe]==2.47.0",
+    "pydantic-ai-slim[anthropic,openai,typesafe]==2.47.0",
     "pydantic-evals==2.47.0",
 ]
 

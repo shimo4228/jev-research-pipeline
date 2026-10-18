@@ -118,7 +118,7 @@ is the convergence alarm.
 ## The writing model
 
 Only one step generates text: the per-question section. `JRP_PROSE_MODEL=<backend>:<model>` picks the
-writer (`openai-codex:`, `claude-code:` or `dashscope:`); every backend goes through the same prompt,
+writer (`openai-codex:`, `claude-code:`, `anthropic:` or `dashscope:`); every backend goes through the same prompt,
 self-check and Jev checks (step 6 of [A morning run](#a-morning-run)), and adding a backend means
 adding it to `src/jev_research_pipeline/generation/client.py`. `jrp codex login` keeps the pipeline's
 own ChatGPT login in `~/.config/jrp/codex-auth.json`, separate from the Codex CLI's (refresh tokens

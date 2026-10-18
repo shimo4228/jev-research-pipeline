@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
 from jev_research_pipeline.generation import ModelSpec, ModelSpecError, prose_model_spec
 from jev_research_pipeline.generation.claude_code import CLAUDE_BIN_ENV, child_env, claude_bin
-from jev_research_pipeline.generation.client import DASHSCOPE_KEY_ENV
+from jev_research_pipeline.generation.client import ANTHROPIC_KEY_ENV, DASHSCOPE_KEY_ENV
 from jev_research_pipeline.generation.codex import (
     CodexLoginError,
     codex_auth_path,
@@ -160,12 +160,18 @@ def _writer(env: Mapping[str, str], auth_status: AuthStatus) -> Check:
         return Check("writer", False, str(e))
     match spec.backend:
         case "dashscope":
-            ok = bool(env.get(DASHSCOPE_KEY_ENV))
-            return Check("writer", ok, f"{spec}: {DASHSCOPE_KEY_ENV} {'set' if ok else 'not set'}")
+            return _api_key(spec, env, DASHSCOPE_KEY_ENV)
+        case "anthropic":
+            return _api_key(spec, env, ANTHROPIC_KEY_ENV)
         case "openai-codex":
             return _codex(spec, env)
         case "claude-code":
             return _claude_code(spec, env, auth_status)
+
+
+def _api_key(spec: ModelSpec, env: Mapping[str, str], key_env: str) -> Check:
+    ok = bool(env.get(key_env))  # set, not tried: a call would spend
+    return Check("writer", ok, f"{spec}: {key_env} {'set' if ok else 'not set'}")
 
 
 def _codex(spec: ModelSpec, env: Mapping[str, str]) -> Check:

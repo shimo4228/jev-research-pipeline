@@ -59,6 +59,7 @@ Python 3.12 と [uv](https://docs.astral.sh/uv/) のほかに、アカウント�
 - **本文の書き手を 1 つ**。`JRP_PROSE_MODEL` で選びます。
   - ChatGPT のサブスクリプション（既定）、`openai-codex:gpt-6-luna`: Codex を含む ChatGPT のプラン。
   - Claude のサブスクリプション、`claude-code:claude-opus-5-5`: ログイン済みの Claude Code CLI（`claude auth login`）。
+  - Claude API（従量課金）、`anthropic:claude-opus-5-5`: `ANTHROPIC_API_KEY`。Claude の Max プランに付く毎月の API クレジットで払えます（このクレジットは Claude Code CLI には使えません）。
   - Qwen（従量課金）、`dashscope:qwen3.7-max`: `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio）。
 
 **外に出るもの**: 問いの検索語は arXiv（OpenAlex 経由）、Hugging Face、GitHub、`TAVILY_API_KEY` を設定すれば Tavily へ、印を付けた論文と Jev が残した論文の ID は Semantic Scholar の推薦（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使います）と、引用している論文を探す OpenAlex へ、Jev が判定する論文と箇所は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。ノートは手元のフォルダに残ります。任意の Slack 通知が送るのはノートの名前、主張の件数、失敗の理由、未解決の問いが無い問いのファイルの場所で、ノートの中身は送られません。

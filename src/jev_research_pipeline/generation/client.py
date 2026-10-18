@@ -13,8 +13,11 @@ JRP_PROSE_MODEL names it as `<backend>:<model>` (design "Prose model"):
     claude-code:<model>        Claude on the author's Claude subscription through `claude -p`
                                (generation.claude_code): the prose bench's writer, and a
                                production writer one env var away (author decision 2026-10-01).
+    anthropic:<model>          Claude on the Claude API, ANTHROPIC_API_KEY: per-token billing,
+                               which the monthly API credits of a Max plan pay (they do not cover
+                               Claude Code, so not claude-code:). Same models as claude-code:.
 
-The two HTTP backends go through the run's one injected httpx2 client, so cassettes and OTel
+The three HTTP backends go through the run's one injected httpx2 client, so cassettes and OTel
 see them alike; claude-code is a subprocess and sees neither.
 """
 
@@ -26,10 +29,12 @@ from typing import Final, Literal, override
 import httpx2
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models import Model
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModelSettings
 from pydantic_ai.models.openai_codex import OpenAICodexModel
 from pydantic_ai.profiles import ModelProfile, merge_profile
 from pydantic_ai.providers.alibaba import AlibabaProvider
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai_codex import (
     CredentialsPersistenceError,
     CredentialsRefreshError,
@@ -41,8 +46,8 @@ from pydantic_ai.usage import RunUsage
 from .claude_code import CLAUDE_BIN_ENV, ClaudeAuthError, claude_bin, claude_code_model
 from .codex import CodexAuthFile, codex_auth_path
 
-type Backend = Literal["openai-codex", "dashscope", "claude-code"]
-BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope", "claude-code")
+type Backend = Literal["openai-codex", "dashscope", "claude-code", "anthropic"]
+BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope", "claude-code", "anthropic")
 
 PROSE_MODEL_ENV: Final = "JRP_PROSE_MODEL"
 DEFAULT_PROSE_MODEL: Final = "openai-codex:gpt-6-luna"
@@ -52,6 +57,7 @@ design "Prose bench"). Every test that pins it replays a synthetic cassette (tes
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_KEY_ENV: Final = "DASHSCOPE_API_KEY"
+ANTHROPIC_KEY_ENV: Final = "ANTHROPIC_API_KEY"
 
 
 class ModelSpecError(ValueError):
@@ -82,7 +88,7 @@ def parse_model(raw: str) -> ModelSpec:
     error, not a fallback to some other model the author did not ask for."""
     backend, _, name = raw.strip().partition(":")
     match backend:
-        case "openai-codex" | "dashscope" | "claude-code" if name.strip():
+        case "openai-codex" | "dashscope" | "claude-code" | "anthropic" if name.strip():
             return ModelSpec(backend=backend, name=name.strip())
         case _:
             raise ModelSpecError(
@@ -103,7 +109,7 @@ class ProseAuth:
 
     spec: ModelSpec
     api_key: str | None = None
-    """DashScope's key."""
+    """DashScope's or the Claude API's key."""
     codex_auth: Path | None = None
     """The pipeline's own Codex login file (generation.codex)."""
     claude_bin: Path | None = None
@@ -113,10 +119,10 @@ class ProseAuth:
 def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAuth:
     """`spec` defaults to JRP_PROSE_MODEL; the prose bench passes its --model."""
     spec = spec or prose_model_spec(env)
-    if spec.backend == "dashscope":
-        key = env.get(DASHSCOPE_KEY_ENV)
+    if (key_env := _key_env(spec)) is not None:
+        key = env.get(key_env)
         if not key:
-            raise MissingCredentials(f"missing env: {DASHSCOPE_KEY_ENV} (for {spec})")
+            raise MissingCredentials(f"missing env: {key_env} (for {spec})")
         return ProseAuth(spec=spec, api_key=key)
     if spec.backend == "claude-code":
         binary = claude_bin(env)
@@ -131,14 +137,33 @@ def prose_auth(env: Mapping[str, str], spec: ModelSpec | None = None) -> ProseAu
     return ProseAuth(spec=spec, codex_auth=path)
 
 
+def _key_env(spec: ModelSpec) -> str | None:
+    """The env var holding an API-key backend's key; None for the two logins."""
+    match spec.backend:
+        case "dashscope":
+            return DASHSCOPE_KEY_ENV
+        case "anthropic":
+            return ANTHROPIC_KEY_ENV
+        case "openai-codex" | "claude-code":
+            return None
+
+
+def _credit_exhausted(error: ModelHTTPError) -> bool:
+    """The Claude API's answer once the organization's credits are spent: a 400 whose message
+    says so (platform docs "API credits for Max and Team plans", as-of 2026-10-19). It repeats
+    on every call until the next month's credits arrive or a human buys some."""
+    return error.status_code == 400 and "credit balance is too low" in str(error.body)
+
+
 def auth_failure(error: BaseException) -> bool:
     """Whether a failed prose call was refused for its credentials rather than for its load
     or its content: the Codex grant rejected on refresh or its refresh not saved
-    (pydantic-ai's credential errors), a 401/403 from either HTTP backend, or the Claude Code
-    CLI not signed in. Unlike a timeout it repeats on every draft of every line until a
-    human signs in again, so the run's notification names it (pipeline.health)."""
+    (pydantic-ai's credential errors), a 401/403 from an HTTP backend, the Claude API's
+    credits spent, or the Claude Code CLI not signed in. Unlike a timeout it repeats on every
+    draft of every line until a human acts, so the run's notification names it
+    (pipeline.health)."""
     if isinstance(error, ModelHTTPError):
-        return error.status_code in (401, 403)
+        return error.status_code in (401, 403) or _credit_exhausted(error)
     return isinstance(
         error, CredentialsRefreshError | CredentialsPersistenceError | ClaudeAuthError
     )
@@ -176,6 +201,12 @@ def _codex_settings(*, thinking: bool) -> OpenAIResponsesModelSettings:
     )
 
 
+def _anthropic_settings(*, thinking: bool) -> AnthropicModelSettings:
+    # As claude-code: thinking=True is the model's default (adaptive thinking on the Claude 5
+    # models), thinking=False asks for low effort rather than no thinking.
+    return AnthropicModelSettings(thinking=True if thinking else "low")
+
+
 class Writer:
     """The prose model of one process. Every model it hands out shares one provider, so the
     Codex login is loaded once and a refresh is single-flight across the lines that run side
@@ -185,7 +216,7 @@ class Writer:
 
     def __init__(self, auth: ProseAuth, http: httpx2.AsyncClient) -> None:
         self.spec = auth.spec
-        self._provider: OpenAICodexProvider | AlibabaProvider | Path
+        self._provider: OpenAICodexProvider | AlibabaProvider | AnthropicProvider | Path
         if auth.spec.backend == "claude-code":
             if auth.claude_bin is None:
                 raise MissingCredentials(f"no Claude Code CLI given (for {auth.spec})")
@@ -196,9 +227,11 @@ class Writer:
             self._provider = OpenAICodexProvider(
                 credential_source=CodexAuthFile(auth.codex_auth), http_client=http
             )
+        elif not auth.api_key:
+            raise MissingCredentials(f"missing env: {_key_env(auth.spec)} (for {auth.spec})")
+        elif auth.spec.backend == "anthropic":
+            self._provider = AnthropicProvider(api_key=auth.api_key, http_client=http)
         else:
-            if not auth.api_key:
-                raise MissingCredentials(f"missing env: {DASHSCOPE_KEY_ENV} (for {auth.spec})")
             self._provider = AlibabaProvider(
                 api_key=auth.api_key, base_url=DASHSCOPE_BASE_URL, http_client=http
             )
@@ -209,6 +242,12 @@ class Writer:
         if isinstance(self._provider, OpenAICodexProvider):
             return OpenAICodexModel(
                 self.spec.name, provider=self._provider, settings=_codex_settings(thinking=thinking)
+            )
+        if isinstance(self._provider, AnthropicProvider):
+            return AnthropicModel(
+                self.spec.name,
+                provider=self._provider,
+                settings=_anthropic_settings(thinking=thinking),
             )
         return OpenAIChatModel(
             self.spec.name,
