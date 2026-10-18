@@ -330,6 +330,23 @@ line's graph.jsonld / ADR / vault note (an objective, zero-effort delayed label)
 canary papers and cross-net agreement as weak supervision, ⭕❌ demoted to optional gold,
 Review section kept. Decide after the pilot has run for a few weeks.
 
+**Used rate, measured beside the ticks (author decision 2026-10-19; plan
+`docs/plans/used-rate-label.html`).** `reduction/used.py` records, each run, the keys (arXiv
+id, DOI, GitHub owner/repo, normalized URL; no title matching) it sees for the first time in
+every track repo's `graph.jsonld` and `docs/adr/` and in the vault, as `Sighting` nodes in
+`pipeline.jsonld` (graph.jsonld has no dates and the vault has no history, so the first day
+is recorded going forward). Each source a note carried gets a `UsedMark`
+(`pending` / `used` / `unused` / `unknown`) in its line partition; the window is 30 days.
+`unknown` covers keys already present before the source was surfaced, the first scan's
+index, and a window only partly observed. jrp's own notes, the author's `JRP_GITHUB_OWNER`
+repos and canary papers never count. The note's operations block gets one line beside the
+fill rate. A `UsedMark` is a node type of its own (a `Label` with the same @id would be
+withdrawn by the harvest of a blank box), and nothing reads it: not `DecisionLog.gold()`,
+fit, gold agreement, rule candidates, Time-to-Discovery, export-cases or the Semantic
+Scholar nets. A source that was not seen is `unused`, recorded and not a negative. Review
+after two weeks of measuring (the first window closes 2026-10-22): wire it into fit only if
+the rate is not near zero; if it is, fix the matching first.
+
 ### jevcal (search-first 2026-09-23) — NOT-ADOPT
 
 Two packages share the name. `pip install jevcal` fetches aakgna/jevcal 0.2.0 (2026-09-21),

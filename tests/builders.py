@@ -18,10 +18,12 @@ from jev_research_pipeline.model import (
     Report,
     RotationCursor,
     ScoreAnswer,
+    Sighting,
     SourceItem,
     StageRecord,
     Threshold,
     Unit,
+    UsedMark,
 )
 
 LINE_IRI = "https://doi.org/10.5281/zenodo.19212119"
@@ -144,6 +146,21 @@ def label() -> Label:
     )
 
 
+def sighting() -> Sighting:
+    return Sighting.new(key="arxiv:2610.21411", first_seen=T0.date(), place="vault", baseline=False)
+
+
+def used_mark() -> UsedMark:
+    return UsedMark.new(
+        source=source().id,
+        report=report().id,
+        surfaced_on=T0.date(),
+        observed_from=T0.date(),
+        verdict="used",
+        seen_on=T0.date(),
+    )
+
+
 def score_judgment() -> Judgment:
     return Judgment.new(
         function="novelty",
@@ -185,6 +202,8 @@ def every_node_kind() -> list[GraphNodeType]:
         decision(),
         report(),
         label(),
+        sighting(),
+        used_mark(),
         cursor(),
         stage_record(),
     ]

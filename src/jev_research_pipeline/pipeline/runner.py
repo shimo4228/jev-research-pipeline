@@ -51,11 +51,12 @@ from jev_research_pipeline.questions import (
     open_questions,
     question_queries,
 )
+from jev_research_pipeline.reduction.used import mark_used, record_sightings, scan_documents
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
-from .config import config_path, env_tracks, line_context, rotation_config
+from .config import TrackSpec, config_path, env_tracks, line_context, rotation_config
 from .nets import DayBudget, for_line, load_nets
 from .run import Keys, LineOutcome, LineRun
 
@@ -125,6 +126,31 @@ def harvest_line(
     return lines + [f"harvest skip: {s}" for s in skipped]
 
 
+def update_used(
+    store: GraphStore,
+    tracks: Sequence[TrackSpec],
+    vault: Path,
+    slugs: Sequence[str],
+    now: AwareDatetime,
+) -> list[str]:
+    """Used rate, a measurement beside the ticks (reduction.used): scan the author's
+    documents once for keys seen for the first time, then settle each line's UsedMarks.
+    It reads graph.jsonld, docs/adr/ and the vault and writes only the store. Success is
+    silent (the note's used-rate line is its output); a failure is one line in the note,
+    never the end of the run, because nothing depends on this measurement."""
+    try:
+        repos = [t.repo for t in tracks if t.repo is not None]
+        owner = next((t.owner for t in tracks if t.owner), None)
+        found = scan_documents(repos, vault, owner=owner)
+        today = now.date()
+        sightings = record_sightings(store.pipeline(), found, today)
+        for slug in slugs:
+            mark_used(store.line(slug), sightings, today)
+    except (OSError, ValueError) as e:
+        return [f"used skip: {type(e).__name__}: {' '.join(str(e).split())[:160]}"]
+    return []
+
+
 def claims_before(nodes: Mapping[str, GraphNodeType], today: date) -> set[str]:
     """Claims reported on an earlier day. The evidence set is pinned to these so today's
     own accepts cannot change the state a re-run judges against."""
@@ -180,6 +206,9 @@ async def run_pipeline(
         ]
         for slug in (only or (*rotation.order, *daily))
     }
+    used_note = update_used(store, list(tracks.values()), vault, tuple(harvested), now)
+    for slug in harvested:
+        harvested[slug].extend(used_note)
     picked = tuple(only) if only else (*advance_rotation(store, rotation, now), *daily)
     # One Jev rate window for the whole tick: the limit is per key, not per line.
     pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)

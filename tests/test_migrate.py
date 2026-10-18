@@ -29,6 +29,8 @@ from .test_e2e import env as env  # the fixture, re-exported
 GOLDEN = Path(__file__).parent / "golden" / "store"
 ADDITIVE = GOLDEN / "old-context-additive.jsonld"
 INCOMPATIBLE = GOLDEN / "old-context-incompatible.jsonld"
+ADDED = len(CONTEXT) - len(json.loads(ADDITIVE.read_text(encoding="utf-8"))["@context"])
+# Terms today's CONTEXT has beyond the golden: it grows with every node kind.
 
 
 def _store(tmp_path: Path, *, pipeline: Path | None = None, line: Path | None = None) -> Path:
@@ -51,7 +53,9 @@ def test_the_goldens_are_what_they_claim():
 def test_an_old_context_that_only_lacks_terms_is_additive():
     found = inspect_partition(ADDITIVE)
     assert found.verdict == "additive"
-    assert "17" in found.detail
+    old = json.loads(ADDITIVE.read_text(encoding="utf-8"))["@context"]
+    # The count follows CONTEXT: every added term (Sighting, UsedMark, ...) joins it.
+    assert f"{len(CONTEXT) - len(old)} 項目" in found.detail
 
 
 def test_an_old_node_the_model_no_longer_accepts_is_incompatible():
@@ -77,7 +81,9 @@ def test_a_changed_or_removed_term_is_incompatible(tmp_path: Path):
 def test_the_run_migrates_an_additive_store_and_reads_it(tmp_path: Path):
     root = _store(tmp_path, pipeline=ADDITIVE)
     notes = prepare_store(root)
-    assert notes == ["store: pipeline.jsonld を現行 schema に移行 (@context に 17 項目を追加)"]
+    assert notes == [
+        f"store: pipeline.jsonld を現行 schema に移行 (@context に {ADDED} 項目を追加)"
+    ]
     doc = json.loads((root / "pipeline.jsonld").read_text(encoding="utf-8"))
     assert doc["@context"] == CONTEXT
     (cursor,) = GraphStore(root).pipeline().load().values()
@@ -110,7 +116,7 @@ def test_migrate_dry_run_changes_nothing(tmp_path: Path):
     assert lines == [
         "lines/akc.jsonld: 非互換 → 退避予定 retired/2026-09-23/lines/akc.jsonld "
         + f"({inspect_partition(INCOMPATIBLE).detail})",
-        "pipeline.jsonld: 移行予定 (@context に 17 項目を追加)",
+        f"pipeline.jsonld: 移行予定 (@context に {ADDED} 項目を追加)",
     ]
     assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
 
@@ -125,7 +131,7 @@ def test_migrate_rewrites_the_additive_and_retires_the_incompatible(tmp_path: Pa
     assert lines[0].startswith(
         "lines/akc.jsonld: 非互換 → 退避 retired/2026-09-23/lines/akc.jsonld"
     )
-    assert lines[1] == "pipeline.jsonld: 移行 (@context に 17 項目を追加)"
+    assert lines[1] == f"pipeline.jsonld: 移行 (@context に {ADDED} 項目を追加)"
     retired = root / "retired" / "2026-09-23"
     assert (retired / "lines" / "akc.jsonld").read_bytes() == INCOMPATIBLE.read_bytes()
     assert not (root / "lines" / "akc.jsonld").exists()

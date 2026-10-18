@@ -94,12 +94,14 @@ from jev_research_pipeline.model import (
     Report,
     SourceItem,
     Unit,
+    UsedMark,
 )
 from jev_research_pipeline.note_text import Lang, note_lang
 from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import AuthoredQueries
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
+from jev_research_pipeline.reduction.used import WINDOW_DAYS, UsedRate
 from jev_research_pipeline.report import (
     ClaimEntry,
     QuestionSection,
@@ -1190,6 +1192,16 @@ class LineRun:
             caveats.append(t.GENERATION_PRICE_UNSET(self.lang))
         return f" ({', '.join(caveats)})" if caveats else ""
 
+    def _used_rate_line(self) -> str:
+        """Beside the fill rate, a measurement only (reduction.used): nothing reads it."""
+        used = UsedRate(n for n in self.partition.load().values() if isinstance(n, UsedMark))
+        fields = {"days": WINDOW_DAYS, "unknown": used.unknown}
+        if used.rate is None:
+            return t.USED_RATE_NONE(self.lang, pending=used.pending, **fields)
+        return t.USED_RATE(
+            self.lang, used=used.used, decided=used.decided, rate=f"{used.rate:.2f}", **fields
+        )
+
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
         log = DecisionLog.from_nodes(
             [*self.partition.load().values(), *self.st.nodes, *self.jev.fresh, *self.st.decisions]
@@ -1219,6 +1231,7 @@ class LineRun:
             "claude_calls: 0",
             f"cost: ${cost:.4f}" + self._cost_caveats(),
             t.FILL_RATE(lang, rate=f"{fill:.2f}") if fill is not None else t.FILL_RATE_NONE(lang),
+            self._used_rate_line(),
             t.OPEN_QUESTIONS(lang, n=len(self.questions)),
             *(
                 t.RUBRIC_AXIS(

@@ -843,6 +843,109 @@ class Label(StoreNode):
         )
 
 
+# ------------------------------------------------------------------ used rate (delayed label)
+
+type UsedVerdict = Literal["pending", "used", "unused", "unknown"]
+"""pending = the window is still open; used / unused = the window closed with / without a
+sighting; unknown = the order of surfacing and sighting cannot be known (the key was there
+before the source was surfaced, or the window was only partly observed)."""
+
+type SightingPlace = Literal["graph", "adr", "vault"]
+
+
+class Sighting(StoreNode):
+    """A key (arXiv id, DOI, GitHub slug, URL) found in the author's own documents, outside
+    jrp's output. Identity = key: the first day it was seen wins and is never rewritten.
+    graph.jsonld nodes carry no date and the vault is not under git, so the day is recorded
+    here, going forward (used-rate-label plan). `baseline` marks the keys already present
+    when the first scan ran: they predate every surfacing the scan could have observed."""
+
+    type: Literal["Sighting"] = Field(
+        default="Sighting", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "sighting"
+    key: NonEmptyText
+    first_seen: date
+    place: SightingPlace
+    baseline: bool = False
+
+    @staticmethod
+    def id_for(key: str) -> str:
+        return content_id("sighting", key)
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.key)
+
+    @classmethod
+    def new(cls, *, key: str, first_seen: date, place: SightingPlace, baseline: bool) -> Self:
+        return cls(
+            id=cls.id_for(key), key=key, first_seen=first_seen, place=place, baseline=baseline
+        )
+
+
+class UsedMark(StoreNode):
+    """Delayed label of one surfaced source: did it appear in the author's own documents
+    within the window? A node type of its own, not a Label: a Label's @id is (subject,
+    report), so a blank box would withdraw it (vault._cleared), and DecisionLog.gold()
+    would read it as the author's judgment. Nothing reads a UsedMark except the used-rate
+    line of the note. Identity = (source, report)."""
+
+    type: Literal["UsedMark"] = Field(
+        default="UsedMark", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "used_mark"
+    source: IRI
+    report: IRI
+    surfaced_on: date
+    """Report.run_date of the note that carried the source."""
+    observed_from: date
+    """First day the scan could have seen a sighting for this mark: surfaced_on, or the day
+    the mark was created when the source had been surfaced before the scan existed."""
+    verdict: UsedVerdict
+    seen_on: date | None = None
+    """First sighting day of the matching key, set when verdict is used."""
+
+    @staticmethod
+    def id_for(source: str, report: str) -> str:
+        return content_id("used_mark", source, report)
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.source, self.report)
+
+    @model_validator(mode="after")
+    def _kinds(self) -> Self:
+        _require(kind_of(self.source) == "source", "used mark source must be a SourceItem IRI")
+        _require(kind_of(self.report) == "report", "used mark report must be a Report IRI")
+        _require(
+            (self.verdict == "used") == (self.seen_on is not None),
+            "seen_on is set exactly when the verdict is used",
+        )
+        return self
+
+    @classmethod
+    def new(
+        cls,
+        *,
+        source: str,
+        report: str,
+        surfaced_on: date,
+        observed_from: date,
+        verdict: UsedVerdict,
+        seen_on: date | None = None,
+    ) -> Self:
+        return cls(
+            id=cls.id_for(source, report),
+            source=source,
+            report=report,
+            surfaced_on=surfaced_on,
+            observed_from=observed_from,
+            verdict=verdict,
+            seen_on=seen_on,
+        )
+
+
 # ------------------------------------------------------ pipeline state (not research data)
 
 
@@ -934,6 +1037,8 @@ GraphNodeType = (
     | Decision
     | Report
     | Label
+    | Sighting
+    | UsedMark
     | RotationCursor
     | StageRecord
 )

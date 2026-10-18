@@ -108,6 +108,17 @@ FILL_RATE: Final = Msg(
 FILL_RATE_NONE: Final = Msg(
     "記入率 (前回): なし", "Fill rate (previous run): none", "填写率 (上次): 无"
 )
+USED_RATE: Final = Msg(
+    "used rate ({days} 日): {used} / {decided} = {rate} · 判定不能 {unknown}",
+    "Used rate ({days} days): {used} / {decided} = {rate} · undetermined {unknown}",
+    "used rate ({days} 天): {used} / {decided} = {rate} · 无法判定 {unknown}",
+)
+USED_RATE_NONE: Final = Msg(
+    "used rate ({days} 日): 測定中 (窓が閉じたソース 0 件 · 待機 {pending} · 判定不能 {unknown})",
+    "Used rate ({days} days): measuring (no source past its window yet"
+    " · waiting {pending} · undetermined {unknown})",
+    "used rate ({days} 天): 测量中 (尚无窗口已关闭的来源 · 等待 {pending} · 无法判定 {unknown})",
+)
 OPEN_QUESTIONS: Final = Msg("open な問い: {n} 件", "Open questions: {n}", "开放问题: {n} 个")
 RUBRIC_AXIS: Final = Msg(
     "rubric {axis}: 平均 {mean} / gold 一致 {gold}",

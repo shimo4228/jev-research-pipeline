@@ -168,6 +168,13 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "provenance": f"{VOCAB_NS}provenance",
     "verdict": f"{VOCAB_NS}verdict",
     "harvested_at": _typed("harvestedAt", "dateTime"),
+    # used rate (sighting + used mark)
+    "first_seen": _typed("firstSeen", "date"),
+    "place": f"{VOCAB_NS}place",
+    "baseline": _typed("baseline", "boolean"),
+    "surfaced_on": _typed("surfacedOn", "date"),
+    "observed_from": _typed("observedFrom", "date"),
+    "seen_on": _typed("seenOn", "date"),
     # report
     "run_date": _typed("runDate", "date"),
     "rendering": f"{VOCAB_NS}rendering",
