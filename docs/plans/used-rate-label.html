@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Used Rate Plan</title>
+<link rel="stylesheet" href="htmlplan.css">
+<script src="htmlplan.js" defer></script>
+<style data-mock-shared>
+  .ops { font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; color: #1c1b19; background: #fff; border: 1px solid #ddd8cc; border-left: 4px solid #4a7bd0; border-radius: 8px; padding: 8px 14px; }
+  .ops .hd { font-weight: 650; margin-bottom: 4px; }
+  .ops .ln { color: #5f5a4f; }
+  .ops .new { color: #1f7a52; font-weight: 600; background: #eef7f1; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
+  .ops .dim { color: #8a8578; }
+</style>
+<body>
+
+<header>
+  <h1>jrp に used rate の遅延ラベルを足す</h1>
+  <doc-changes new="2" changed="7"></doc-changes>
+  <doc-note tone="ok"><strong>Approved</strong> 2026-10-19、著者が Respond で承認。5 つの判断はすべて提案どおり（id / 30 / unlabeled / beside / build）。</doc-note>
+  <details class="thread"><summary>Why · 3 件</summary>
+    <doc-quote via="prompt" from="著者">design にある used rate（30 日以内に graph.jsonld・ADR・vault ノートに現れたかの遅延ラベル）を、チェックの代わりのラベルとして入れる案を plan にして。</doc-quote>
+    <doc-quote via="doc" from="design doc" where="docs/design/pipeline-design.md:326-331" href="../design/pipeline-design.md">Recorded candidate for later: used rate — share of surfaced sources that appear within 30 days in any line's graph.jsonld / ADR / vault note (an objective, zero-effort delayed label) … Decide after the pilot has run for a few weeks.</doc-quote>
+    <doc-quote via="doc" from="調査 report" where="2026-10-19" href="research/2026-10-19-used-rate-label.md">ADR / 非 jrp の vault note から arXiv / DOI が出る頻度が低い … used rate の分子が 0 近傍で、tick の記入率 0.00 と同じ「測れない」になる可能性</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 ═════ -->
+<doc-claim>
+  <p>ノートの運用欄に used rate が 1 行増える。</p>
+  <doc-mock frame="none" w="440" caption="緑の行が増える。分母は窓が過ぎたソースだけ。"><template>
+<div class="ops">
+  <div class="hd">運用</div>
+  <div class="ln">Jev 質問数: 967</div>
+  <div class="ln">記入率 (前回・問い日): 0.00</div>
+  <div class="ln new" data-ref="used">used rate (30 日): 2 / 41 = 0.05 <span class="dim">· 判定不能 12</span></div>
+  <div class="ln">open な問い: 3 件</div>
+</div></template>
+    <doc-pin ref="used" title="新しい行">記入率の直後に出す。</doc-pin>
+  </doc-mock>
+  <doc-note tone="warn"><strong>期待値は低い</strong> 調査では ADR 517 本中 8 本、非 jrp の vault note 約 830 本中 17 本しか arXiv / DOI を含まない。最初の数週間は 0 近傍が続く前提で読む（<a href="research/2026-10-19-used-rate-label.md">report</a> §3b・§3c、行の再確認は <a href="research/2026-10-19-used-rate-label-check.md">追補</a>）。</doc-note>
+
+  <doc-claim>
+    <p>分母は、ノートに載って窓が過ぎたソースだけ。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1072-1084" hl="1082">
+      <doc-pin line="1082" tone="info" title="分母の出どころ">QuestionLog.sources がノートに載ったソース。</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>行は記入率の直後に、line ごとに出す。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1211-1222" hl="1221">
+      <doc-pin line="1221" tone="info" title="この下に足す">t.USED_RATE を 3 言語で note_text.py に足す。</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 ═════ -->
+<doc-claim>
+  <p>毎朝、著者の文書からソースの出現を拾う。</p>
+  <doc-calls title="収穫の直後に 1 回走る" caption="新しい関数は reduction/used.py に置く。">
+<script type="text/plain">
+~ run_pipeline(env, now)                         @ src/jev_research_pipeline/pipeline/runner.py:144
+    harvest_line(store, vault, slug, now)        @ src/jev_research_pipeline/pipeline/runner.py:179
++   **scan_sightings**(tracks, vault, now)       @ src/jev_research_pipeline/reduction/used.py:1
++     **keys_of_text**(text)                     @ src/jev_research_pipeline/reduction/used.py:1   -- arXiv id・DOI・GitHub・URL
++     **is_jrp_output**(path, text)              @ src/jev_research_pipeline/reduction/used.py:1   -- 自己参照を落とす
++   **mark_used**(part, sightings, now)          @ src/jev_research_pipeline/reduction/used.py:1   -- line ごとに 1 回
+</script>
+  </doc-calls>
+
+  <doc-claim>
+    <p>「現れた」は ID か正規化 URL の一致で決める。</p>
+    <doc-code title="used.py · sketch" lang="py">
+<script type="text/plain">
+ARXIV = re.compile(r"\b(\d{4}\.\d{4,5})(?:v\d+)?\b")
+DOI = re.compile(r"\b10\.\d{4,9}/[^\s)\]>]+")
+GITHUB = re.compile(r"github\.com/([\w.-]+/[\w.-]+)")
+
+def keys_of_text(text: str) -> set[str]:
+    """arxiv:<id> / doi:<lower> / gh:<owner/repo lower> / url:<normalized>."""
+    keys = {f"arxiv:{m}" for m in ARXIV.findall(text)}
+    keys |= {f"doi:{d.lower().rstrip('.')}" for d in DOI.findall(text)}
+    keys |= {f"gh:{r.lower().removesuffix('.git')}" for r in GITHUB.findall(text)}
+    keys |= {f"url:{normalize(u)}" for u in URLS.findall(text)}
+    return keys
+</script>
+    </doc-code>
+    <doc-ask id="appear">
+      <p>何が一致したら「現れた」とみなすか？</p>
+      <label><input type="radio" name="appear" value="id" checked> ID と正規化 URL だけ <small>偽陽性が少ない。分子は小さい</small></label>
+      <label><input type="radio" name="appear" value="title"> タイトルの一致も足す <small>分子は増える。偽陽性は未測定</small></label>
+    </doc-ask>
+    <div data-if="appear=title"><doc-note tone="warn">タイトル照合の正規化と最短長を決める claim が 1 つ増える。</doc-note></div>
+  </doc-claim>
+
+  <doc-claim>
+    <p>jrp 自身の出力と著者自身の repo は数えない。</p>
+    <doc-code title="used.py · sketch" lang="py">
+<script type="text/plain">
+def is_jrp_output(path: Path, text: str) -> bool:
+    # jrp のノート: ファイル名・frontmatter・コメントの印（vault.py:36, 68, 136-147）
+    return (
+        "_jrp_" in path.name
+        or "\njrp_report:" in text[:2000]
+        or "<" + "!-- jrp:" in text  # 印のコメント
+    )
+
+SELF_KEYS: Final = ("gh:shimo4228/",)  # 旧 pipeline の self_signals と同じ考え方
+# canary_papers（Question.canary_papers）も出現に数えない
+</script>
+    </doc-code>
+    <doc-note tone="info">旧 pipeline の config にある <code>self_signals</code>（自分の成果物を外部シグナルに数えない）が先例。</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p>見る場所は全ラインの repo と vault 全体。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/config.py" lines="55-71" hl="61">
+      <doc-pin line="61" tone="info" title="repo の出どころ">各 track の target_repo。graph.jsonld と docs/adr/ を読む。</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 ═════ -->
+<doc-claim>
+  <p>出現は「初めて見た日」として前から記録する。</p>
+  <doc-schema id="usedmark" lang="py" title="model/nodes.py · sketch" caption="graph.jsonld に日付は無く、vault は git 管理外。だから初出日はこちらで記録する。">
+<script type="text/plain">
+class Sighting(StoreNode):
+    """A key seen outside jrp's own output. Identity = key; the first day wins."""
+    type: Literal["Sighting"]
+    key: str                  # "arxiv:2610.21411" / "doi:…" / "gh:owner/repo" / "url:…"
+    first_seen: date          # the first run whose scan held the key
+    place: Literal["graph", "adr", "vault"]
+
+class UsedMark(StoreNode):
+    """Delayed label of one surfaced source. Identity = (source, report)."""
+    type: Literal["UsedMark"]
+    source: IRI               # SourceItem
+    report: IRI               # the Report that surfaced it
+    surfaced_on: date         # Report.run_date
+    verdict: Literal["pending", "used", "unused", "unknown"]
+    seen_on: date | None      # Sighting.first_seen of the first matching key
+</script>
+  </doc-schema>
+  <doc-ask id="window">
+    <p>used とみなす窓の長さは？</p>
+    <div class="opts-row">
+      <label><input type="radio" name="window" value="30" checked> 30 日 <small>design のまま</small></label>
+      <label><input type="radio" name="window" value="60"> 60 日</label>
+      <label><input type="radio" name="window" value="90"> 90 日</label>
+    </div>
+  </doc-ask>
+
+  <doc-claim>
+    <p>used の印は Label と別の node 型に置く。</p>
+    <doc-code src="src/jev_research_pipeline/report/vault.py" lines="198-217" hl="217">
+      <doc-pin line="217" tone="risk" title="Label なら毎日消える">空欄の box は同じ @id の Label を消す。</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>出す前から在ったソースは used にしない。</p>
+    <doc-code title="used.py · sketch" lang="py">
+<script type="text/plain">
+def verdict_of(mark: UsedMark, seen_on: date | None, today: date, window: int) -> Verdict:
+    if seen_on is not None and seen_on <= mark.surfaced_on:
+        return "unknown"   # 出す前から在った、または初出日が導入日に潰れている
+    if seen_on is not None and seen_on <= mark.surfaced_on + timedelta(days=window):
+        return "used"
+    if today < mark.surfaced_on + timedelta(days=window):
+        return "pending"
+    return "unused"
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>導入初日の索引にあったキーは判定不能にする。</p>
+    <doc-code title="used.py · sketch" lang="py">
+<script type="text/plain">
+# 初回の scan は全キーの first_seen を導入日にする。
+# それより前に出したソースは、出現が出す前か後か分からない。
+# verdict_of の最初の分岐が "unknown" にする（backfill はしない）。
+STARTED_ON_KEY: Final = "used:started_on"
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 ═════ -->
+<doc-claim>
+  <p>used はまず、どの判定にも配線しない。</p>
+  <doc-calls title="Label の消費者は変えない" caption="? の行は計測のあとで提案する配線。今回は作らない。">
+<script type="text/plain">
+  DecisionLog.gold()                             @ src/jev_research_pipeline/reduction/log.py:103   -- Label だけを読む
+  fit(log, thresholds)                           @ src/jev_research_pipeline/reduction/fit.py:185   -- 2 クラス揃わず全部 skip のまま
+  _positives_and_negatives()                     @ src/jev_research_pipeline/pipeline/run.py:580    -- S2 推薦の正例
+? **used_samples**(log, marks)                   @ src/jev_research_pipeline/reduction/fit.py:152   -- 計測のあとで提案
+</script>
+  </doc-calls>
+
+  <doc-claim>
+    <p>DecisionLog.gold() は UsedMark を読まない。</p>
+    <doc-code src="src/jev_research_pipeline/reduction/log.py" lines="103-111" hl="108-109">
+      <doc-pin line="108" tone="info" title="出所を問わない">Label なら何でも gold になる。別の型なら届かない。</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>窓の後に現れないソースは負例にしない。</p>
+    <doc-code src="src/jev_research_pipeline/reduction/fit.py" lines="185-191" hl="185">
+      <doc-pin line="185" tone="warn" title="正例だけでは動かない">今の gold 163 件も incorrect が 0 件。</doc-pin>
+    </doc-code>
+    <doc-ask id="absence">
+      <p>窓が過ぎて現れなかったソースの扱いは？</p>
+      <label><input type="radio" name="absence" value="unlabeled" checked> unused として記録だけ <small>負例にしない。fit は今のまま動かない</small></label>
+      <label><input type="radio" name="absence" value="weak"> 弱い負例として fit に渡す <small>重みを下げる。used_samples を今回作る</small></label>
+      <label><input type="radio" name="absence" value="negative"> 負例として fit に渡す <small>未使用を「正しくない」と読む偏りが入る</small></label>
+    </doc-ask>
+    <div data-if="absence!=unlabeled"><doc-note tone="warn">claim 4 の ? 行（used_samples）を今回作る。fit の提案は適用しないので、提案文に「used 由来」と書く。</doc-note></div>
+  </doc-claim>
+
+  <doc-claim>
+    <p>チェックと記入率はそのまま残す。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1562-1583" hl="1578-1582"></doc-code>
+    <doc-ask id="ticks">
+      <p>used はチェックの代わりか、隣に置くか？</p>
+      <label><input type="radio" name="ticks" value="beside" checked> 隣に置く <small>記入率もチェックの収穫も残る</small></label>
+      <label><input type="radio" name="ticks" value="replace"> 代わりにする <small>記入率の行とチェックの収穫を外す</small></label>
+    </doc-ask>
+    <div data-if="ticks=replace"><doc-note tone="warn">design の decision 7（記入率が一次指標）を変える。ADR を先に書く。</doc-note></div>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 ═════ -->
+<doc-claim>
+  <p>2 週間測り、0 近傍なら照合を先に見直す。</p>
+  <doc-flow caption="今回作るのは左の計測だけ。右の 2 つは 2 週間後に決める。">
+<script type="text/plain">
+measure = 計測 / 2 週間
+wire = 配線の提案 [green]
+rematch = 照合の見直し
+| measure | wire    |
+| .       | rematch |
+measure -> wire : used が数件以上
+measure -> rematch : 0 近傍
+</script>
+  </doc-flow>
+  <doc-ask id="executor">
+    <p>実装は誰がするか？</p>
+    <label><input type="radio" name="executor" value="build" checked> build-tier のセッションに渡す <small>implementation-chain の既定</small></label>
+    <label><input type="radio" name="executor" value="here"> このセッションで実装する</label>
+    <label><input type="radio" name="executor" value="codex"> Codex に渡す <small>codex:rescue</small></label>
+  </doc-ask>
+</doc-claim>
+
+<!-- ═════ shared ═════ -->
+<doc-claim aux="shared">
+  <p>共有: 照合キーは nets.py の抽出を土台にする。</p>
+  <doc-code src="src/jev_research_pipeline/pipeline/nets.py" lines="183-199" hl="189">
+    <doc-pin line="189" tone="warn" title="旧形式の id が壊れる">split("v") は solv-int/… を切る。used.py では正規表現で取る。</doc-pin>
+  </doc-code>
+</doc-claim>
+
+<!-- ═════ scope ═════ -->
+<doc-claim aux="scope">
+  <p>変えないもの: 判定・推薦・チェックの収穫。</p>
+  <ul>
+    <li>fit・gold 一致・rule 候補・Time-to-Discovery・export-cases の計算（UsedMark を読まない）</li>
+    <li>Semantic Scholar 推薦の正例と負例（自分の出力が正例を作るループを避ける）</li>
+    <li>チェックの収穫と Label の @id（vault.py・runner.py:90-125）</li>
+    <li>graph.jsonld と ADR への書き込み（読むだけ）</li>
+    <li>過去の窓の遡り（git 履歴・mtime からの復元はしない）</li>
+    <li>store を git に入れないこと。UsedMark の中身は公開記録に出さない</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>
