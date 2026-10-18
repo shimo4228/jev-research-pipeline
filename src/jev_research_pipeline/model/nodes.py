@@ -850,7 +850,9 @@ type UsedVerdict = Literal["pending", "used", "unused", "unknown"]
 sighting; unknown = the order of surfacing and sighting cannot be known (the key was there
 before the source was surfaced, or the window was only partly observed)."""
 
-type SightingPlace = Literal["graph", "adr", "vault"]
+type SightingPlace = Annotated[str, StringConstraints(pattern=r"^(graph|adr|vault(:\S.*)?)$")]
+"""Where a key was first seen: graph, adr, vault (a note at the vault root) or
+`vault:<top folder>`, so copies of jrp notes in a folder can be told apart later."""
 
 
 class Sighting(StoreNode):
@@ -868,6 +870,9 @@ class Sighting(StoreNode):
     first_seen: date
     place: SightingPlace
     baseline: bool = False
+    unsure: bool = False
+    """First seen in a file the scan before could not read: the key may have been there
+    earlier, so the day is not trustworthy and a mark matching it is unknown, never used."""
 
     @staticmethod
     def id_for(key: str) -> str:
@@ -878,9 +883,22 @@ class Sighting(StoreNode):
         return self.id_for(self.key)
 
     @classmethod
-    def new(cls, *, key: str, first_seen: date, place: SightingPlace, baseline: bool) -> Self:
+    def new(
+        cls,
+        *,
+        key: str,
+        first_seen: date,
+        place: SightingPlace,
+        baseline: bool = False,
+        unsure: bool = False,
+    ) -> Self:
         return cls(
-            id=cls.id_for(key), key=key, first_seen=first_seen, place=place, baseline=baseline
+            id=cls.id_for(key),
+            key=key,
+            first_seen=first_seen,
+            place=place,
+            baseline=baseline,
+            unsure=unsure,
         )
 
 

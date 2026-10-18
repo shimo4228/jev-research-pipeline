@@ -51,7 +51,13 @@ from jev_research_pipeline.questions import (
     open_questions,
     question_queries,
 )
-from jev_research_pipeline.reduction.used import mark_used, record_sightings, scan_documents
+from jev_research_pipeline.reduction.used import (
+    Scan,
+    mark_used,
+    record_sightings,
+    scan_documents,
+    unread_paths,
+)
 from jev_research_pipeline.report import harvest_note, note_report_id, report_notes, vault_dir
 from jev_research_pipeline.store import GraphStore, advance_rotation
 from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
@@ -132,7 +138,7 @@ def update_used(
     vault: Path,
     slugs: Sequence[str],
     now: AwareDatetime,
-) -> list[str]:
+) -> tuple[list[str], Scan | None]:
     """Used rate, a measurement beside the ticks (reduction.used): scan the author's
     documents once for keys seen for the first time, then settle each line's UsedMarks.
     It reads graph.jsonld, docs/adr/ and the vault and writes only the store. Success is
@@ -141,14 +147,15 @@ def update_used(
     try:
         repos = [t.repo for t in tracks if t.repo is not None]
         owner = next((t.owner for t in tracks if t.owner), None)
-        found = scan_documents(repos, vault, owner=owner)
+        pipeline = store.pipeline()
+        scan = scan_documents(repos, vault, owner=owner, prior_unread=unread_paths(pipeline))
         today = now.date()
-        sightings = record_sightings(store.pipeline(), found, today)
+        sightings = record_sightings(pipeline, scan, today)
         for slug in slugs:
             mark_used(store.line(slug), sightings, today)
     except (OSError, ValueError) as e:
-        return [f"used skip: {type(e).__name__}: {' '.join(str(e).split())[:160]}"]
-    return []
+        return [f"used skip: {type(e).__name__}: {' '.join(str(e).split())[:160]}"], None
+    return [], scan
 
 
 def claims_before(nodes: Mapping[str, GraphNodeType], today: date) -> set[str]:
@@ -206,7 +213,7 @@ async def run_pipeline(
         ]
         for slug in (only or (*rotation.order, *daily))
     }
-    used_note = update_used(store, list(tracks.values()), vault, tuple(harvested), now)
+    used_note, used_scan = update_used(store, list(tracks.values()), vault, tuple(harvested), now)
     for slug in harvested:
         harvested[slug].extend(used_note)
     picked = tuple(only) if only else (*advance_rotation(store, rotation, now), *daily)
@@ -242,6 +249,7 @@ async def run_pipeline(
             env=env,
             now=now,
             harvest_notes=harvested[slug],
+            used_scan=used_scan,
             net_config=for_line(cfg, slug, net_config),
             day_budget=day_budget,
             pacing=pacing,

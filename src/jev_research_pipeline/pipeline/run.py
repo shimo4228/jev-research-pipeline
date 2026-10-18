@@ -101,7 +101,7 @@ from jev_research_pipeline.quality import agreement, axis_meters, build_report, 
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import AuthoredQueries
 from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
-from jev_research_pipeline.reduction.used import WINDOW_DAYS, UsedRate
+from jev_research_pipeline.reduction.used import SCAN_BUDGET_SECONDS, WINDOW_DAYS, Scan, UsedRate
 from jev_research_pipeline.report import (
     ClaimEntry,
     QuestionSection,
@@ -481,12 +481,15 @@ class LineRun:
         env: Mapping[str, str],
         now: AwareDatetime,
         harvest_notes: list[str],
+        used_scan: Scan | None = None,
         net_config: nets.NetConfig | None = None,
         day_budget: nets.DayBudget | None = None,
         pacing: bool = True,
         queries: Mapping[str, AuthoredQueries] | None = None,
     ) -> None:
         self.ctx, self.partition, self.index_path, self.vault = ctx, partition, index_path, vault
+        self.used_scan = used_scan
+        """The scan before this run (reduction.used): what it could not read is shown."""
         self.questions = questions
         self.queries: Mapping[str, AuthoredQueries] = queries or {}
         """Authored query lines per Question @id (questions.question_queries)."""
@@ -1197,10 +1200,17 @@ class LineRun:
         used = UsedRate(n for n in self.partition.load().values() if isinstance(n, UsedMark))
         fields = {"days": WINDOW_DAYS, "unknown": used.unknown}
         if used.rate is None:
-            return t.USED_RATE_NONE(self.lang, pending=used.pending, **fields)
-        return t.USED_RATE(
-            self.lang, used=used.used, decided=used.decided, rate=f"{used.rate:.2f}", **fields
-        )
+            line = t.USED_RATE_NONE(self.lang, pending=used.pending, **fields)
+        else:
+            line = t.USED_RATE(
+                self.lang, used=used.used, decided=used.decided, rate=f"{used.rate:.2f}", **fields
+            )
+        scan = self.used_scan
+        if scan is not None and scan.unread:
+            line += t.USED_UNREAD(self.lang, n=len(scan.unread))
+        if scan is not None and scan.capped:
+            line += t.USED_CAPPED(self.lang, seconds=f"{SCAN_BUDGET_SECONDS:.0f}")
+        return line
 
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
         log = DecisionLog.from_nodes(

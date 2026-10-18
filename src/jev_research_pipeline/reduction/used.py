@@ -7,24 +7,31 @@ candidates, Time-to-Discovery, export-cases or the Semantic Scholar nets reads a
 - A source "appears" when one of its keys (arXiv id, DOI, GitHub owner/repo, normalized
   URL) is found in graph.jsonld, docs/adr/ of a track repo, or a vault note. Titles are not
   matched.
-- graph.jsonld nodes carry no date and the vault is not under git, so every scan records the
-  keys it sees for the first time as Sightings (identity = key, first day wins).
+- graph.jsonld nodes carry no date and the vault has no history, so every scan records the
+  keys it sees for the first time as Sightings (identity = key, first day wins), with the
+  place: graph, adr, or `vault:<top folder>`.
 - jrp's own notes, the author's own GitHub owner, and canary papers never count.
 - A key already present when the first scan ran (baseline) predates every surfacing the
   scan could observe, so it is `unknown`, as is a key present before its source was
   surfaced. A source surfaced before the scan existed and not seen is `unknown` too: only
   part of its window was observed.
+- A scan cannot read every file (iCloud placeholders, the time cap). The files it left are
+  remembered as `unread:<path>` markers; a key that first turns up in a file the scan before
+  could not read is `unsure`, and counts as `unknown`, never as used.
 - A source not seen when its window closes is `unused`, recorded and nothing more: absence
   is not read as a negative.
 """
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+import stat
+import time
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import JsonValue
 
@@ -43,7 +50,15 @@ from jev_research_pipeline.store import Partition
 WINDOW_DAYS: Final = 30
 STARTED_KEY: Final = "used:started_on"
 """Reserved Sighting key: the day the first scan ran. No real key has this shape."""
+UNREAD_PREFIX: Final = "unread:"
+"""Reserved Sighting key prefix: `unread:<path>` marks a file the last scan could not read."""
 MAX_FILE_BYTES: Final = 5_000_000
+SCAN_BUDGET_SECONDS: Final = 30.0
+"""Wall-clock cap of one scan. An iCloud placeholder downloads on read (a cold vault took
+300 s for 467 files), and the scan runs before the day's lines do."""
+DATALESS: Final[int] = getattr(stat, "SF_DATALESS", 0x40000000)
+"""macOS flag of a file whose data is only in iCloud: reading it blocks on a download.
+Other systems never set it (`st_flags` is absent there)."""
 
 _ARXIV: Final = re.compile(
     r"(?:arxiv(?:\.org)?[:/.\s]*(?:(?:abs|pdf)/)?|/(?:abs|pdf|papers)/)"
@@ -54,15 +69,24 @@ _DOI: Final = re.compile(r"\b10\.\d{4,9}/[^\s)\]>\"'<,;]+")
 _GITHUB: Final = re.compile(r"github\.com/([\w.-]+/[\w.-]+)", re.IGNORECASE)
 _URL: Final = re.compile(r"https?://[^\s<>\"'`)\]]+")
 _TRAILING: Final = ".,;:!?"
+_TRACKING: Final = re.compile(r"^(utm_.*|fbclid|gclid|mc_[a-z]+|ref|ref_src|igshid|_hsenc|_hsmi)$")
 
 
 def normalize_url(raw: str) -> str | None:
-    """host + path, lower case: scheme, `www.`, query, fragment and a trailing slash dropped."""
+    """host + path + query, lower case. Scheme, `www.`, fragment and a trailing slash are
+    dropped; the query keeps its parameters sorted, minus tracking ones (`utm_*`, `fbclid`,
+    ...), because `watch?v=a` and `watch?v=b` are two documents."""
     parts = urlsplit(raw.rstrip(_TRAILING))
     host = parts.netloc.lower().removeprefix("www.")
     if not host:
         return None
-    return f"{host}{parts.path.rstrip('/')}".lower()
+    query = sorted(
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not _TRACKING.match(k.lower())
+    )
+    tail = f"?{urlencode(query)}" if query else ""
+    return f"{host}{parts.path.rstrip('/')}{tail}".lower()
 
 
 def keys_of_text(text: str) -> set[str]:
@@ -78,11 +102,16 @@ def keys_of_text(text: str) -> set[str]:
     return keys
 
 
+def is_jrp_name(path: Path) -> bool:
+    """A jrp note by its file name alone, decided before the file is opened."""
+    return "_jrp_" in path.name
+
+
 def is_jrp_output(path: Path, text: str) -> bool:
     """A jrp note: file name, frontmatter or a mark comment (vault.py `_MARK_LINE_RE`,
     markdown.py). Its sources are listed in its body, so counting it would make every source
     used on the day it was surfaced."""
-    return "_jrp_" in path.name or "\njrp_report:" in text[:2000] or "<!-- jrp:" in text
+    return is_jrp_name(path) or "\njrp_report:" in text[:2000] or "<!-- jrp:" in text
 
 
 def _strings(node: JsonValue) -> Iterable[str]:
@@ -96,76 +125,135 @@ def _strings(node: JsonValue) -> Iterable[str]:
             yield from _strings(item)
 
 
-def _read(path: Path) -> str | None:
-    try:
-        if path.stat().st_size > MAX_FILE_BYTES:
+@dataclass
+class Scan:
+    """What one scan saw. `unread` are the files it could not read (dataless in iCloud, too
+    big, an error, or left when the time cap hit), by path. `tainted` are the keys found in
+    a file the scan before could not read: their first day cannot be trusted."""
+
+    found: dict[str, SightingPlace] = field(default_factory=dict[str, SightingPlace])
+    tainted: set[str] = field(default_factory=set[str])
+    unread: set[str] = field(default_factory=set[str])
+    capped: bool = False
+
+
+class _Reader:
+    def __init__(
+        self, prior_unread: Collection[str], budget: float, clock: Callable[[], float]
+    ) -> None:
+        self.prior, self.clock = prior_unread, clock
+        self.deadline = clock() + budget
+        self.scan = Scan()
+
+    def read(self, path: Path) -> str | None:
+        """The text, or None with the file counted unread. A dataless file is skipped by
+        its flag and never opened, so the scan does not wait on a download."""
+        name = str(path)
+        if self.clock() > self.deadline:
+            self.scan.capped = True
+            self.scan.unread.add(name)
             return None
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
+        try:
+            info = path.stat()
+            if getattr(info, "st_flags", 0) & DATALESS or info.st_size > MAX_FILE_BYTES:
+                self.scan.unread.add(name)
+                return None
+            return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            self.scan.unread.add(name)
+            return None
+
+    def add(self, path: Path, keys: set[str], place: SightingPlace) -> None:
+        for key in keys:
+            self.scan.found.setdefault(key, place)
+        if str(path) in self.prior:
+            self.scan.tainted |= keys
 
 
-def _graph_text(path: Path) -> str | None:
-    text = _read(path)
-    if text is None:
-        return None
+def _graph_text(text: str) -> str:
     try:
         return "\n".join(_strings(json.loads(text)))
     except ValueError:
         return text
 
 
-def _markdown(root: Path) -> Iterable[tuple[Path, str]]:
+def _markdown(root: Path, *, skip_jrp: bool = False) -> Iterable[Path]:
     if not root.is_dir():
         return
     for path in sorted(root.rglob("*.md")):
         if any(p.startswith(".") for p in path.relative_to(root).parts):
             continue  # .obsidian, .trash, .git
-        text = _read(path)
-        if text is not None:
-            yield path, text
+        if skip_jrp and is_jrp_name(path):
+            continue  # decided by name, before the file is opened
+        yield path
 
 
 def scan_documents(
-    repos: Sequence[Path], vault: Path, *, owner: str | None = None
-) -> dict[str, SightingPlace]:
+    repos: Sequence[Path],
+    vault: Path,
+    *,
+    owner: str | None = None,
+    prior_unread: Collection[str] = (),
+    budget: float = SCAN_BUDGET_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+) -> Scan:
     """Every key in the author's documents, with the first place that holds it (graph, then
-    adr, then vault). The author's own GitHub owner is dropped."""
-    found: dict[str, SightingPlace] = {}
-
-    def add(keys: set[str], place: SightingPlace) -> None:
-        for key in keys:
-            found.setdefault(key, place)
-
-    for repo in dict.fromkeys(repos):
-        if (text := _graph_text(repo / "graph.jsonld")) is not None:
-            add(keys_of_text(text), "graph")
-    for repo in dict.fromkeys(repos):
-        for _, text in _markdown(repo / "docs" / "adr"):
-            add(keys_of_text(text), "adr")
-    for path, text in _markdown(vault):
-        if not is_jrp_output(path, text):
-            add(keys_of_text(text), "vault")
+    adr, then vault as `vault:<top folder>`, plain `vault` for a note at the root). The
+    author's own GitHub owner is dropped. `prior_unread` are the paths the scan before could
+    not read; `budget` caps the whole scan in wall-clock seconds."""
+    reader = _Reader(prior_unread, budget, clock)
+    repo_list = list(dict.fromkeys(repos))
+    for repo in repo_list:
+        path = repo / "graph.jsonld"
+        if path.is_file() and (text := reader.read(path)) is not None:
+            reader.add(path, keys_of_text(_graph_text(text)), "graph")
+    for repo in repo_list:
+        for path in _markdown(repo / "docs" / "adr"):
+            if (text := reader.read(path)) is not None:
+                reader.add(path, keys_of_text(text), "adr")
+    for path in _markdown(vault, skip_jrp=True):
+        if (text := reader.read(path)) is None or is_jrp_output(path, text):
+            continue
+        parts = path.relative_to(vault).parts
+        reader.add(path, keys_of_text(text), f"vault:{parts[0]}" if len(parts) > 1 else "vault")
+    scan = reader.scan
     if owner:
         mine = (f"gh:{owner.lower()}/", f"url:github.com/{owner.lower()}/")
-        found = {k: p for k, p in found.items() if not k.startswith(mine)}
-    return found
+        scan.found = {k: p for k, p in scan.found.items() if not k.startswith(mine)}
+    return scan
 
 
-def record_sightings(
-    pipeline: Partition, found: Mapping[str, SightingPlace], today: date
-) -> dict[str, Sighting]:
+def unread_paths(pipeline: Partition) -> set[str]:
+    """The files the last scan could not read."""
+    return {
+        n.key.removeprefix(UNREAD_PREFIX)
+        for n in pipeline.load().values()
+        if isinstance(n, Sighting) and n.key.startswith(UNREAD_PREFIX)
+    }
+
+
+def record_sightings(pipeline: Partition, scan: Scan, today: date) -> dict[str, Sighting]:
     """Add the keys seen for the first time (first day wins) and return every Sighting.
-    The first scan of a store writes STARTED_KEY and marks its keys `baseline`."""
+    The first scan of a store writes STARTED_KEY and marks its keys `baseline`; a key found
+    in a file the scan before could not read is `unsure`. The `unread:` markers are brought
+    in line with this scan's unread files."""
     stored = {n.key: n for n in pipeline.load().values() if isinstance(n, Sighting)}
     baseline = STARTED_KEY not in stored
     fresh = [
-        Sighting.new(key=key, first_seen=today, place=place, baseline=baseline)
-        for key, place in found.items()
+        Sighting.new(
+            key=key, first_seen=today, place=place, baseline=baseline, unsure=key in scan.tainted
+        )
+        for key, place in scan.found.items()
         if key not in stored
     ]
     if baseline:
         fresh.append(Sighting.new(key=STARTED_KEY, first_seen=today, place="vault", baseline=True))
+    marked = {k for k in stored if k.startswith(UNREAD_PREFIX)}
+    wanted = {f"{UNREAD_PREFIX}{p}" for p in scan.unread}
+    fresh += [
+        Sighting.new(key=k, first_seen=today, place="vault", baseline=True) for k in wanted - marked
+    ]
+    pipeline.remove(Sighting.id_for(k) for k in marked - wanted)
     pipeline.put(fresh)
     return stored | {s.key: s for s in fresh}
 
@@ -174,8 +262,10 @@ def verdict_of(
     mark: UsedMark, matching: Sequence[Sighting], today: date, window: int = WINDOW_DAYS
 ) -> tuple[UsedVerdict, date | None]:
     """(verdict, seen_on) of one mark against the sightings of its source's keys."""
-    if any(s.baseline or s.first_seen <= mark.surfaced_on for s in matching):
-        return "unknown", None  # there before the source was surfaced, or the same day
+    if any(s.baseline or s.unsure or s.first_seen <= mark.surfaced_on for s in matching):
+        # There before the source was surfaced, the same day, or first seen in a file the
+        # scan before could not read.
+        return "unknown", None
     closes = mark.surfaced_on + timedelta(days=window)
     seen = min((s.first_seen for s in matching), default=None)
     if seen is not None and seen <= closes:

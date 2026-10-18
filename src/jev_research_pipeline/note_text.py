@@ -119,6 +119,16 @@ USED_RATE_NONE: Final = Msg(
     " · waiting {pending} · undetermined {unknown})",
     "used rate ({days} 天): 测量中 (尚无窗口已关闭的来源 · 等待 {pending} · 无法判定 {unknown})",
 )
+USED_UNREAD: Final = Msg(
+    " · 未読 {n} 件 (iCloud 未取得など。見つからなかった結果は暫定)",
+    " · unread {n} files (iCloud not downloaded etc.; absences are provisional)",
+    " · 未读 {n} 个文件 (iCloud 未下载等；未找到的结果为暂定)",
+)
+USED_CAPPED: Final = Msg(
+    " · scan は上限 {seconds} 秒で打ち切り",
+    " · scan stopped at its {seconds} s cap",
+    " · 扫描在 {seconds} 秒上限处中止",
+)
 OPEN_QUESTIONS: Final = Msg("open な問い: {n} 件", "Open questions: {n}", "开放问题: {n} 个")
 RUBRIC_AXIS: Final = Msg(
     "rubric {axis}: 平均 {mean} / gold 一致 {gold}",

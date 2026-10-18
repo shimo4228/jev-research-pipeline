@@ -172,6 +172,7 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "first_seen": _typed("firstSeen", "date"),
     "place": f"{VOCAB_NS}place",
     "baseline": _typed("baseline", "boolean"),
+    "unsure": _typed("unsure", "boolean"),
     "surfaced_on": _typed("surfacedOn", "date"),
     "observed_from": _typed("observedFrom", "date"),
     "seen_on": _typed("seenOn", "date"),
