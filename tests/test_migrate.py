@@ -4,13 +4,14 @@ other difference stops the run with one line that says what to do."""
 
 import json
 import shutil
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from jev_research_pipeline.cli import main
-from jev_research_pipeline.model import RotationCursor
+from jev_research_pipeline.model import Label, Report, RotationCursor
 from jev_research_pipeline.model.jsonld import CONTEXT
 from jev_research_pipeline.pipeline.runner import run_pipeline
 from jev_research_pipeline.store import GraphStore
@@ -29,6 +30,7 @@ from .test_e2e import env as env  # the fixture, re-exported
 GOLDEN = Path(__file__).parent / "golden" / "store"
 ADDITIVE = GOLDEN / "old-context-additive.jsonld"
 INCOMPATIBLE = GOLDEN / "old-context-incompatible.jsonld"
+REPORT_LABEL = GOLDEN / "report-label-fa67ed5.jsonld"
 ADDED = len(CONTEXT) - len(json.loads(ADDITIVE.read_text(encoding="utf-8"))["@context"])
 # Terms today's CONTEXT has beyond the golden: it grows with every node kind.
 
@@ -48,6 +50,87 @@ def test_the_goldens_are_what_they_claim():
     assert old != CONTEXT
     assert set(old) < set(CONTEXT)
     assert all(CONTEXT[k] == v for k, v in old.items())
+
+
+def test_the_report_label_golden_is_what_it_claims():
+    doc = json.loads(REPORT_LABEL.read_text(encoding="utf-8"))
+    # Every term the fa67ed5 build wrote stays in CONTEXT with its value: a removed or
+    # re-mapped term makes every partition incompatible and stops the 05:00 run.
+    assert set(doc["@context"]) <= set(CONTEXT)
+    assert all(CONTEXT[k] == v for k, v in doc["@context"].items())
+    reports = [n for n in doc["@graph"] if n["@type"] == "Report"]
+    labels = [n for n in doc["@graph"] if n["@type"] == "Label"]
+    assert len(reports) == 2 and len(labels) == 3
+    assert [r["operations"]["claude_calls"] for r in reports] == [0, 0]
+    golds = [m["gold_agreement"] for r in reports for m in r["operations"]["rubric"]]
+    assert 1.0 in golds and None in golds
+    assert [label["provenance"] for label in labels].count("question_day") == 2
+
+
+def _same_report(node: Report, old: dict[str, Any]) -> None:
+    assert (
+        node.line,
+        node.run_date.isoformat(),
+        node.rendering,
+        node.prose,
+        list(node.claims),
+        list(node.unjudged),
+        node.partial,
+    ) == tuple(
+        old[k] for k in ("line", "run_date", "rendering", "prose", "claims", "unjudged", "partial")
+    )
+    ops, was = node.operations, old["operations"]
+    assert (
+        ops.jev_questions,
+        ops.generation_input_tokens,
+        ops.generation_output_tokens,
+        ops.cost_usd,
+        ops.fill_rate_previous,
+    ) == tuple(
+        was[k]
+        for k in (
+            "jev_questions",
+            "generation_input_tokens",
+            "generation_output_tokens",
+            "cost_usd",
+            "fill_rate_previous",
+        )
+    )
+    assert [(m.axis, m.mean_score) for m in ops.rubric] == [
+        (m["axis"], m["mean_score"]) for m in was["rubric"]
+    ]
+
+
+def _same_label(node: Label, old: dict[str, Any]) -> None:
+    assert (node.subject, node.report, node.verdict, node.provenance) == tuple(
+        old[k] for k in ("subject", "report", "verdict", "provenance")
+    )
+    assert node.harvested_at == datetime.fromisoformat(old["harvested_at"])
+
+
+def test_old_reports_and_labels_validate_and_survive_a_rewrite(tmp_path: Path):
+    """The Reports and Labels a store already holds (98 Reports on 2026-10-20, all with
+    claude_calls 0) read under today's model and come back from the migration's rewrite
+    with their data. Fields a later model retires (claude_calls, gold_agreement) only have
+    to validate here, not to survive the rewrite."""
+    assert inspect_partition(REPORT_LABEL).verdict in ("current", "additive")
+    root = _store(tmp_path, line=REPORT_LABEL)
+    prepare_store(root)  # rewrites the file once CONTEXT has grown past fa67ed5
+    part = GraphStore(root).line("akc")
+    assert inspect_partition(part.path).verdict == "current"
+    nodes = part.load()
+    part.write_all(list(nodes.values()))  # the same rewrite, run on today's model
+    assert part.load() == nodes
+    raw = {n["@id"]: n for n in json.loads(REPORT_LABEL.read_text(encoding="utf-8"))["@graph"]}
+    assert set(nodes) == set(raw)
+    for iri, node in nodes.items():
+        match node:
+            case Report():
+                _same_report(node, raw[iri])
+            case Label():
+                _same_label(node, raw[iri])
+            case _:
+                pytest.fail(f"unexpected node in the golden: {iri}")
 
 
 def test_an_old_context_that_only_lacks_terms_is_additive():
