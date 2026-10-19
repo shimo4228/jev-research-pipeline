@@ -236,7 +236,7 @@ def test_the_prompt_labels_follow_the_language_and_any_inference_mark_counts():
 @pytest.mark.parametrize(
     ("lang", "prose", "check"),
     [
-        ("ja", "v15.md", "check9.md"),
+        ("ja", "v16.md", "check10.md"),
         ("en", "en2.md", "en-check1.md"),
         ("zh", "zh1.md", "zh-check1.md"),
     ],

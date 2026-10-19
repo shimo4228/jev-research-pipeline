@@ -718,6 +718,32 @@ within an eval loop. GPT is kept for the transfer check only (20 requests, used 
 Review-when: the author's blind read disagrees with the cutoff's direction, or a new GPT
 model makes the transfer check worth re-running.
 
+### Prose v16 (author decision 2026-10-19)
+
+The author found v15 still hard to read: every question carried several per-study explainers of
+600-1,000 chars, written for a reader from a neighbouring field. Cutting studies would cut what
+the author takes in, so v16 (bench/prose/prompts/v16.md + check10.md) keeps every study and
+cuts the words per study: the reader is the author (knows the field, little time per
+question); the lead answers the question per study; one study is written deep; every other
+study with a claim is a 1-2 sentence list item, under topic lines (never conclusions) when
+there are three or more; no glossing, background or lead-in sentences; the inference paragraph
+stays last and is the only place studies are compared.
+
+| variant | cutoff | facts | misbeliefs | stuck / draft | chars median |
+|---|---|---|---|---|---|
+| ja v15 + check9 (c15o) | 28/32 | 0.903 | 76 | 1.88 | 2,238 |
+| ja v16 + check10 (v16o) | 30/32 | 0.872 | 33 | 9.75 | 1,537 |
+
+Same 32 cases on Opus. Misbeliefs fall beyond the re-drafting noise (±7); facts and the cutoff
+stay within it. The stops rise because the simulated reader is set in a neighbouring field and
+v16 leaves the field's terms unglossed (scaffold, harness, oracle); the author is not that
+reader. The two judge fails are inference paragraphs that over-reach, not the lists.
+- **The blind read cannot test a structural change**: the author could tell v15 from v16 by
+  their shape alone, so the A/B read was skipped and the author chose v16 directly.
+- **Production**: v16 + check10 from 2026-10-19 (tests/test_prose.py pins the copies).
+Review-when: the author finds the list items too thin to judge a study, or the per-paragraph
+quality checks (quality.py) start rejecting list-form sections.
+
 ### Production check vs the prose bench (2026-10-01, plan productize-en-zh P0)
 
 The author chose Opus × v15 + check9 for production (blind read 5/5), but a scratch run on

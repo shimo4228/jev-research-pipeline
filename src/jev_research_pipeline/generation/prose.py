@@ -69,27 +69,29 @@ def _prompt(name: str) -> str:
 PROSE_PROMPTS: Final[Mapping[Lang, str]] = {lang: _prompt(f"prose.{lang}.md") for lang in LANGS}
 """The production prose prompt per note language, shipped in the package (generation/
 prompts/). Each is the text of the bench prompt it was chosen as (tests/test_prose.py pins
-it): ja = bench/prose/prompts/v15.md, en = en2.md, zh = zh1.md (design "Prose in English",
+it): ja = bench/prose/prompts/v16.md, en = en2.md, zh = zh1.md (design "Prose in English",
 "Prose in Chinese"). en and zh were accepted on the bench's proxies alone: the author reads
 neither (2026-10-01)."""
 CHECK_PROMPTS: Final[Mapping[Lang, str]] = {lang: _prompt(f"check.{lang}.md") for lang in LANGS}
-"""The self-check pass per language: ja = check9.md, en = en-check1.md, zh = zh-check1.md."""
+"""The self-check pass per language: ja = check10.md, en = en-check1.md, zh = zh-check1.md."""
 
 INSTRUCTIONS: Final = PROSE_PROMPTS["ja"]
-"""The ja prose prompt tuned on the prose bench (bench/prose/prompts/v15.md; design "Prose
-bench on claude -p"): explain today's studies to a reader who has not read them — a lead that
-says each study's finding with its conditions and cites; per study a bold name line, then one
-to two paragraphs (600-1,000 chars) of problem, what they did, what they found, the room
-spent on premises and glossing, never on more facts; numbers copied exactly with their
-comparator in the same sentence; background only from the excerpt; one final inference
-paragraph; the plain である register. Chosen by the author's blind read on Claude Opus
-(5 of 5, 2026-10-01); on gpt-6-luna the same prompt did not improve the fidelity cutoff."""
+"""The ja prose prompt (bench/prose/prompts/v16.md; design "Prose v16"): written for the
+author, who knows the field and reads many questions a morning — a lead that answers the
+question per study with its conditions and cites; one study written deep (300-500 chars);
+every other study with a claim kept as a 1-2 sentence list item, grouped under topic lines
+(not conclusions) when there are three or more; no glossing, no general background, no
+lead-in sentences; numbers copied exactly with their comparator in the same sentence; one
+final inference paragraph, the only place studies are compared; the plain である register.
+Chosen by the author on 2026-10-19 over v15 (bench: cutoff 30/32 vs 28/32, misbeliefs 33 vs
+76, median 1,537 vs 2,238 chars)."""
 
 CHECK_INSTRUCTIONS: Final = CHECK_PROMPTS["ja"]
-"""The self-check pass (bench/prose/prompts/check9.md): the same model re-reads its draft
+"""The self-check pass (bench/prose/prompts/check10.md): the same model re-reads its draft
 against the claims and excerpts and fixes only factual slips — numbers and comparators,
 dropped hedges, intent written as result, subject swaps, citations (one on every factual
-paragraph), a lead that merges studies — and turns polite-register sentences into である."""
+paragraph and list item), a lead that merges studies, a topic line written as a
+conclusion — and turns polite-register sentences into である."""
 
 _CITATION_RE: Final = re.compile(r"\[(\d+)\]")
 _GAP_RE: Final = re.compile(r"[ \t]{2,}")
