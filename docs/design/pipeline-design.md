@@ -90,7 +90,9 @@ state (filter state in code), adversarial text (treat as data).
    > `trusted_axes` trusted the axes that always pass. `jrp fit` passes no trusted axes, so
    > no silver label enters a fit; the silver path in `reduction/fit.py` stays, unused.
    > `AxisMeter.gold_agreement` stays readable on stored Reports (default None, never
-   > filled again) and its CONTEXT term stays. The daily rubric line is the mean per axis.
+   > filled again) and its CONTEXT term stays. The daily rubric lines are the mean per
+   > axis, without grounded: it passed every judgment, so its mean is a constant.
+   > `Operations.rubric` still stores all four axes.
 
 6. **Reduction forms in v1**: ① threshold/weight fit on labels (auto; jevcal-style —
    third-party result: single question 62.6% → 5 narrow questions with fitted weights
@@ -124,6 +126,11 @@ state (filter state in code), adversarial text (treat as data).
    > record Jev usage (`jev_input_tokens` / `jev_output_tokens`), and Labels the first
    > harvest that saw the tick (`first_harvested_at`). On a node stored before these fields,
    > the value is None = not measured, never 0.
+
+   > **注記（2026-10-20, plan quality-metrics）**: the operations block's stage-times line
+   > leaves out support (its span `jrp.stage.support` stays). Claims are verbatim cuts of
+   > their source, so source_support practically always resolves by string match without
+   > asking Jev, and the stage read 0 s.
 
 ### Failure policy, testing
 

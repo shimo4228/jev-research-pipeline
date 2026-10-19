@@ -92,6 +92,7 @@ from jev_research_pipeline.model import (
     Question,
     QuestionLog,
     Report,
+    RubricAxis,
     SourceItem,
     Unit,
     UsedMark,
@@ -370,6 +371,13 @@ BRIDGES_PER_QUESTION: Final = 3
 BRIDGES_MAX: Final = 5
 """橋渡し per question and per note (author mandate 2026-09-23: 2,509 of 2,570 pairs
 accepted on the first pilot); likeliest first."""
+UNSHOWN_AXES: Final[frozenset[RubricAxis]] = frozenset({"grounded"})
+"""Rubric axes stored on Operations.rubric but left out of the operations block: grounded
+passed every judgment in the store (inventory 2026-10-19), so its mean is a constant."""
+UNSHOWN_STAGES: Final = frozenset({"support"})
+"""Stages timed (OTel span jrp.stage.<name> stays) but left out of the stage-times line:
+claims are verbatim cuts of their source, so source_support practically always resolves by
+string match without asking Jev, and the line read 0 s."""
 
 
 def _top_bridges(found: list[tuple[str, float, SourceItem]]) -> list[SourceEntry]:
@@ -1227,6 +1235,7 @@ class LineRun:
                 if m.mean_score is not None
                 else t.RUBRIC_NO_DATA(lang, axis=m.axis)
                 for m in meters
+                if m.axis not in UNSHOWN_AXES
             ),
             *self.st.discovery,
         ]
@@ -1245,8 +1254,9 @@ class LineRun:
             )
         if self.st.incomplete:
             lines.append(t.NO_TEXT(lang, n=self.st.incomplete))
-        if self.st.seconds:
-            times = " / ".join(f"{k} {v:.0f}s" for k, v in self.st.seconds.items())
+        shown = {k: v for k, v in self.st.seconds.items() if k not in UNSHOWN_STAGES}
+        if shown:
+            times = " / ".join(f"{k} {v:.0f}s" for k, v in shown.items())
             lines.append(t.STAGE_TIMES(lang, times=times))
         if self.st.partial:
             lines.append(t.PARTIAL(lang))

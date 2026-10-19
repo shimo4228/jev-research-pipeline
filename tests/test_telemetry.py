@@ -39,6 +39,7 @@ async def test_run_emits_stage_and_jev_spans(cassette: ClientFactory, env: dict[
         "jrp.stage.queries",
         "jrp.stage.fetch",
         "jrp.stage.claims",
+        "jrp.stage.support",  # left out of the note's stage-times line, still traced
         "jrp.stage.sections",
     } <= names
     jev = [s for s in spans if s.name.startswith("jev.")]
