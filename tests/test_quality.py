@@ -1,4 +1,4 @@
-"""Step 8: rubric ladder wired to Report.rendering, and rubric-vs-gold agreement per axis."""
+"""Step 8: rubric ladder wired to Report.rendering, and the rubric meters per axis."""
 
 import json
 from enum import IntEnum
@@ -10,24 +10,8 @@ from jev_research_pipeline.generation import GenerationMeter
 from jev_research_pipeline.jev import rubric_claim, rubric_report
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.jev.core import score_levels
-from jev_research_pipeline.model import (
-    Claim,
-    Judgment,
-    Label,
-    RubricAxis,
-    ScoreAnswer,
-    SourceItem,
-    Unit,
-)
-from jev_research_pipeline.quality import (
-    AGREEMENT_FLOOR,
-    AxisAgreement,
-    agreement,
-    axis_meters,
-    build_report,
-    rubric_ladder,
-    trusted_axes,
-)
+from jev_research_pipeline.model import Claim, Judgment, ScoreAnswer, SourceItem, Unit
+from jev_research_pipeline.quality import axis_meters, build_report, rubric_ladder
 
 from . import builders as b
 from .conftest import ClientFactory
@@ -72,59 +56,17 @@ def _rubric(claim: Claim, positions: dict[str, float]) -> Judgment:
     )
 
 
-def _label(claim: Claim, verdict: str) -> Label:
-    return Label.new(
-        subject=claim.id,
-        report=b.report().id,
-        verdict=verdict,  # pyright: ignore[reportArgumentType]
-        provenance="claim",
-        harvested_at=b.T0,
-    )
-
-
-# --- agreement -----------------------------------------------------------------------------
-
-
-def test_agreement_counts_matches_per_axis():
-    c1, c2, c3 = _claim(1), _claim(2), _claim(3)
-    judgments = [
-        _rubric(c1, {"grounded": 1.0}),  # predicts correct
-        _rubric(c2, {"grounded": 0.0}),  # predicts incorrect
-        _rubric(c3, {"grounded": 1.0}),  # predicts correct
-    ]
-    labels = [_label(c1, "correct"), _label(c2, "incorrect"), _label(c3, "incorrect")]
-    result = agreement(judgments, labels)
-    assert result["grounded"] == AxisAgreement(axis="grounded", n=3, agreed=2)
-    assert result["grounded"].rate == pytest.approx(2 / 3)
-    # Every other axis predicted "correct" for all three: 1 of 3 labels agrees.
-    assert result["novel"].agreed == 1
-
-
-def test_agreement_ignores_unlabeled_and_unmatched():
-    c1, c2 = _claim(1), _claim(2)
-    result = agreement([_rubric(c1, {})], [_label(c2, "correct")])
-    assert all(a.n == 0 and a.rate is None for a in result.values())
-
-
-def test_trusted_axes_need_the_floor_and_enough_labels():
-    agreements: dict[RubricAxis, AxisAgreement] = {
-        "grounded": AxisAgreement(axis="grounded", n=40, agreed=36),
-        "relevant": AxisAgreement(axis="relevant", n=40, agreed=20),
-        "novel": AxisAgreement(axis="novel", n=3, agreed=3),
-        "actionable": AxisAgreement(axis="actionable", n=0, agreed=0),
-    }
-    assert trusted_axes(agreements, floor=AGREEMENT_FLOOR, min_labels=10) == ("grounded",)
+# --- meters ----------------------------------------------------------------------------------
 
 
 def test_axis_meters_feed_operations():
-    c1 = _claim(1)
-    meters = axis_meters(
-        [_rubric(c1, {"grounded": 0.5})], agreement([_rubric(c1, {})], [_label(c1, "correct")])
-    )
+    c1, c2 = _claim(1), _claim(2)
+    meters = axis_meters([_rubric(c1, {"grounded": 0.5}), _rubric(c2, {"grounded": 1.0})])
     grounded = next(m for m in meters if m.axis == "grounded")
-    assert grounded.mean_score == pytest.approx(0.5)
-    assert grounded.gold_agreement == 1.0
+    assert grounded.mean_score == pytest.approx(0.75)
     assert {m.axis for m in meters} == set(rubric_claim.AXES)
+    # The gold-agreement meter is retired: the field stays for old Reports, never filled.
+    assert all(m.gold_agreement is None for m in meters)
 
 
 # --- ladder wired to Report ------------------------------------------------------------------
@@ -255,24 +197,23 @@ def test_build_report_maps_rendering_and_operations():
 # --- review fixes (96b0d22) ------------------------------------------------------------------
 
 
-def test_agreement_counts_one_judgment_per_labeled_pair():
+def test_axis_meters_count_one_judgment_per_claim():
     c1 = _claim(1)
     first = _rubric(c1, {"grounded": 0.0})
     later = _rubric(c1, {"grounded": 1.0}).model_copy(update={"judged_at": b.T0.replace(hour=9)})
     # Different state → a second Judgment for the same (claim, report); only the latest counts.
     later = later.model_copy(update={"id": later.id.replace(later.id[-4:], "ffff")})
-    result = agreement([first, later], [_label(c1, "correct")])
-    assert result["grounded"] == AxisAgreement(axis="grounded", n=1, agreed=1)
+    grounded = next(m for m in axis_meters([first, later]) if m.axis == "grounded")
+    assert grounded.mean_score == pytest.approx(1.0)
 
 
-def test_agreement_ignores_judgments_from_other_bundle_wording():
-    c1 = _claim(1)
-    stale = _rubric(c1, {}).model_copy(update={"bundle_sha256": "c" * 64})
-    assert agreement([stale], [_label(c1, "correct")])["grounded"].n == 0
+def test_axis_meters_ignore_judgments_from_other_bundle_wording():
+    stale = _rubric(_claim(1), {}).model_copy(update={"bundle_sha256": "c" * 64})
+    assert all(m.mean_score is None for m in axis_meters([stale]))
 
 
 def test_axis_meters_without_rubric_data_report_none():
-    meters = axis_meters([], agreement([], []))
+    meters = axis_meters([])
     assert all(m.mean_score is None and m.gold_agreement is None for m in meters)
 
 

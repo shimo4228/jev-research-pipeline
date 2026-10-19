@@ -97,10 +97,9 @@ from jev_research_pipeline.model import (
     UsedMark,
 )
 from jev_research_pipeline.note_text import Lang, note_lang
-from jev_research_pipeline.quality import agreement, axis_meters, build_report, rubric_ladder
+from jev_research_pipeline.quality import axis_meters, build_report, rubric_ladder
 from jev_research_pipeline.query_text import clean_query
 from jev_research_pipeline.questions import AuthoredQueries
-from jev_research_pipeline.reduction import DecisionLog, RuleConfig, rule_candidates
 from jev_research_pipeline.reduction.used import SCAN_BUDGET_SECONDS, WINDOW_DAYS, Scan, UsedRate
 from jev_research_pipeline.report import (
     ClaimEntry,
@@ -1189,11 +1188,7 @@ class LineRun:
         return line
 
     def _operations(self, today_judgments: list[Judgment]) -> tuple[Operations, list[str]]:
-        log = DecisionLog.from_nodes(
-            [*self.partition.load().values(), *self.st.nodes, *self.jev.fresh, *self.st.decisions]
-        )
-        agreements = agreement(log.judgments, log.labels)
-        meters = axis_meters(today_judgments, agreements)
+        meters = axis_meters(today_judgments)
         cost = self.budget.cost(jev_questions=self.jev.questions_asked, meters=self.meters)
         fill = fill_rate_previous(self.known, self.ctx.line.id, self.now)
         writer_calls = sum(m.requests for m in self.meters.values())
@@ -1228,20 +1223,12 @@ class LineRun:
             self._used_rate_line(),
             t.OPEN_QUESTIONS(lang, n=len(self.questions)),
             *(
-                t.RUBRIC_AXIS(
-                    lang,
-                    axis=m.axis,
-                    mean=f"{m.mean_score:.2f}",
-                    gold=f"{m.gold_agreement:.2f}"
-                    if m.gold_agreement is not None
-                    else t.NOT_MEASURED(lang),
-                )
+                t.RUBRIC_AXIS(lang, axis=m.axis, mean=f"{m.mean_score:.2f}")
                 if m.mean_score is not None
                 else t.RUBRIC_NO_DATA(lang, axis=m.axis)
                 for m in meters
             ),
             *self.st.discovery,
-            *rule_candidates(log, RuleConfig(lang=lang), today=self.now.date()),
         ]
         if self.jev.retries:
             lines.append(t.JEV_RETRIES(lang, n=self.jev.retries))

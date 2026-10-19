@@ -1,7 +1,6 @@
 """The decision log: a line partition indexed for reduction (decision 6).
 
-Links every Jev judgment/decision to the claims (and through them the author's Labels)
-and to the source whose code-computable features rules may use:
+Links every Jev judgment to the claims, and through them to the author's Labels:
     source-subject functions  → claims cut from that source
     unit-subject functions    → claims made from that unit
     claim-subject functions   → subjects[0] (the claim judged; for pairs, the new claim)
@@ -77,19 +76,6 @@ class DecisionLog:
                 ]
             case _:
                 return []
-
-    def source_of(self, subject: str) -> SourceItem | None:
-        match kind_of(subject):
-            case "source":
-                return self.sources.get(subject)
-            case "unit":
-                u = self.units.get(subject)
-                return self.sources.get(u.source) if u else None
-            case "claim":
-                c = self.claims.get(subject)
-                return self.source_of(c.unit) if c else None
-            case _:
-                return None
 
     def current(self, function: str, bundle_sha256: str) -> list[Judgment]:
         """One judgment per subject tuple: this bundle's wording, latest judged. Re-runs and

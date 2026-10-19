@@ -1,13 +1,13 @@
-"""Step 8: the rubric ladder wired to Report.rendering, and rubric-vs-gold agreement.
+"""Step 8: the rubric ladder wired to Report.rendering, and the rubric meters.
 
 Ladder (decision 8): generation.prose.render drives draft → rubric_report → one rewrite →
 template; rubric_ladder() supplies the real writer (the prose model, generation.client) and
 grader (Jev rubric_report), and build_report() maps the result onto Report.
 
-Agreement (decision 5): per rubric axis, a rubric_claim judgment "predicts correct" when
-the axis' expected position clears its threshold; the author's Label is the gold. An
-axis is trusted (may act as a silver label in fits) only with at least `min_labels`
-labeled pairs and agreement ≥ AGREEMENT_FLOOR.
+Meters: axis_meters() is today's mean rubric_claim score per axis, stored on the Report's
+Operations. No agreement with the author's gold ticks is computed: the claim gold is the
+question-day ticks propagated to claims, all correct as of 2026-10-20, so a rate only
+restated each axis' pass rate (design decision 5, note of 2026-10-20).
 """
 
 import asyncio
@@ -15,7 +15,7 @@ import re
 from datetime import date
 from typing import Final
 
-from pydantic import AwareDatetime, computed_field
+from pydantic import AwareDatetime
 from pydantic_ai.models import Model
 
 from .generation import GenerationMeter, ProseResult, Rendering, render, write_prose
@@ -29,35 +29,9 @@ from .generation.prose import (
 )
 from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
-from .jev.core import score, threshold
-from .model import (
-    AxisMeter,
-    Decision,
-    Judgment,
-    Label,
-    Operations,
-    Question,
-    Report,
-    RubricAxis,
-    kind_of,
-)
-from .model.jsonld import Value
+from .jev.core import score
+from .model import AxisMeter, Decision, Judgment, Operations, Question, Report, RubricAxis
 from .note_text import DEFAULT_LANG, Lang
-
-AGREEMENT_FLOOR: Final = 0.7
-"""Initial floor for trusting a rubric axis as silver labels; refit with the labels."""
-MIN_LABELS: Final = 10
-
-
-class AxisAgreement(Value):
-    axis: RubricAxis
-    n: int
-    agreed: int
-
-    @computed_field
-    @property
-    def rate(self) -> float | None:
-        return self.agreed / self.n if self.n else None
 
 
 def _position(j: Judgment, axis: RubricAxis) -> float:
@@ -66,7 +40,7 @@ def _position(j: Judgment, axis: RubricAxis) -> float:
 
 def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment]:
     """One rubric_claim judgment per (claim, report): current bundle wording, latest judged.
-    Re-runs and rewordings must not count one labeled pair more than once."""
+    Re-runs and rewordings must not count one claim more than once."""
     latest: dict[tuple[str, str], Judgment] = {}
     for j in sorted(judgments, key=lambda j: (j.judged_at, j.id)):
         if j.function == "rubric_claim" and j.bundle_sha256 == rubric_claim.ASK.sha256:
@@ -74,47 +48,14 @@ def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment
     return latest
 
 
-def agreement(judgments: list[Judgment], labels: list[Label]) -> dict[RubricAxis, AxisAgreement]:
-    """Pairs = labeled (claim, report) with a current rubric_claim judgment, counted once."""
-    gold = {
-        (lb.subject, lb.report): lb.verdict == "correct"
-        for lb in labels
-        if kind_of(lb.subject) == "claim"
-    }
-    counts: dict[RubricAxis, list[int]] = {axis: [0, 0] for axis in rubric_claim.AXES}
-    for key, j in _current_rubric(judgments).items():
-        if key not in gold:
-            continue
-        for axis in rubric_claim.AXES:
-            predicted = _position(j, axis) >= threshold(rubric_claim.THRESHOLDS, axis)
-            counts[axis][0] += 1
-            counts[axis][1] += int(predicted == gold[key])
-    return {axis: AxisAgreement(axis=axis, n=n, agreed=a) for axis, (n, a) in counts.items()}
-
-
-def trusted_axes(
-    agreements: dict[RubricAxis, AxisAgreement],
-    *,
-    floor: float = AGREEMENT_FLOOR,
-    min_labels: int = MIN_LABELS,
-) -> tuple[RubricAxis, ...]:
-    return tuple(
-        axis
-        for axis in rubric_claim.AXES
-        if (a := agreements[axis]).n >= min_labels and (a.rate or 0.0) >= floor
-    )
-
-
-def axis_meters(
-    today: list[Judgment], agreements: dict[RubricAxis, AxisAgreement]
-) -> tuple[AxisMeter, ...]:
-    """Operations rubric line: today's mean score per axis + cumulative gold agreement."""
+def axis_meters(today: list[Judgment]) -> tuple[AxisMeter, ...]:
+    """Operations rubric meters: today's mean score per axis (gold_agreement stays None)."""
     rubric = list(_current_rubric(today).values())
     meters: list[AxisMeter] = []
     for axis in rubric_claim.AXES:
         values = [_position(j, axis) for j in rubric]
         mean = sum(values) / len(values) if values else None  # no data ≠ worst score
-        meters.append(AxisMeter(axis=axis, mean_score=mean, gold_agreement=agreements[axis].rate))
+        meters.append(AxisMeter(axis=axis, mean_score=mean))
     return tuple(meters)
 
 

@@ -5,9 +5,10 @@ probability) — only each subject's current-bundle, latest judgment; target = g
 (correct → the function should accept). MIN_GOLD counts distinct labeled claims, and the
 gold must hold both verdicts: with only correct labels the most accurate cut is "accept
 everything", so a fit could only ever lower thresholds.
-Silver labels (decision 5): trusted rubric_claim axes label unlabeled claims at
-SILVER_WEIGHT, and feed only non-rubric thresholds (a rubric threshold is never refit on
-its own verdicts). novelty is not fitted: its accept means "not a duplicate", which a
+Silver labels (decision 5): rubric_claim axes passed as `trusted` label unlabeled claims
+at SILVER_WEIGHT, and feed only non-rubric thresholds (a rubric threshold is never refit
+on its own verdicts). `jrp fit` passes none (no axis is validated against gold any more,
+see the quality module), so it fits on gold alone. novelty is not fitted: its accept means "not a duplicate", which a
 correctness label does not measure. Search = a grid over [0.05, 0.95]; ties prefer the value nearest the
 current threshold. Output is a proposal file — thresholds in code are never changed here.
 """

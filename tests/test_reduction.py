@@ -1,4 +1,4 @@
-"""Step 9: reduction ① threshold fit, ② label → pydantic-evals Case, ③ rule candidates."""
+"""Step 9: reduction ① threshold fit, ② label → pydantic-evals Case."""
 
 import json
 from datetime import date, timedelta
@@ -7,12 +7,11 @@ from pathlib import Path
 import pytest
 from pydantic_evals import Dataset
 
-from jev_research_pipeline.jev import claim_detection, relevance_triage
+from jev_research_pipeline.jev import claim_detection
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import (
     ChoiceAnswer,
     Claim,
-    Decision,
     GraphNodeType,
     Judgment,
     Label,
@@ -22,10 +21,8 @@ from jev_research_pipeline.model import (
 )
 from jev_research_pipeline.reduction import (
     DecisionLog,
-    RuleConfig,
     export_cases,
     fit_thresholds,
-    rule_candidates,
     write_proposal,
 )
 from jev_research_pipeline.store import GraphStore
@@ -80,18 +77,7 @@ def _world(n: int, *, correct_if: str = "high") -> list[GraphNodeType]:
             provenance="claim",
             harvested_at=b.T0,
         )
-        # relevance_triage decision: rejected exactly for github sources (a code feature).
-        tri = Decision.new(
-            function="relevance_triage",
-            subjects=(src.id,),
-            policy=relevance_triage.ASK.policy,
-            bundle_sha256=relevance_triage.ASK.sha256,
-            judgments=(b.judgment().id,),
-            thresholds=relevance_triage.THRESHOLDS,
-            outcome="reject" if adapter == "github" else "accept",
-            score=0.2 if adapter == "github" else 0.8,
-        )
-        nodes += [src, unit, claim, j, label, tri]
+        nodes += [src, unit, claim, j, label]
     return nodes
 
 
@@ -190,33 +176,6 @@ def test_exported_case_inputs_are_the_judgment_state(tmp_path: Path):
     assert inputs["function"] == "claim_detection"
 
 
-# --- ③ rule candidates ------------------------------------------------------------------------
-
-
-def test_rule_candidate_found_for_a_code_feature():
-    lines = rule_candidates(
-        DecisionLog.from_nodes(_world(80)),
-        RuleConfig(min_n=30, min_agreement=0.95),
-        today=b.T0.date(),
-    )
-    assert any(
-        "relevance_triage" in ln and "adapter=github" in ln and "reject" in ln for ln in lines
-    )
-
-
-def test_rule_candidates_respect_min_n():
-    lines = rule_candidates(
-        DecisionLog.from_nodes(_world(20)),
-        RuleConfig(min_n=30, min_agreement=0.95),
-        today=b.T0.date(),
-    )
-    assert lines == []
-
-
-def test_rule_config_defaults():
-    assert (RuleConfig().min_n, RuleConfig().min_agreement) == (30, 0.95)
-
-
 def test_log_from_store_partition(tmp_path: Path):
     part = GraphStore(tmp_path).line("akc")
     part.put(_world(4))
@@ -261,15 +220,6 @@ def test_novelty_is_not_fitted_against_correctness():
     from jev_research_pipeline.reduction.fit import SPECS
 
     assert all(spec.function != "novelty" for spec, _, _, _ in SPECS)
-
-
-def test_rule_needs_to_beat_the_complement():
-    # Every triage decision accepted: no split carries information, so no candidate.
-    nodes = [
-        n.model_copy(update={"outcome": "accept"}) if isinstance(n, Decision) else n
-        for n in _world(80)
-    ]
-    assert rule_candidates(DecisionLog.from_nodes(nodes), RuleConfig(), today=b.T0.date()) == []
 
 
 def test_case_prefers_the_judgment_matching_the_rebuilt_state(tmp_path: Path):

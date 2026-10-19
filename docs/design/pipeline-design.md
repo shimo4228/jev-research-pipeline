@@ -82,6 +82,16 @@ state (filter state in code), adversarial text (treat as data).
      passed the agreement floor, at lower weight than gold.
    - Rubric also drives the daily quality line in the operations section, so quality
      is a number even on days with zero ticks.
+
+   > **注記（2026-10-20, plan quality-metrics）**: rubric-vs-gold agreement and the trusted
+   > axes are retired, with the per-axis gold agreement meter of decision 7. The claim gold
+   > is the question-day ticks propagated to claims, all correct as of 2026-10-20, so the
+   > rate only restated each axis' pass rate (grounded passed every judgment), and
+   > `trusted_axes` trusted the axes that always pass. `jrp fit` passes no trusted axes, so
+   > no silver label enters a fit; the silver path in `reduction/fit.py` stays, unused.
+   > `AxisMeter.gold_agreement` stays readable on stored Reports (default None, never
+   > filled again) and its CONTEXT term stays. The daily rubric line is the mean per axis.
+
 6. **Reduction forms in v1**: ① threshold/weight fit on labels (auto; jevcal-style —
    third-party result: single question 62.6% → 5 narrow questions with fitted weights
    95.0%), ② each ticked claim auto-becomes a pydantic-evals Case (auto), ③ rule
@@ -91,6 +101,15 @@ state (filter state in code), adversarial text (treat as data).
    until a label-count threshold. As built 2026-09-23: ③ counts **labeled decisions**
    (N=30, X=0.95, config); ① writes a threshold-diff proposal file, never applies;
    ② exports pydantic-evals YAML that pytest replays.
+
+   > **注記（2026-10-20, plan quality-metrics）**: ③ is retired: the candidate lines are
+   > gone from the operations section and `reduction/rules.py` is deleted (git keeps it).
+   > Its "agreement" was the majority share of `Decision.outcome` inside a feature split,
+   > not agreement with the author's labels; decisions rebuilt the same day counted twice;
+   > nothing recorded or read what the author did with a candidate; and 13-17 lines a day
+   > took the 12 KB note budget and pushed Review items out. ① and ② are unchanged; ④
+   > stays deferred.
+
 7. **Primary success metric = label fill rate** (ticked / claims per report): proof the
    reports keep being read. Secondary meters per run: generation tokens (↓ wanted), Jev
    question count (↑ wanted), Claude calls (must be 0), ticked-correct rate, cost, run
@@ -376,6 +395,10 @@ fit, gold agreement, rule candidates, Time-to-Discovery, export-cases or the Sem
 Scholar nets. A source that was not seen is `unused`, recorded and not a negative. Review
 after two weeks of measuring (the first window closes 2026-10-22): wire it into fit only if
 the rate is not near zero; if it is, fix the matching first.
+
+> **注記（2026-10-20, plan quality-metrics）**: gold agreement, rule candidates and
+> Time-to-Discovery no longer exist (decisions 5 and 6, Meters). Still nothing reads a
+> UsedMark: not `DecisionLog.gold()`, fit, export-cases or the Semantic Scholar nets.
 
 ### jevcal (search-first 2026-09-23) — NOT-ADOPT
 

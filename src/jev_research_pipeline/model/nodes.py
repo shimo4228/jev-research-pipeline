@@ -551,12 +551,14 @@ class Decision(StoreNode):
 
 
 class AxisMeter(Value):
-    """Rubric axis for one report: mean Jev score and agreement with gold (None = no ticks yet)."""
+    """Rubric axis for one report: today's mean Jev rubric_claim score."""
 
     axis: RubricAxis
     mean_score: Probability | None
     """None = no rubric judgment that day (distinct from a 0.0 = worst score)."""
-    gold_agreement: Probability | None
+    gold_agreement: Probability | None = None
+    """Read-only: Reports stored before the gold-agreement meter was retired carry a rate;
+    new Reports leave it None (quality module docstring). The CONTEXT term stays."""
 
 
 class Operations(Value):
@@ -802,8 +804,8 @@ class Label(StoreNode):
 
     The subject is a question-day, a source or a claim (`provenance` says which checkbox
     it came from): a question-day tick propagates to the claims and sources cited under it,
-    and those derived labels carry provenance "question_day". Only gold is stored — silver
-    labels (validated rubric axes) are derived at fit time, never persisted (decision 5).
+    and those derived labels carry provenance "question_day". Only gold is stored; no
+    label is derived from rubric scores and persisted (decision 5).
     Identity = (subject, report): re-harvesting overwrites the verdict and `harvested_at`
     with the latest tick state, and carries `first_harvested_at` over unchanged
     (pipeline.runner.harvest_line).

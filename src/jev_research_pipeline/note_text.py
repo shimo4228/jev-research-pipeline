@@ -138,11 +138,8 @@ USED_CAPPED: Final = Msg(
 )
 OPEN_QUESTIONS: Final = Msg("open な問い: {n} 件", "Open questions: {n}", "开放问题: {n} 个")
 RUBRIC_AXIS: Final = Msg(
-    "rubric {axis}: 平均 {mean} / gold 一致 {gold}",
-    "rubric {axis}: mean {mean} / gold agreement {gold}",
-    "rubric {axis}: 平均 {mean} / gold 一致率 {gold}",
+    "rubric {axis}: 平均 {mean}", "rubric {axis}: mean {mean}", "rubric {axis}: 平均 {mean}"
 )
-NOT_MEASURED: Final = Msg("未計測", "not measured", "未测量")
 RUBRIC_NO_DATA: Final = Msg(
     "rubric {axis}: データなし", "rubric {axis}: no data", "rubric {axis}: 无数据"
 )
@@ -304,7 +301,7 @@ NET_SHARES: Final = Msg(
     "net 採用率: {shares}", "Accept share per net: {shares}", "各 net 采纳率: {shares}"
 )
 
-# --- Review reasons and rule candidates (jev.question_screening, reduction.rules) -----------
+# --- Review reasons (jev.question_screening) ------------------------------------------------
 
 BORDERLINE: Final = Msg(
     "境界: 重み付き {score} (採用線 {keep})",
@@ -315,9 +312,4 @@ LOW_CERTAINTY: Final = Msg(
     "確信度不足: {sure} (< {floor})",
     "low certainty: {sure} (< {floor})",
     "置信度不足: {sure} (< {floor})",
-)
-RULE_CANDIDATE: Final = Msg(
-    "rule 候補: {function} は {condition} のとき {outcome} (n={n}, 一致率 {rate})",
-    "rule candidate: {function} is {outcome} when {condition} (n={n}, agreement {rate})",
-    "rule 候选: {function} 在 {condition} 时为 {outcome} (n={n}, 一致率 {rate})",
 )

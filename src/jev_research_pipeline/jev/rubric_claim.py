@@ -2,8 +2,9 @@
 
 Subjects: (Claim, Report). Axes = RubricAxis (grounded / relevant / novel / actionable),
 each with concrete-situation levels (vendor guidance: not abstract degrees). These scores
-are the dense labels of decision 5: recorded for every claim every day, validated per
-axis against the author's gold ticks before they may act as silver labels in a fit.
+are the dense labels of decision 5: recorded for every claim every day, averaged per axis
+into the Report's Operations (quality.axis_meters); their thresholds are refit on the
+author's gold by reduction.fit.
 """
 
 from enum import IntEnum

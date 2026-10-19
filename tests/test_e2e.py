@@ -92,6 +92,12 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
         f"Jev 質問数: {ops.jev_questions} "
         f"(token: in {ops.jev_input_tokens} / out {ops.jev_output_tokens})"
     ) in text
+    # The rubric lines carry today's mean only: no gold agreement, and no rule candidate
+    # anywhere in the block. The stored meters leave gold_agreement None.
+    rubric_lines = [ln for ln in outcome.operations if ln.startswith("rubric ")]
+    assert rubric_lines and all(": 平均 " in ln for ln in rubric_lines), rubric_lines
+    assert not any("gold" in ln or "rule 候補" in ln for ln in outcome.operations)
+    assert ops.rubric and all(m.gold_agreement is None for m in ops.rubric)
 
     # The store holds the report and its claims; web_search skipped for lack of a key.
     part = GraphStore(Path(env["JRP_STORE_DIR"])).line("akc")

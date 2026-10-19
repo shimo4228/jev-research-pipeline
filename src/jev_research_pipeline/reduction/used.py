@@ -1,8 +1,8 @@
 """Used rate: did a surfaced source show up in the author's own documents within 30 days?
 
 A delayed, zero-effort label measured beside the author's ticks (plan used-rate-label,
-decisions of 2026-10-19). It is a measurement only: nothing in fit, gold agreement, rule
-candidates, export-cases or the Semantic Scholar nets reads a UsedMark.
+decisions of 2026-10-19). It is a measurement only: nothing in fit, export-cases or the
+Semantic Scholar nets reads a UsedMark.
 
 - A source "appears" when one of its keys (arXiv id, DOI, GitHub owner/repo, normalized
   URL) is found in graph.jsonld, docs/adr/ of a track repo, or a vault note. Titles are not

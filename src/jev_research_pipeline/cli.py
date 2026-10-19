@@ -66,7 +66,6 @@ from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, run_summary, store_dir
-from .quality import agreement, trusted_axes
 from .questions import NoQuestions, questions_path
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .scheduling import install, install_lines
@@ -237,9 +236,8 @@ def _fit(env: Mapping[str, str]) -> int:
     store = GraphStore(store_dir(env))
     for slug in _slugs(env):
         log = DecisionLog.from_partition(store.line(slug))
-        trusted = trusted_axes(agreement(log.judgments, log.labels))
         skipped: list[str] = []
-        proposals = fit_thresholds(log, trusted=trusted, skipped=skipped)
+        proposals = fit_thresholds(log, skipped=skipped)
         path = write_proposal(
             store.root / "proposals" / slug,
             proposals,
