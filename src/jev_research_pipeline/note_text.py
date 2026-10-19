@@ -100,12 +100,19 @@ GENERATION_TOKENS: Final = Msg(
 WRITER_CALLS: Final = Msg(
     "書き手の呼び出し: {n} ({spec})", "Writer calls: {n} ({spec})", "写作模型调用: {n} ({spec})"
 )
-JEV_PRICE_UNSET: Final = Msg("Jev 単価未設定", "Jev price not set", "未设置 Jev 单价")
-SUBSCRIPTION_ZERO: Final = Msg(
-    "生成はサブスクリプション定額で 0 計上",
-    "generation is on a flat subscription, counted as 0",
-    "生成按订阅定额计为 0",
+# The cost line names what Budget.cost adds up for the writer at hand: Jev alone when the
+# writer is on a subscription (its tokens price 0), Jev plus the writer's tokens otherwise.
+COST_JEV_ONLY: Final = Msg(
+    "Jev 推定費用: ${cost} (仮定単価。書き手はサブスクで 0)",
+    "Jev estimated cost: ${cost} (assumed price; the writer is on a subscription, 0)",
+    "Jev 估算费用: ${cost} (假定单价。写作模型为订阅，计 0)",
 )
+COST_WITH_WRITER: Final = Msg(
+    "推定費用: ${cost} (Jev の仮定単価 + 書き手の token 代)",
+    "Estimated cost: ${cost} (Jev at its assumed price + the writer's tokens)",
+    "估算费用: ${cost} (Jev 假定单价 + 写作模型的 token 费)",
+)
+JEV_PRICE_UNSET: Final = Msg("Jev 単価未設定", "Jev price not set", "未设置 Jev 单价")
 GENERATION_PRICE_UNSET: Final = Msg("生成単価未設定", "generation price not set", "未设置生成单价")
 FILL_RATE: Final = Msg(
     "記入率 (前回・問い日): {rate}",
@@ -245,10 +252,13 @@ CANARY_DROPPED: Final = Msg(
     "canary dropped: {question} / {url}",
     "canary 落选: {question} / {url}",
 )
+# {labels} counts Label nodes, not checkboxes: a ticked question-day also labels the claims
+# and sources it cites (report.vault), and every tick re-reads all the line's notes.
 HARVEST: Final = Msg(
-    "harvest: label {labels} 件 / 取り消し {withdrawn} 件",
-    "harvest: {labels} labels / {withdrawn} withdrawn",
-    "harvest: label {labels} 条 / 撤销 {withdrawn} 条",
+    "label 在庫 (累計、qday の伝播を含む): {labels} 件 / 取り消し {withdrawn} 件",
+    "Label stock (cumulative, question-day ticks spread to what they cite): "
+    "{labels} / {withdrawn} withdrawn",
+    "label 库存 (累计，含 qday 的传播): {labels} 条 / 撤销 {withdrawn} 条",
 )
 STORE_MIGRATED: Final = Msg(
     "store: {path} を現行 schema に移行 ({detail})",
@@ -294,11 +304,22 @@ FIREHOSE_CAP: Final = Msg(
     "firehose: 上限 {cap} 条，省略 {dropped} 条",
 )
 NONE_WORD: Final = Msg("なし", "none", "无")
+# Per net, the sources that came back this run after the run's own dedupe and the firehose
+# cap; a source already in the store from an earlier day counts again (not "new").
 NET_SOURCES: Final = Msg(
-    "net 取得数: {counts}", "Sources per net: {counts}", "各 net 获取数: {counts}"
+    "取得 (run 内の重複除去・上限の後): {counts}",
+    "Fetched (after the run's dedupe and the cap): {counts}",
+    "获取 (run 内去重・上限之后): {counts}",
 )
 NET_SHARES: Final = Msg(
     "net 採用率: {shares}", "Accept share per net: {shares}", "各 net 采纳率: {shares}"
+)
+# The tick's DayBudget is shared by every line and the lines fetch side by side, so the
+# value is the tick's running total when this line's fetch ended, not this line's spend.
+OPENALEX_CREDITS: Final = Msg(
+    "openalex credit (tick 累計の途中値): {n}",
+    "openalex credit (the tick's running total so far): {n}",
+    "openalex credit (tick 累计的中间值): {n}",
 )
 
 # --- Review reasons (jev.question_screening) ------------------------------------------------

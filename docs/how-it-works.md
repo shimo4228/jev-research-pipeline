@@ -29,7 +29,7 @@ Each morning:
    excerpts do not support); a failing draft is rewritten once, then the section falls back to a list
    of its sources.
 7. The note is written to the vault with an operations block: Jev questions and their tokens, the
-   writer's tokens and calls, cost, per-net acceptance, and canary results (whether the papers a question must always keep were kept).
+   writer's tokens and calls, the estimated cost, per-net acceptance, and canary results (whether the papers a question must always keep were kept).
 
 Your ticks are the labels. They seed the recommendation net (papers related to the ones you ticked),
 feed the threshold proposals that `jrp fit` writes for you to apply, and become evaluation cases.
@@ -112,7 +112,8 @@ always needed), with one exception inside the keyword net: the Tavily web-search
 when `TAVILY_API_KEY` is unset, and the note says so. Semantic Scholar, OpenAlex and GitHub have
 shared keyless quotas; optional keys raise them. Budgets, the exploration share, arXiv categories and
 the OpenAlex daily credit cap are set under `[nets]` in `config.toml`. The operations block reports
-the sources and the acceptance per net. It does not say whether the search is narrowing; a weekly
+what each net fetched this run (after the run's own dedupe and the firehose cap, so a paper fetched
+on an earlier day counts again) and the acceptance per net. It does not say whether the search is narrowing; a weekly
 review that looks at repetition and novelty is planned for that.
 
 ## The writing model
@@ -160,9 +161,12 @@ Measured from the notes' own operations sections, 2026-09-24 to 2026-10-01.
 | Jev cost at $0.00002 a question | $0.004 to $0.05 | $0.05 to $0.16 |
 | prose sections written | 0 to 3 (one per question that moved) | 5 to 8 |
 
-The $0.00002 is the Jev price set in my env for the cost line; TypeSafe bills $42 per billion input
-tokens (typesafe.ai, 2026-10-07). On a subscription writer the writer's tokens count against the
-plan's usage, not in dollars; on DashScope multiply by the model's token price. Searching costs
+The $0.00002 is a price I assume per Jev question and set in my env (`JRP_JEV_USD_PER_QUESTION`);
+TypeSafe bills $42 per billion input tokens (typesafe.ai, 2026-10-07). The note's cost line is
+named after what it adds up. On a subscription writer the writer's tokens count against the plan's
+usage, not in dollars, so the line is "Jev estimated cost" and holds the Jev estimate alone. On a
+per-token writer (`anthropic:`, `dashscope:`) it is "Estimated cost" and adds the writer's tokens at
+the model's token price. Searching costs
 nothing without keys; OpenAlex's free daily budget is shared by all lines.
 
 The comparison in the README sets two measured weeks side by side. My previous setup's

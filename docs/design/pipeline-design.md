@@ -190,6 +190,12 @@ state (filter state in code), adversarial text (treat as data).
   > `first_harvested_at` (the first harvest that saw the tick; `harvested_at` stays the
   > latest). A Label withdrawn for `[ ]` and ticked again starts a new one. Labels stored
   > before the field keep None, so old ticks never count as new.
+  > **注記（2026-10-20, plan quality-metrics）**: the harvest's operations line reads
+  > "label 在庫 (累計、qday の伝播を含む): N 件 / 取り消し M 件". N counts Label nodes
+  > over every jrp note of the line, re-read on each tick, and a ticked question-day also
+  > labels the claims and sources it cites (`report/vault.py`), so one tick is 1 + claims +
+  > sources Labels. It is not a count of checkboxes or of new ticks. M (the Labels a blank
+  > box dropped on this tick) is unchanged.
 - Rubric unjudged → template (no unverifiable prose). Cassettes now keep request bodies
   (for drift), never headers.
 
@@ -249,6 +255,13 @@ Nets, in code-fixed order, all keyless:
    > discovery block keeps the sources and the accepted-claim share per net. Nothing in a
    > note says whether the search is narrowing; the planned weekly review is to look at
    > repetition and novelty.
+   > **注記（2026-10-20, plan quality-metrics）**: the per-net sources line reads "取得 (run
+   > 内の重複除去・上限の後): …". It counts what each net returned this run after the run's
+   > own dedupe and the firehose cap; `adapters/collect.py` returns sources already in the
+   > store from earlier days too, so it is not a count of sources new to the store. The
+   > OpenAlex line reads "openalex credit (tick 累計の途中値): N": the DayBudget is shared by
+   > every line of the tick and the lines fetch side by side, so N is the tick's running
+   > total when this line's fetch ended, not this line's spend.
 Never measure recall against human citation lists; vendor recall claims are unreliable.
 Review-when: OpenAlex credit pricing or S2 keyless pool changes; an ablation separating
 query generation from snowballing is published.
@@ -654,6 +667,15 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
 - **Cost**: a subscription is a flat plan, so its tokens are counted in the operations
   section but priced 0; the cost line says so and the cap then covers Jev alone. A
   per-token model with no entry in `PRICES` counts 0 and is flagged ("生成単価未設定").
+  > **注記（2026-10-20, plan quality-metrics）**: the cost line is named after what
+  > `Budget.cost` holds for the writer at hand (`pipeline/costs.py` `cost_line`). On a
+  > subscription writer it reads "Jev 推定費用: $… (仮定単価。書き手はサブスクで 0)": the
+  > sum is Jev questions × the assumed `JRP_JEV_USD_PER_QUESTION`, nothing else. On a
+  > per-token writer (`anthropic:`, `dashscope:`) it reads "推定費用: $… (Jev の仮定単価 +
+  > 書き手の token 代)", because the sum and the cap then include the writer's tokens; a
+  > fixed "generation not included" would be false there. "Jev 単価未設定" and
+  > "生成単価未設定" follow the line after " · ". `cost_usd`, the cap and the OTel attribute
+  > `jrp.cost_usd` are unchanged.
 - **Production model (2026-09-27)**: `openai-codex:gpt-6-luna`, set in the env file
   (`JRP_PROSE_MODEL`), and the code default since 2026-10-01: the cassettes that pin the
   model name are synthetic (`tests/fakes.py`, `JRP_CASSETTE_SYNTHETIC=1`), so the switch

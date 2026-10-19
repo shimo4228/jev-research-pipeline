@@ -584,6 +584,10 @@ def test_consecutive_irrelevant_is_not_reported_as_convergence(lang: Lang):
     ]
 
 
-def test_openalex_credits_get_a_line_only_when_spent():
-    assert meters.lines({}, {}, openalex_credits=3)[-1] == "openalex credit: 3"
-    assert not any("openalex" in line for line in meters.lines({}, {}, openalex_credits=0))
+@pytest.mark.parametrize("lang", LANGS)
+def test_openalex_credits_get_a_line_only_when_spent(lang: Lang):
+    # The value is the tick's running total, and the line says so in every language.
+    assert meters.lines({}, {}, openalex_credits=3, lang=lang)[-1] == t.OPENALEX_CREDITS(lang, n=3)
+    assert meters.lines({}, {}, openalex_credits=3)[-1] == "openalex credit (tick 累計の途中値): 3"
+    lines = meters.lines({}, {}, openalex_credits=0, lang=lang)
+    assert not any("openalex" in line for line in lines)

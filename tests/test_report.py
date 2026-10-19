@@ -501,11 +501,12 @@ def test_harvest_counts_only_labels_it_really_removed(tmp_path: Path):
 
     for _ in range(2):  # a re-harvest of unchanged notes withdraws nothing
         lines = harvest_line(store, vault, "akc", b.T0)
-        assert lines[0] == "harvest: label 3 件 / 取り消し 0 件", lines
+        assert lines[0] == "label 在庫 (累計、qday の伝播を含む): 3 件 / 取り消し 0 件", lines
 
     note_a.write_text(note_a.read_text(encoding="utf-8").replace("- [x] ", "- [ ] "), "utf-8")
     lines = harvest_line(store, vault, "akc", b.T0)
-    assert lines[0] == "harvest: label 0 件 / 取り消し 3 件", lines  # the log and its 2 claims
+    # the log and its 2 claims
+    assert lines[0] == "label 在庫 (累計、qday の伝播を含む): 0 件 / 取り消し 3 件", lines
     assert not [n for n in store.line("akc").load().values() if isinstance(n, Label)]
 
 
@@ -595,7 +596,7 @@ def test_a_tick_made_blank_and_ticked_again_starts_a_new_first_harvest(tmp_path:
 
     note.write_text(note.read_text(encoding="utf-8").replace("- [x] ", "- [ ] "), "utf-8")
     lines = harvest_line(store, vault, "akc", b.T0 + timedelta(days=1))
-    assert lines[0] == "harvest: label 0 件 / 取り消し 1 件", lines
+    assert lines[0] == "label 在庫 (累計、qday の伝播を含む): 0 件 / 取り消し 1 件", lines
     assert s not in _labels_by_subject(store)
 
     retick = b.T0 + timedelta(days=2)

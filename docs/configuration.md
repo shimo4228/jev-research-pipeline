@@ -38,7 +38,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `ANTHROPIC_API_KEY` | for `anthropic:` | the Claude API, billed per token to the key's Console organization (a Claude Max plan's monthly API credits pay it once that organization is linked to the plan); only needed when `JRP_PROSE_MODEL` names an `anthropic:` model. The `claude-code:` backend never passes it to the CLI |
 | `JRP_DAILY_RESEARCH_CONFIG` | no | the `config.toml` with your lines and `[nets]` (default `~/.config/jrp/config.toml`) |
 | `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`, `claude-code:`) counts 0 toward it; `anthropic:` counts at API prices (about $0.3 to $0.5 a line on Opus 5.5) |
-| `JRP_JEV_USD_PER_QUESTION` | recommended | Jev unit price for the note's cost line; unset, Jev is not counted |
+| `JRP_JEV_USD_PER_QUESTION` | recommended | the Jev price assumed per question, for the note's cost line ("Jev estimated cost" on a subscription writer; "Estimated cost", Jev plus the writer's tokens, on a per-token one); unset, Jev is not counted and the line says the price is not set |
 | `JRP_QUESTIONS_DIR` | no | question files (default `~/.config/jrp/questions`) |
 | `JRP_NOTE_LANG` | no | the note's language: `ja` (default), `en` or `zh` — headings, the operations section and the prose (its prompt and its checks). Anything else stops the run at the start |
 | `JRP_GITHUB_OWNER` | no | derive a line's @id from `github.com/<owner>/<repo name>` (`github.com/<owner>` for a line with no repo) when its `graph.jsonld` names no ResearchLine. Unset, such a line is `<store namespace>line/<slug>`. Set it only to keep the ids a store was built on |

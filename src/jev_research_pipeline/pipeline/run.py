@@ -115,7 +115,7 @@ from jev_research_pipeline.telemetry import span
 
 from . import meters, nets
 from .concurrency import jev_concurrency, prose_concurrency
-from .costs import Budget, generation_price
+from .costs import Budget, cost_line
 from .health import LineHealth
 from .units import split_units
 
@@ -1169,15 +1169,6 @@ class LineRun:
             self.st.per_net, shares, openalex_credits=self.st.openalex_credits, lang=self.lang
         )
 
-    def _cost_caveats(self) -> str:
-        """What the cost line leaves out, said next to it."""
-        caveats = [] if self.budget.jev_price_known else [t.JEV_PRICE_UNSET(self.lang)]
-        if self.writer.spec.subscription:
-            caveats.append(t.SUBSCRIPTION_ZERO(self.lang))
-        elif generation_price(self.writer.spec) is None:
-            caveats.append(t.GENERATION_PRICE_UNSET(self.lang))
-        return f" ({', '.join(caveats)})" if caveats else ""
-
     def _used_rate_line(self) -> str:
         """Beside the fill rate, a measurement only (reduction.used): nothing reads it."""
         used = UsedRate(n for n in self.partition.load().values() if isinstance(n, UsedMark))
@@ -1226,7 +1217,7 @@ class LineRun:
                 tokens_out=ops.generation_output_tokens,
             ),
             t.WRITER_CALLS(lang, n=writer_calls, spec=self.writer.spec),
-            f"cost: ${cost:.4f}" + self._cost_caveats(),
+            cost_line(cost, self.budget, self.writer.spec, lang),
             t.FILL_RATE(lang, rate=f"{fill:.2f}") if fill is not None else t.FILL_RATE_NONE(lang),
             self._used_rate_line(),
             t.OPEN_QUESTIONS(lang, n=len(self.questions)),

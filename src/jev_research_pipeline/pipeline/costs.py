@@ -5,12 +5,15 @@ Generation is priced per prose model (generation.client.ModelSpec). A subscripti
 is priced from PRICES, USD per million tokens (input, output); one missing from it counts 0
 and the operations section says so. Jev has no published per-question price in the packet;
 it comes from env JRP_JEV_USD_PER_QUESTION (default 0 — the operations section says so).
+The cost line (`cost_line`) is named after what the sum holds for the writer at hand.
 """
 
 from collections.abc import Mapping
 from typing import Final
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.generation import GenerationMeter, ModelSpec
+from jev_research_pipeline.note_text import Lang
 
 PRICES: Final = {
     "dashscope:qwen3.7-max": (2.5, 7.5),
@@ -55,3 +58,14 @@ class Budget:
             self.cap is not None
             and self.cost(jev_questions=jev_questions, meters=meters) > self.cap
         )
+
+
+def cost_line(cost: float, budget: Budget, writer: ModelSpec, lang: Lang) -> str:
+    """The operations section's cost line. A subscription writer prices 0, so the sum is the
+    Jev estimate alone; a per-token writer's tokens are in it, so it is named as both. A
+    price that is not set counts 0 and is said after the line."""
+    head = t.COST_JEV_ONLY if writer.subscription else t.COST_WITH_WRITER
+    caveats = [] if budget.jev_price_known else [t.JEV_PRICE_UNSET(lang)]
+    if generation_price(writer) is None:
+        caveats.append(t.GENERATION_PRICE_UNSET(lang))
+    return head(lang, cost=f"{cost:.4f}") + "".join(f" · {c}" for c in caveats)

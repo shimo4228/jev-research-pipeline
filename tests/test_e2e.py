@@ -81,6 +81,13 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     assert outcome.report.rendering == "prose"
     ops = outcome.report.operations
     assert ops.jev_questions > 0
+    # Qwen is billed per token, so the cost line names the writer's tokens next to Jev, and
+    # the Jev price left unset in this env is said after it.
+    assert (
+        f"推定費用: ${ops.cost_usd:.4f} (Jev の仮定単価 + 書き手の token 代) · Jev 単価未設定"
+    ) in outcome.operations
+    # The per-net counts are named for what they are: after the run's dedupe and the cap.
+    assert any(ln.startswith("取得 (run 内の重複除去・上限の後): ") for ln in outcome.operations)
     # The writer's calls are counted (the prose was written, so at least one came back) and
     # the note says how many, under the writer's spec.
     assert ops.writer_calls is not None and ops.writer_calls > 0
@@ -130,7 +137,7 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     # One claim ticked; every other checkbox of the note (claims, sources, the
     # question-day and what it cites) is blank, but none of them had a Label yet, so
     # nothing is withdrawn.
-    assert lines[0] == "harvest: label 1 件 / 取り消し 0 件"
+    assert lines[0] == "label 在庫 (累計、qday の伝播を含む): 1 件 / 取り消し 0 件"
     labels = [n for n in part.load().values() if isinstance(n, Label)]
     assert [(lb.subject, lb.verdict) for lb in labels] == [(ticked_id, "correct")]
 
@@ -191,7 +198,9 @@ async def test_default_prose_model_is_gpt6_luna_on_the_codex_subscription(
     assert ops.cost_usd == pytest.approx(ops.jev_questions * 0.001)
     text = outcome.note.read_text(encoding="utf-8")
     assert "生成 token (openai-codex:gpt-6-luna): in " in text
-    assert "(生成はサブスクリプション定額で 0 計上)" in text
+    # The writer prices 0, so the cost is the Jev estimate alone and the line says so.
+    assert f"Jev 推定費用: ${ops.cost_usd:.4f} (仮定単価。書き手はサブスクで 0)\n" in text
+    assert "Jev 単価未設定" not in text
 
 
 async def test_missing_vault_env_writes_nothing(cassette: ClientFactory, env: dict[str, str]):

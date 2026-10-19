@@ -2,10 +2,11 @@
 
 Read from the run and the store, one line each in the operations section:
 - sources per net: what each net returned this run (after the run's dedupe and the
-  firehose cap).
+  firehose cap). Not new to the store: a source fetched on an earlier day counts again.
 - accepted-claim share per net: of today's accepted claims, which net found the source.
   A net whose share stays at zero is a net to cut.
-- OpenAlex credits spent, when any were.
+- OpenAlex credits spent, when any were: the tick's running total (every line of the tick
+  shares one DayBudget) at the moment this line's fetch ended.
 
 No line reports convergence or says when the search is done. In particular "n
 consecutive irrelevant results" is not a convergence signal (Repke 2026), so no meter
@@ -57,5 +58,5 @@ def lines(
         t.NET_SHARES(lang, shares=net_shares or none),
     ]
     if openalex_credits:
-        out.append(f"openalex credit: {openalex_credits}")
+        out.append(t.OPENALEX_CREDITS(lang, n=openalex_credits))
     return out
