@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Quality Metrics Plan</title>
+<link rel="stylesheet" href="htmlplan.css">
+<script src="htmlplan.js" defer></script>
+<style data-mock-shared>
+  .ops { font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; color: #1c1b19; background: #fff; border: 1px solid #ddd8cc; border-left: 4px solid #4a7bd0; border-radius: 8px; padding: 8px 14px; }
+  .ops .hd { font-weight: 650; margin-bottom: 4px; }
+  .ops .ln { color: #5f5a4f; }
+  .ops .new { color: #1f7a52; font-weight: 600; background: #eef7f1; border-radius: 4px; padding: 0 4px; margin: 0 -4px; }
+  .ops .gone { color: #b42318; text-decoration: line-through; }
+  .ops .dim { color: #8a8578; }
+  .wbr { font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; color: #1c1b19; background: #fff; border: 1px solid #ddd8cc; border-radius: 8px; padding: 10px 14px; }
+  .wbr h4 { margin: 0 0 4px; font-size: 14px; }
+  .wbr .sec { margin-top: 8px; font-weight: 650; }
+  .wbr table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .wbr td, .wbr th { border-bottom: 1px solid #eee9dd; padding: 2px 6px; text-align: left; }
+  .wbr .ok { color: #1f7a52; font-weight: 600; } .wbr .bad { color: #b42318; font-weight: 600; } .wbr .dim { color: #8a8578; }
+</style>
+<body>
+
+<header>
+  <h1>jrp の品質計測をパーツ別に入れる</h1>
+  <doc-changes new="11" changed="32" deleted="1"></doc-changes>
+  <details class="thread"><summary>Why · 3 件</summary>
+    <doc-quote via="prompt" from="著者" at="2026-10-19">jrp（~/MyAI_Lab/jev-research-pipeline）の品質を、パーツごとの指標で改善できる状態にしたい。</doc-quote>
+    <doc-quote via="prompt" from="著者" at="2026-10-20">O1・O2 と 8 パーツの方向で進めて。</doc-quote>
+    <doc-quote via="prompt" from="著者" at="2026-10-20">終わったらPlanして実装まで進めといて。</doc-quote>
+    <doc-quote via="doc" from="棚卸し" where="docs/plans/research/2026-10-19-quality-metrics-inventory.md" href="research/2026-10-19-quality-metrics-inventory.md">壊れているもの: Time-to-Discovery。縮退しているもの: 収束推定 f、topic クラスタ数、rubric の gold 一致、rule 候補、support の段の秒。誤ラベル: claude_calls 0、cost …</doc-quote>
+    <doc-quote via="doc" from="実装箇所の調査" where="docs/plans/research/2026-10-20-quality-metrics-impl.md" href="research/2026-10-20-quality-metrics-impl.md">新 field は default 付き。required にすると旧ノードが validate で落ち、全 partition が incompatible になり 05:00 の run が止まる。</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 ═════ -->
+<doc-claim>
+  <p>運用欄から、誤った数と定数の行が消える。</p>
+  <doc-mock frame="none" w="460" caption="赤い行が消え、緑の行は中身に合う名前になる。"><template>
+<div class="ops">
+  <div class="hd">運用</div>
+  <div class="ln">Jev 質問数: 967</div>
+  <div class="ln new" data-ref="writer">書き手の呼び出し: 6 (claude-code:claude-opus-5-5)</div>
+  <div class="ln new" data-ref="cost">Jev 推定費用: $0.0193 (仮定単価。書き手はサブスクで 0)</div>
+  <div class="ln gone">rubric grounded: 平均 0.99 / gold 一致 1.00</div>
+  <div class="ln">rubric relevant: 平均 0.69</div>
+  <div class="ln new" data-ref="net">取得 (run 内の重複除去・上限の後): firehose 0, keyword 154</div>
+  <div class="ln gone">topic クラスタ数: 0 (前回 0)</div>
+  <div class="ln gone">収束推定 f: 0.75</div>
+  <div class="ln gone">Time-to-Discovery 中央値: 13.0 日</div>
+  <div class="ln gone">rule 候補: question_prefilter は adapter=arxiv のとき reject …</div>
+  <div class="ln new">label 在庫 (累計、qday の伝播を含む): 70 件 / 取り消し 0 件</div>
+</div></template>
+    <doc-pin ref="writer" title="実数になる">GenerationMeter.requests を出す。</doc-pin>
+    <doc-pin ref="net" anchor="r" title="文言を直す">store に対する新規ではない。</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>f・topic・TTD の 3 行と、その計算が消える。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/meters.py" lines="113-136" hl="125-132">
+      <doc-pin line="128" tone="risk" title="topic は構造的に 0">OpenAlex 由来の source しか topic を持たない。</doc-pin>
+      <doc-pin line="131" tone="risk" title="TTD は壊れている">両端の時刻が毎朝上書きされる。</doc-pin>
+    </doc-code>
+    <doc-claim at="src/jev_research_pipeline/pipeline/run.py:1152">
+      <p><b>run.py:1152</b> · _discovery_lines()</p>
+      <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1152-1187" hl="1163-1177">
+        <doc-pin line="1163" tone="info" title="f のためだけの計算">reports・cumulative・running を消す。</doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>rule 候補と gold 一致は、計算ごと消える。</p>
+    <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1233-1260" hl="1241-1242,1251-1253,1260">
+      <doc-pin line="1260" tone="risk" title="死んだ計器">12 KB 枠を食い、Review を押し出した。</doc-pin>
+      <doc-pin line="1252" tone="warn" title="負例 0 の一致率">軸の pass 率と同じになる。</doc-pin>
+    </doc-code>
+    <doc-claim at="src/jev_research_pipeline/quality.py:77">
+      <p><b>quality.py:77</b> · agreement() と trusted_axes()</p>
+      <doc-code src="src/jev_research_pipeline/quality.py" lines="77-118" collapsed></doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>残す行は、中身に合う名前に変わる。</p>
+    <doc-calls title="改名" caption="日本語の接頭辞は Msg にし、ja・en・zh を揃える。">
+<script type="text/plain">
+~ LineRun._operations()                          @ src/jev_research_pipeline/pipeline/run.py:1215
+~   "claude_calls: 0" → t.WRITER_CALLS           @ src/jev_research_pipeline/pipeline/run.py:1241
+~   "cost: $" → t.COST_SUBSCRIPTION / t.COST_METERED   @ src/jev_research_pipeline/pipeline/run.py:1242
+~ meters.lines()                                 @ src/jev_research_pipeline/pipeline/meters.py:101
+~   t.NET_SOURCES の文言                           @ src/jev_research_pipeline/note_text.py:293
+~ harvest_line()                                 @ src/jev_research_pipeline/pipeline/runner.py:97
+~   t.HARVEST の文言                               @ src/jev_research_pipeline/note_text.py:244
+</script>
+    </doc-calls>
+    <doc-ask id="netword">
+      <p>「取得数」を何と呼ぶか。</p>
+      <label><input type="radio" name="netword" value="scope" checked> 取得（run 内の重複除去・上限の後） <small>今の数をそのまま正しく呼ぶ</small></label>
+      <label><input type="radio" name="netword" value="new"> store に対する新規を数え直す <small>値が変わる。テストを足す</small></label>
+    </doc-ask>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 ═════ -->
+<doc-claim>
+  <p>捨てていた数が、store に残るようになる。</p>
+  <doc-schema id="ops" lang="py" diff title="model/nodes.py · Operations と Label" caption="新しい field は default 付き。旧 Report 98 件はそのまま通る。">
+<script type="text/plain">
+ class Operations(Value):
+     jev_questions: NonNegInt
+     generation_input_tokens: NonNegInt
+     generation_output_tokens: NonNegInt
+-    claude_calls: Literal[0]
++    claude_calls: Literal[0] = Field(default=0, exclude=True)   # 旧 Report の key を受けるだけ
++    writer_calls: NonNegInt | None = None        # None = 計測の前
++    jev_input_tokens: NonNegInt | None = None
++    jev_output_tokens: NonNegInt | None = None
+     cost_usd: Annotated[float, Field(ge=0.0)]
+
+ class Label(StoreNode):
+     harvested_at: AwareDatetime                 # 最後の収穫（意味は変えない）
++    first_harvested_at: AwareDatetime | None = None   # 最初に見えた収穫。上書きしない
+</script>
+  </doc-schema>
+
+  <doc-claim>
+    <p>Label は、再収穫しても初回の時刻を保つ。</p>
+    <doc-code title="runner.py · harvest_line · sketch" lang="py">
+<script type="text/plain">
+before = {n.id: n for n in nodes.values() if isinstance(n, Label)}
+kept = [
+    label.model_copy(update={"first_harvested_at": prev.first_harvested_at})
+    if (prev := before.get(label.id)) is not None
+    else label.model_copy(update={"first_harvested_at": now})
+    for label in result.labels
+]
+part.put(kept)   # 前の Label が None なら None のまま（旧いチェックを今週の新規にしない）
+</script>
+      <doc-pin line="4" tone="warn" title="None を引き継ぐ">deploy の朝に 29 個の旧いチェックが新規に化けない。</doc-pin>
+    </doc-code>
+    <doc-claim at="src/jev_research_pipeline/pipeline/runner.py:97">
+      <p><b>runner.py:97</b> · harvest_line()</p>
+      <doc-code src="src/jev_research_pipeline/pipeline/runner.py" lines="97-132" hl="125"></doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Jev の応答の usage を、ラインごとに足す。</p>
+    <doc-code src="src/jev_research_pipeline/jev/core.py" lines="550-589" hl="578">
+      <doc-pin line="578" tone="info" title="ここで usage を足す">model_mismatch と bad_answer の判定より前。</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 ═════ -->
+<doc-claim>
+  <p>空のノートと想定外の失敗が、DEGRADED になる。</p>
+  <doc-code title="health.py · reasons · sketch" lang="py">
+<script type="text/plain">
+if self.has_questions and self.claims == 0 and self.review == 0:
+    out.append("empty note (no claim, no review)")
+if self.has_questions and self.cited == 0 and self.previous_cited == 0:
+    out.append("no citation 2 runs in a row")
+if self.fetch_failures:            # keyless の想定内 429 はここに入らない
+    out.append(f"fetch failed: {', '.join(dict.fromkeys(self.fetch_failures))}")
+</script>
+    <doc-pin line="3" tone="info" title="ans の 13 run を捕まえる">Review があっても引用 0 が続けば鳴る。</doc-pin>
+  </doc-code>
+  <doc-ask id="cited">
+    <p>「引用 0」を何で数えるか。</p>
+    <label><input type="radio" name="cited" value="brackets" checked> 本文の [n] の数 <small>O1 と同じ定義。ans と 10-20 の edge が鳴る</small></label>
+    <label><input type="radio" name="cited" value="claims"> 掲載 claim の数 <small>鳴るのは ans だけ</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>key の無い 429 は、運用欄の 1 行にとどまる。</p>
+    <doc-calls title="想定内の 429" caption="任意の key が未設定の adapter だけが対象。">
+<script type="text/plain">
+~ _send(request, env)                            @ src/jev_research_pipeline/pipeline/nets.py:479
+~   _record_failure(…, keyless=…)                @ src/jev_research_pipeline/pipeline/nets.py:381
++     outcome.expected_limits.append(…)          @ src/jev_research_pipeline/pipeline/nets.py:393
+    outcome.failures.append(…)                   @ src/jev_research_pipeline/pipeline/nets.py:394   -- 本物の障害だけ
+~ LineHealth.reasons()                           @ src/jev_research_pipeline/pipeline/health.py:46
+</script>
+    </doc-calls>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 ═════ -->
+<doc-claim>
+  <p>ログに時刻が付き、開いたノートが記録される。</p>
+  <doc-mock frame="terminal" title="~/Library/Logs/jrp-run.log" w="480"><template><span class="dim">2026-10-21T05:00:02+09:00</span> start jrp run
+<span class="dim">2026-10-21T05:00:03+09:00</span> ok   env: JRP_VAULT_DIR, JRP_STORE_DIR set
+jrp run
+2026-10-21 2026-10-21_jrp_aap: 6 claims, …
+<span class="dim">2026-10-21T05:05:41+09:00</span> vault ← 2026-10-21_jrp_aap.md
+<span class="dim">2026-10-21T05:05:42+09:00</span> <span class="g">end jrp run</span> status 0 · 340 s</template></doc-mock>
+
+  <doc-claim>
+    <p>ラッパーの行は、すべて時刻で始まる。</p>
+    <doc-code src="scripts/launchd-jrp.sh" lines="160-194" hl="164-168,176-178">
+      <doc-pin line="165" tone="info" title="前後に start と end">status と所要を 1 行で出す。</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>開いた jrp ノートの名前と初めての日だけを残す。</p>
+    <doc-calls title="開いたか" caption="python は iCloud に触らない。写すのは bash。">
+<script type="text/plain">
+~ launchd-jrp.sh run                             @ scripts/launchd-jrp.sh:144
++   cp -p .obsidian/workspace*.json → stage      @ scripts/launchd-jrp.sh:146
+~ run_pipeline(env)                              @ src/jev_research_pipeline/pipeline/runner.py:177
++   **record_opened**(stage, store)              @ src/jev_research_pipeline/reduction/opened.py:1
++     append metrics/opened.jsonl                @ src/jev_research_pipeline/reduction/opened.py:1   -- jrp ノートの名前だけ
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>drift の月曜 job を止め、0 件の比較は失敗にする。</p>
+    <doc-code diff file="src/jev_research_pipeline/cli.py" start="279" lang="py">
+<script type="text/plain">
+-    return 1 if failed and not rows else 0
++    return 0 if rows else 1   # 比べた数 0 は「drift なし」ではない
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 ═════ -->
+<doc-claim>
+  <p>月曜の朝、週報ノートが vault に届く。</p>
+  <doc-mock frame="none" w="470" caption="値は 2026-10-19 の store からの試算。live でない数は状態の語で出す。"><template>
+<div class="wbr">
+  <h4>jrp 週次レビュー 2026-W43</h4>
+  <div><b>今週の 1 手</b>: X 根拠化 — 初出の論文を枠の先に並べる <span class="dim">ΔO1 +1〜10 本/週</span></div>
+  <div class="sec">1. 出力</div>
+  <table><tr><th></th><th>W41</th><th>W42</th></tr>
+  <tr><td>O1 本文で初めて語られた論文</td><td>52</td><td data-ref="o1">46 <span class="dim">(34–61)</span></td></tr>
+  <tr><td>O2 先回り（graph と ADR のみ）</td><td class="dim">測定中</td><td class="dim">測定中</td></tr></table>
+  <div class="sec">3. 分解（成熟 cohort）</div>
+  <table><tr><th>パーツ</th><th>因子</th><th>Δln</th></tr>
+  <tr><td>I 入口</td><td>N_ot 577 → 367</td><td class="bad">−0.45</td></tr>
+  <tr><td>S 選別</td><td>p_sel 0.41 → 0.45</td><td>+0.10</td></tr>
+  <tr><td>X 根拠化</td><td>p_ext 0.38 → 0.41</td><td>+0.07</td></tr>
+  <tr><td>W 執筆</td><td>p_wri 0.58 → 0.63</td><td>+0.09</td></tr></table>
+  <div class="sec">9. 計器</div>
+  <div data-ref="m">live 14 · 暦どおりの 0 1 · 宣言済みの縮退 2 · 未説明 0</div>
+</div></template>
+    <doc-pin ref="o1" title="論文の key で数える">arXiv id・DOI・GitHub slug。</doc-pin>
+    <doc-pin ref="m" anchor="r" title="生きた数だけを比べる">registry と破壊テストが判定する。</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>jrp wbr は、store を読むだけで週報を作る。</p>
+    <doc-calls title="週報" caption="書くのは週報のノートと metrics/weekly.jsonl だけ。">
+<script type="text/plain">
+~ parser()                                       @ src/jev_research_pipeline/cli.py:88
++   sub.add_parser("wbr")                        @ src/jev_research_pipeline/cli.py:137
+~ main()                                         @ src/jev_research_pipeline/cli.py:282
++   case "wbr": **_wbr**(env, args)              @ src/jev_research_pipeline/cli.py:297   -- case _ に落とさない
++ **weekly_review**(store, questions, week)      @ src/jev_research_pipeline/pipeline/wbr.py:1
++   **judged_of**(judgment, ask)                 @ src/jev_research_pipeline/jev/core.py:333
++   **paper_key**(source)                        @ src/jev_research_pipeline/pipeline/wbr.py:1
++   **instrument_status**(registry, nodes)       @ src/jev_research_pipeline/pipeline/registry.py:1
++   append metrics/weekly.jsonl                  @ src/jev_research_pipeline/pipeline/wbr.py:1
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>RunRecord が、週報の材料を run ごとに残す。</p>
+    <doc-schema id="runrecord" lang="py" title="model/nodes.py · RunRecord · sketch" caption="pipeline partition に置く。CONTEXT に項を足す additive な変更。">
+<script type="text/plain">
+class RunRecord(StoreNode):
+    run_date: date
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
+    lines: tuple[str, ...]             # 走ったライン（予定は rotation から出す）
+    reasons: tuple[str, ...]           # DEGRADED の理由（line: reason）
+    notified: bool | None              # 通知の経路があったか
+    questions: tuple[IRI, ...]         # prefilter の q0, q1, … の順（ラインごと）
+    review: tuple[IRI, ...]            # Review に出した source
+    renderings: tuple[str, ...]        # 節ごとの prose / rewritten / template
+</script>
+    </doc-schema>
+  </doc-claim>
+
+  <doc-claim>
+    <p>計器の台帳が、死んだ数を週報の比較から外す。</p>
+    <doc-code title="registry.py · sketch" lang="py">
+<script type="text/plain">
+INSTRUMENTS = (
+    Instrument("firehose", part="I", expect=expect_firehose),    # 月曜 JST は 0 が正しい
+    Instrument("citation", part="I", declared="degenerate"),    # 種が新しすぎる（宣言）
+    Instrument("used.vault", part="OUT", declared="degenerate"),  # graph と ADR のみ（決定）
+    Instrument("writer_calls", part="D", expect=positive_if_prose),
+)
+# tests: 全計器に故障を 1 つ注入し、status が live でなくなることを assert する
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>監視用 judge は、Claude API で週 $5 まで回る。</p>
+    <doc-calls title="監視用 judge" caption="key が無い週は「未測定（key なし）」と出すだけ。">
+<script type="text/plain">
++ **monitor_judge**(sample, env, ledger)         @ src/jev_research_pipeline/pipeline/monitor.py:1
+    prose_auth(env, parse_model("anthropic:claude-opus-5-5"))   @ src/jev_research_pipeline/generation/client.py:119
++   **week_spent**(ledger) &lt; 5.0                 @ src/jev_research_pipeline/pipeline/monitor.py:1   -- 超えたら止める
++   append metrics/judge.jsonl                   @ src/jev_research_pipeline/pipeline/monitor.py:1
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>ラッパーは月曜、朝のノートの後に週報を送る。</p>
+    <doc-code title="launchd-jrp.sh · sketch" lang="bash">
+<script type="text/plain">
+send_back "*_jrp_*.md"                       # 朝のノート（今の 170-182 を関数に）
+if [[ "${JRP_WBR_DUE:-$(date +%u)}" == 1 ]]; then
+  touch "$MARK"
+  limited "${JRP_WBR_TIMEOUT_S:-600}" env JRP_VAULT_DIR="$STAGE" "${JRP[@]}" wbr ||
+    notify "jrp wbr FAILED" "see the log"
+  send_back "*_jrp_wbr.md"                   # 週報だけを 2 回目に送る
+fi
+exit "$status"                               # 週報の失敗で run の exit を変えない
+</script>
+      <doc-pin line="2" tone="info" title="テストで曜日を固定する">JRP_WBR_DUE で上書きできる。</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared ═════ -->
+<doc-claim aux="shared">
+  <p>共有: store の互換と、metrics/ の置き場。</p>
+  <doc-tree caption="metrics/ は migrate の対象外。line partition には書かない。">
+<script type="text/plain">
+<JRP_STORE_DIR>/
+  ~ lines/*.jsonld          # @context に項を足す（additive。次の run で 1 回だけ書き直す）
+  ~ pipeline.jsonld         # RunRecord を足す
+  + metrics/
+  +   weekly.jsonl          # 週報の値と計器の状態（追記だけ）
+  +   opened.jsonl          # 開いた jrp ノート（名前と初めての日）
+  +   judge.jsonl           # 監視用 judge の結果と費用
+  ~ store.pre-quality-20261020/   # deploy 前の退避（cp -p）
+</script>
+  </doc-tree>
+</doc-claim>
+
+<!-- ═════ scope ═════ -->
+<doc-claim aux="scope">
+  <p>変えないもの: 本文のプロンプト、Jev の版、掲載上限、used の走査先。</p>
+  <ul>
+    <li>本文のプロンプト（ja v16 + check10）と書き手（claude-code:claude-opus-5-5）は変えない。</li>
+    <li>Jev は jev-1.13.0 のまま。1.14.0 は土台の後、単独の週に入れる（決定）。</li>
+    <li>掲載上限（1 ノート 9 件、1 source 2 件）は読む量の予算として固定する（決定）。</li>
+    <li>used の走査先は graph.jsonld と ADR のまま（決定）。vault の 0 は宣言済みの縮退にする。</li>
+    <li>S2 の API key、replay harness、固定 probe、jev-1.14.0 はこの plan に入れない。</li>
+    <li>docs/samples は日付つきの出力として残し、手で書き換えない。</li>
+  </ul>
+  <doc-ask id="executor">
+    <p>実行者の決定: 誰が実装するか。</p>
+    <label><input type="radio" name="executor" value="self" checked> このセッション <small>著者の明示指示（「実装まで進めといて」）</small></label>
+    <label><input type="radio" name="executor" value="dispatch"> build-tier の新しいセッションに渡す</label>
+  </doc-ask>
+  <doc-note tone="warn"><strong>本番の窓</strong> 05:00 の run は main の checkout を読む。作業は worktree の task branch で行い、取り込みは ff-only で 05–06 時を避ける。deploy の前に store を cp -p で退避する。</doc-note>
+  <doc-ask id="merge">
+    <p>main への取り込みの単位。</p>
+    <label><input type="radio" name="merge" value="stage" checked> 段ごと（1→2→3→4→5） <small>verify と scratch 試走を通し、05–06 時を避ける</small></label>
+    <label><input type="radio" name="merge" value="all"> 全部できてから 1 回</label>
+  </doc-ask>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>
