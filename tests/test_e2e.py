@@ -75,12 +75,23 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     text = note.read_text(encoding="utf-8")
     assert "category: jrp" in text and "> [!info]- Claims — " in text and "> [!info]- 運用" in text
     assert "jrp:qday:" in text  # the primary unit: one checkbox per question-day
-    assert "claude_calls: 0" in text
     claim_lines = [ln for ln in text.splitlines() if "jrp:claim:" in ln]
     assert claim_lines, text
     assert outcome.report.rendering == "prose"
-    assert outcome.report.operations.jev_questions > 0
-    assert outcome.report.operations.claude_calls == 0
+    ops = outcome.report.operations
+    assert ops.jev_questions > 0
+    # The writer's calls are counted (the prose was written, so at least one came back) and
+    # the note says how many, under the writer's spec.
+    assert ops.writer_calls is not None and ops.writer_calls > 0
+    assert f"書き手の呼び出し: {ops.writer_calls} ({QWEN})" in text
+    # Every fake Jev response carries usage 100 in / 5 out, so the totals are its multiples.
+    assert ops.jev_input_tokens is not None and ops.jev_input_tokens > 0
+    assert ops.jev_input_tokens % 100 == 0
+    assert ops.jev_output_tokens == ops.jev_input_tokens // 20
+    assert (
+        f"Jev 質問数: {ops.jev_questions} "
+        f"(token: in {ops.jev_input_tokens} / out {ops.jev_output_tokens})"
+    ) in text
 
     # The store holds the report and its claims; web_search skipped for lack of a key.
     part = GraphStore(Path(env["JRP_STORE_DIR"])).line("akc")
@@ -141,6 +152,11 @@ async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env:
     assert second.report.rendering == first.report.rendering
     assert second.report.operations.jev_questions == 0
     assert second.report.operations.generation_output_tokens == 0  # the prose model not asked again
+    # Answered from the store: no request went out, so no usage and no writer call.
+    assert first.report.operations.jev_input_tokens
+    assert second.report.operations.jev_input_tokens == 0
+    assert second.report.operations.jev_output_tokens == 0
+    assert second.report.operations.writer_calls == 0
 
 
 async def test_default_prose_model_is_gpt6_luna_on_the_codex_subscription(

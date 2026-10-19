@@ -260,8 +260,11 @@ class Writer:
 
 
 class GenerationMeter:
-    """Generation tokens for the operations section (↓ wanted). Counts every request,
-    including validation retries and rewrites."""
+    """Generation tokens (↓ wanted) and the writer's calls for the operations section
+    (`requests` → Operations.writer_calls). Counts every request that came back, including
+    validation retries, rewrites and self-checks; pydantic-ai records a request only after
+    the model answered (2.47.0), so an attempt that raised (timeout, usage limit) is not in
+    `requests` (LineHealth.drafts counts the drafts attempted)."""
 
     def __init__(self) -> None:
         self.requests = 0

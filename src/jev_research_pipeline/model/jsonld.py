@@ -168,6 +168,7 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "provenance": f"{VOCAB_NS}provenance",
     "verdict": f"{VOCAB_NS}verdict",
     "harvested_at": _typed("harvestedAt", "dateTime"),
+    "first_harvested_at": _typed("firstHarvestedAt", "dateTime"),
     # used rate (sighting + used mark)
     "first_seen": _typed("firstSeen", "date"),
     "place": f"{VOCAB_NS}place",
@@ -185,8 +186,12 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "partial": f"{VOCAB_NS}partial",
     "operations": f"{VOCAB_NS}operations",
     "jev_questions": _typed("jevQuestions", "integer"),
+    "jev_input_tokens": _typed("jevInputTokens", "integer"),
+    "jev_output_tokens": _typed("jevOutputTokens", "integer"),
     "generation_input_tokens": _typed("generationInputTokens", "integer"),
     "generation_output_tokens": _typed("generationOutputTokens", "integer"),
+    "writer_calls": _typed("writerCalls", "integer"),
+    # Reports stored before writer_calls carry claude_calls; the term stays so they still read.
     "claude_calls": _typed("claudeCalls", "integer"),
     "cost_usd": _typed("costUsd", "double"),
     "rubric": f"{VOCAB_NS}rubric",

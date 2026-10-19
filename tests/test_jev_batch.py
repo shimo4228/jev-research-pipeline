@@ -75,6 +75,7 @@ async def test_three_sources_go_in_one_request_and_come_back_as_three_judgments(
 
     recorded = json.loads(cassette_path.read_text(encoding="utf-8"))
     assert len(recorded) == 1  # one round trip for three sources
+    assert (jev.input_tokens, jev.output_tokens) == (100, 5)  # one response, one usage
     assert jev.questions_asked == 3 * len(ASK.output.model_fields)
     assert all(isinstance(r, Judged) for r in results)
     judged = [r for r in results if isinstance(r, Judged)]
@@ -132,6 +133,8 @@ async def test_a_source_the_service_refuses_sinks_alone():
     assert isinstance(failure, JevFailure) and failure.reason == "api_error"
     # [0..3] refused → [0,1] ok, [2,3] refused → [2] refused, [3] ok.
     assert [len(r) // len(ASK.output.model_fields) for r in counting.requests] == [4, 2, 2, 1, 1]
+    # Only the two answered requests carry usage (100 in / 5 out each); refusals have none.
+    assert (jev.input_tokens, jev.output_tokens) == (200, 10)
 
 
 async def test_a_service_outage_is_not_split():

@@ -43,7 +43,7 @@ from jev_research_pipeline.generation import (
 )
 from jev_research_pipeline.home import DATA_HOME
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
-from jev_research_pipeline.model import GraphNodeType, QuestionLog, Report
+from jev_research_pipeline.model import GraphNodeType, Label, QuestionLog, Report
 from jev_research_pipeline.note_text import DEFAULT_LANG, BadNoteLang, Lang, note_lang
 from jev_research_pipeline.questions import (
     NO_QUESTIONS,
@@ -102,7 +102,9 @@ def harvest_line(
     lang: Lang = DEFAULT_LANG,
 ) -> list[str]:
     """Labels from every jrp note of the line into its partition. Nothing is written to the
-    question file: questions are the author's (design "Authored queries")."""
+    question file: questions are the author's (design "Authored queries"). Each Label keeps
+    the `first_harvested_at` of the Label already stored under its @id (see
+    `_first_harvest`)."""
     part = store.line(slug)
     nodes = part.load()
     reports = {n.id: n for n in nodes.values() if isinstance(n, Report)}
@@ -122,7 +124,7 @@ def harvest_line(
         if result.skipped is not None:
             skipped.append(f"{note.name}: {result.skipped}")
             continue
-        part.put(result.labels)
+        part.put(_first_harvest(result.labels, nodes, now))
         # `cleared` lists every blank box of the note (a blank question-day expands to the
         # day and all it cites), re-listed on every run; only the Labels actually dropped
         # are a withdrawal worth reporting.
@@ -130,6 +132,22 @@ def harvest_line(
         labels += len(result.labels)
     lines = [t.HARVEST(lang, labels=labels, withdrawn=withdrawn)]
     return lines + [f"harvest skip: {s}" for s in skipped]
+
+
+def _first_harvest(
+    labels: Sequence[Label], stored: Mapping[str, GraphNodeType], now: AwareDatetime
+) -> list[Label]:
+    """A Label already stored under the same @id passes its `first_harvested_at` on, None
+    included: a tick harvested before the field existed stays unknown instead of turning
+    into a new tick on the morning this build is deployed. Only a Label with no stored
+    predecessor gets `now`. `stored` is the partition as loaded before this harvest, so a
+    Label withdrawn by an earlier harvest (blank box) starts over when ticked again."""
+    out: list[Label] = []
+    for label in labels:
+        prior = stored.get(label.id)
+        first = prior.first_harvested_at if isinstance(prior, Label) else now
+        out.append(label.model_copy(update={"first_harvested_at": first}))
+    return out
 
 
 def update_used(

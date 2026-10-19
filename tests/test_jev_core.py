@@ -180,6 +180,8 @@ async def test_judge_returns_the_output_and_the_raw_answers(cassette: ClientFact
     assert isinstance(kind, ChoiceAnswer)
     assert kind.argmax == "empirical"
     assert jev.questions_asked == 3
+    # The fake answers with usage 100 in / 5 out: the client keeps it per request.
+    assert (jev.input_tokens, jev.output_tokens) == (100, 5)
 
 
 async def test_a_stored_judgment_replays_to_the_same_output(cassette: ClientFactory):
@@ -195,6 +197,8 @@ async def test_same_state_same_judgment_id(cassette: ClientFactory):
     c = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(a, Judged) and isinstance(c, Judged)
     assert a.judgment.id == c.judgment.id
+    # JevClient itself has no cache: both requests went out and both usages count.
+    assert (jev.input_tokens, jev.output_tokens) == (200, 10)
 
 
 async def test_api_error_is_a_failure_not_an_exception(cassette: ClientFactory):
@@ -203,6 +207,7 @@ async def test_api_error_is_a_failure_not_an_exception(cassette: ClientFactory):
     assert isinstance(result, JevFailure)
     assert result.reason == "api_error"
     assert jev.questions_asked == 3
+    assert (jev.input_tokens, jev.output_tokens) == (0, 0)  # no response, no usage
 
 
 async def test_unpinned_model_in_response_is_a_failure(cassette: ClientFactory):
@@ -211,6 +216,8 @@ async def test_unpinned_model_in_response_is_a_failure(cassette: ClientFactory):
     result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, JevFailure)
     assert result.reason == "model_mismatch"
+    # The answer is refused, but it was served: its usage still counts.
+    assert (jev.input_tokens, jev.output_tokens) == (100, 5)
 
 
 async def test_malformed_distribution_is_a_failure(cassette: ClientFactory):
@@ -218,6 +225,8 @@ async def test_malformed_distribution_is_a_failure(cassette: ClientFactory):
     result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, JevFailure)
     assert result.reason == "bad_answer"
+    # Refused after it came back (the stored Judgment would not validate): usage counts.
+    assert (jev.input_tokens, jev.output_tokens) == (100, 5)
 
 
 def _failure(sha: str) -> JevFailure:

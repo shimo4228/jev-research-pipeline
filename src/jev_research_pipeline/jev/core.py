@@ -404,7 +404,8 @@ def _size_refusal(e: ModelHTTPError) -> bool:
 
 class JevClient:
     """The only door to Jev. `questions_asked` meters every question sent (operations
-    section: Jev question count), including those whose request failed."""
+    section: Jev question count), including those whose request failed. `input_tokens` /
+    `output_tokens` meter the usage of every request that came back with a response."""
 
     def __init__(self, http_client: httpx2.AsyncClient, *, api_key: str) -> None:
         self._model = TypeSafeModel(
@@ -414,6 +415,11 @@ class JevClient:
         self.questions_asked = 0
         self.retries = 0
         """Requests sent a second time after a transient failure (operations section)."""
+        self.input_tokens = 0
+        self.output_tokens = 0
+        """Usage of each response, counted before the response is checked (a wrong model or
+        a bad answer was still served). A request that raised has no response and adds
+        nothing; the SDK's own retries inside one request are not visible here."""
         self.pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
 
     async def aclose(self) -> None:
@@ -576,6 +582,12 @@ class JevClient:
             )
             return _Refused(reason=reason, detail=str(e), splittable=False, transient=True)
         response: ModelResponse = run.response
+        # Before the model and answer checks: those responses were served all the same.
+        # The run's usage sums every response of this agent run (pydantic-ai's TypeSafe
+        # model reads a missing SDK count as 0); one ask is one response unless pydantic-ai
+        # re-asked after an output that failed validation.
+        self.input_tokens += run.usage.input_tokens
+        self.output_tokens += run.usage.output_tokens
         if response.model_name != JEV_MODEL:
             return _Refused(
                 reason="model_mismatch",

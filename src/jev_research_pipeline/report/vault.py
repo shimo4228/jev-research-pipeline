@@ -227,7 +227,8 @@ def harvest_note(
     """`report_claims` (the stored Report.claims) restricts claim harvesting to claims
     that were actually in this report — lines pasted from another note do not become
     Labels. `logs` maps a question-day mark (`<question @id>:<date>`) to its QuestionLog,
-    so one tick propagates to the claims and sources that day cited."""
+    so one tick propagates to the claims and sources that day cited. The Labels leave
+    `first_harvested_at` unset: only the store knows it (pipeline.runner.harvest_line)."""
     if not path.exists():
         return HarvestResult(labels=(), skipped="missing")
     try:

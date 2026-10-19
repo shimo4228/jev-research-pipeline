@@ -99,6 +99,8 @@ def _same_report(node: Report, old: dict[str, Any]) -> None:
     assert [(m.axis, m.mean_score) for m in ops.rubric] == [
         (m["axis"], m["mean_score"]) for m in was["rubric"]
     ]
+    # Meters added after fa67ed5 read as "not measured", never as a measured 0.
+    assert (ops.writer_calls, ops.jev_input_tokens, ops.jev_output_tokens) == (None,) * 3
 
 
 def _same_label(node: Label, old: dict[str, Any]) -> None:
@@ -106,6 +108,7 @@ def _same_label(node: Label, old: dict[str, Any]) -> None:
         old[k] for k in ("subject", "report", "verdict", "provenance")
     )
     assert node.harvested_at == datetime.fromisoformat(old["harvested_at"])
+    assert node.first_harvested_at is None  # stored before it was recorded: unknown
 
 
 def test_old_reports_and_labels_validate_and_survive_a_rewrite(tmp_path: Path):

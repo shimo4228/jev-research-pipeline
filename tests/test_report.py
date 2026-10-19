@@ -1,7 +1,7 @@
 """Step 7: report markdown (decision 12), vault writer, harvester."""
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -79,7 +79,10 @@ def _render(
         review=review or [],
         bridges=[],
         unjudged=[UnjudgedEntry(function="claim_detection", text="見出しだけの断片")],
-        operations=["Jev 質問数: 13", "claude_calls: 0"],
+        operations=[
+            "Jev 質問数: 13 (token: in 1300 / out 65)",
+            "書き手の呼び出し: 2 (dashscope:qwen3.7-max)",
+        ],
     )
 
 
@@ -504,3 +507,98 @@ def test_harvest_counts_only_labels_it_really_removed(tmp_path: Path):
     lines = harvest_line(store, vault, "akc", b.T0)
     assert lines[0] == "harvest: label 0 件 / 取り消し 3 件", lines  # the log and its 2 claims
     assert not [n for n in store.line("akc").load().values() if isinstance(n, Label)]
+
+
+# --- first_harvested_at: the first harvest that saw a tick survives re-harvesting ------------
+
+
+def _source_id(i: int) -> str:
+    return SourceItem.new(
+        line=b.LINE_IRI,
+        adapter="arxiv",
+        url=f"https://arxiv.org/abs/f{i}",
+        title="t",
+        text="x",
+        fetched_at=b.T0,
+    ).id
+
+
+def _source_note(vault: Path, report: Report, marks: dict[str, str]) -> Path:
+    """A note whose only boxes are source ticks: subject @id → the mark ("x", "-" or " ")."""
+    return _hand_note(
+        vault, DAY, report, [f"- [{m}] t <!-- jrp:source:{s} -->" for s, m in marks.items()]
+    )
+
+
+def _labels_by_subject(store: GraphStore) -> dict[str, Label]:
+    return {n.subject: n for n in store.line("akc").load().values() if isinstance(n, Label)}
+
+
+def test_reharvest_keeps_the_first_harvest_time(tmp_path: Path):
+    """Every run re-harvests every note of the line and rewrites its Labels. The latest
+    harvest moves on; the first one stays, also when the verdict changes ([x] → [-])."""
+    vault, store = tmp_path / "vault", GraphStore(tmp_path / "store")
+    report = _stored_report(DAY)
+    store.line("akc").put([report])
+    s = _source_id(0)
+    note = _source_note(vault, report, {s: "x"})
+
+    harvest_line(store, vault, "akc", b.T0)
+    first = _labels_by_subject(store)[s]
+    assert (first.harvested_at, first.first_harvested_at) == (b.T0, b.T0)
+
+    later = b.T0 + timedelta(days=1)
+    harvest_line(store, vault, "akc", later)
+    again = _labels_by_subject(store)[s]
+    assert (again.harvested_at, again.first_harvested_at) == (later, b.T0)
+
+    note.write_text(note.read_text(encoding="utf-8").replace("- [x] ", "- [-] "), "utf-8")
+    harvest_line(store, vault, "akc", later + timedelta(days=1))
+    flipped = _labels_by_subject(store)[s]
+    assert (flipped.verdict, flipped.first_harvested_at) == ("incorrect", b.T0)
+
+
+def test_a_label_stored_before_the_field_keeps_no_first_harvest(tmp_path: Path):
+    """A Label already in the store without first_harvested_at keeps None when it is
+    re-harvested: its real first harvest is unknown, and filling in `now` would count every
+    old tick as new on the morning the field arrives. A tick seen for the first time in the
+    same harvest still gets `now`."""
+    vault, store = tmp_path / "vault", GraphStore(tmp_path / "store")
+    report = _stored_report(DAY)
+    old_tick, new_tick = _source_id(0), _source_id(1)
+    stored = Label.new(
+        subject=old_tick,
+        report=report.id,
+        verdict="correct",
+        provenance="source",
+        harvested_at=b.T0,
+    )
+    assert stored.first_harvested_at is None
+    store.line("akc").put([report, stored])
+    _source_note(vault, report, {old_tick: "x", new_tick: "x"})
+
+    now = b.T0 + timedelta(days=1)
+    harvest_line(store, vault, "akc", now)
+    labels = _labels_by_subject(store)
+    assert (labels[old_tick].harvested_at, labels[old_tick].first_harvested_at) == (now, None)
+    assert labels[new_tick].first_harvested_at == now
+
+
+def test_a_tick_made_blank_and_ticked_again_starts_a_new_first_harvest(tmp_path: Path):
+    """A blank box withdraws its Label; a later tick on the same box is a new tick."""
+    vault, store = tmp_path / "vault", GraphStore(tmp_path / "store")
+    report = _stored_report(DAY)
+    store.line("akc").put([report])
+    s = _source_id(0)
+    note = _source_note(vault, report, {s: "x"})
+    harvest_line(store, vault, "akc", b.T0)
+
+    note.write_text(note.read_text(encoding="utf-8").replace("- [x] ", "- [ ] "), "utf-8")
+    lines = harvest_line(store, vault, "akc", b.T0 + timedelta(days=1))
+    assert lines[0] == "harvest: label 0 件 / 取り消し 1 件", lines
+    assert s not in _labels_by_subject(store)
+
+    retick = b.T0 + timedelta(days=2)
+    note.write_text(note.read_text(encoding="utf-8").replace("- [ ] ", "- [x] "), "utf-8")
+    harvest_line(store, vault, "akc", retick)
+    assert _labels_by_subject(store)[s].first_harvested_at == retick

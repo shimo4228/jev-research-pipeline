@@ -100,9 +100,11 @@ def report() -> Report:
         partial=False,
         operations=Operations(
             jev_questions=13,
+            jev_input_tokens=1300,
+            jev_output_tokens=65,
             generation_input_tokens=1200,
             generation_output_tokens=800,
-            claude_calls=0,
+            writer_calls=2,
             cost_usd=0.012,
             rubric=(AxisMeter(axis="grounded", mean_score=0.8, gold_agreement=None),),
             fill_rate_previous=None,

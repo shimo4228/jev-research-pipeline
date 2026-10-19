@@ -560,13 +560,26 @@ class AxisMeter(Value):
 
 
 class Operations(Value):
-    """The operations section every report ends with (decisions 7-8)."""
+    """The operations section every report ends with (decisions 7-8).
+
+    A meter that defaults to None was added after Reports were already in the store: None
+    on a stored Report = written before that meter was measured, never a measured 0.
+    """
 
     jev_questions: NonNegInt
+    jev_input_tokens: NonNegInt | None = None
+    """Jev usage (input tokens) summed over every request that came back with an answer
+    (JevClient). A cache hit or an in-flight join sends no request and adds nothing."""
+    jev_output_tokens: NonNegInt | None = None
     generation_input_tokens: NonNegInt
     generation_output_tokens: NonNegInt
-    claude_calls: Literal[0]
-    """Non-goal: Claude at runtime. The meter exists to prove it stays 0."""
+    writer_calls: NonNegInt | None = None
+    """Model requests of the writer (GenerationMeter.requests: drafts, rewrites, validation
+    retries and self-checks that came back). The writer may be Claude (`claude-code:`), so
+    this counts its calls instead of asserting 0."""
+    claude_calls: Literal[0] = Field(default=0, exclude=True)
+    """Read-only: Reports stored before `writer_calls` carry the key (always 0, which never
+    measured the writer). Accepted on read, never written; the CONTEXT term stays."""
     cost_usd: Annotated[float, Field(ge=0.0)]
     rubric: tuple[AxisMeter, ...]
     fill_rate_previous: Probability | None
@@ -791,7 +804,9 @@ class Label(StoreNode):
     it came from): a question-day tick propagates to the claims and sources cited under it,
     and those derived labels carry provenance "question_day". Only gold is stored — silver
     labels (validated rubric axes) are derived at fit time, never persisted (decision 5).
-    Identity = (subject, report): re-harvesting overwrites with the latest tick state.
+    Identity = (subject, report): re-harvesting overwrites the verdict and `harvested_at`
+    with the latest tick state, and carries `first_harvested_at` over unchanged
+    (pipeline.runner.harvest_line).
     """
 
     type: Literal["Label"] = Field(
@@ -803,6 +818,11 @@ class Label(StoreNode):
     verdict: Literal["correct", "incorrect"]
     provenance: LabelProvenance
     harvested_at: AwareDatetime
+    """The latest harvest that saw this tick (rewritten by every harvest)."""
+    first_harvested_at: AwareDatetime | None = None
+    """The first harvest that saw this tick, kept while the Label exists. None = the Label
+    was stored before this field was recorded, so its first harvest is unknown. A box made
+    blank drops the Label; ticking it again later starts a new first harvest."""
 
     SUBJECT_KINDS: ClassVar[frozenset[str]] = frozenset({"question_log", "source", "claim"})
 

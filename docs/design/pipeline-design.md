@@ -96,6 +96,16 @@ state (filter state in code), adversarial text (treat as data).
    question count (↑ wanted), Claude calls (must be 0), ticked-correct rate, cost, run
    reliability, rubric scores per axis, rubric-vs-gold agreement per axis.
 
+   > **注記（2026-10-20, plan quality-metrics）**: "Claude calls (must be 0)" no longer
+   > proves anything. The writer can be Claude (`claude-code:` is the production writer,
+   > AGENTS.md), and the meter was a constant 0 that never counted the writer. Reports now
+   > record `writer_calls` (the writer's model requests that came back,
+   > `GenerationMeter.requests`), shown as 書き手の呼び出し in the operations section;
+   > `claude_calls` is still read from stored Reports and no longer written. Reports also
+   > record Jev usage (`jev_input_tokens` / `jev_output_tokens`), and Labels the first
+   > harvest that saw the tick (`first_harvested_at`). On a node stored before these fields,
+   > the value is None = not measured, never 0.
+
 ### Failure policy, testing
 
 8. Jev timeout/error → item to an "unjudged" section (no fail-open into the body).
@@ -150,6 +160,10 @@ state (filter state in code), adversarial text (treat as data).
 - launchd: `launchd/com.shimo4228.jrp.{run,drift}.plist` (05:00 daily / Mon 05:30), not
   loaded by the build.
 - Same-day re-run carries the author's ticks over; harvester withdraws Labels for `[ ]`.
+  > **注記（2026-10-20, plan quality-metrics）**: a re-harvested Label keeps its
+  > `first_harvested_at` (the first harvest that saw the tick; `harvested_at` stays the
+  > latest). A Label withdrawn for `[ ]` and ticked again starts a new one. Labels stored
+  > before the field keep None, so old ticks never count as new.
 - Rubric unjudged → template (no unverifiable prose). Cassettes now keep request bodies
   (for drift), never headers.
 
@@ -452,6 +466,10 @@ before it. Built, design unchanged (questions, nets, report format as above):
   (shared state sent once), so a per-question price calibrated on single requests now
   over-counts. Not changed here (meter design is the author's); Review-when: the first
   live batched run's usage.input_tokens is in hand.
+  > **注記（2026-10-20, plan quality-metrics）**: Reports now store `jev_input_tokens` /
+  > `jev_output_tokens` (the usage of every Jev response, summed per line-run), so the
+  > Review-when can be read off the store after the first live run of this build. The cost
+  > meter still multiplies the per-question price.
 
 ### Pilot iteration — thresholds changed (2026-09-23, evidence in docs/pilot-log.md)
 
@@ -490,6 +508,10 @@ deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carr
   `- hf:` / `- web:` lines in `questions/<slug>.md`, English, one per line. Written by the
   author or by Claude in the author's session — authoring, not a run-time call, so "Claude
   calls = 0" and the non-goal "Claude at runtime" hold. Procedure: AGENTS.md.
+  > **注記（2026-10-20, plan quality-metrics）**: the "Claude calls = 0" meter is gone; the
+  > operations section counts the writer's calls instead (decision 7 note). Authoring
+  > queries is still not a run-time call; the non-goal "Claude at runtime" is lifted for
+  > the prose site only ("`claude-code` backend" below).
 - Checked before a run depends on them: `jrp queries check --line <slug>` sends each once and
   prints hit count and the first titles; nothing is stored, no model is called.
 - At run time they bypass Qwen and Jev query_selection. Each adapter's list is rotated by the
@@ -941,6 +963,9 @@ LLM-as-judge with another LLM as the truth source.
 - One live smoke run per line with cost cap, confirming: report file appears in the vault
   subfolder with checkboxes; operations section shows Jev question count, generation
   tokens, Claude calls = 0, self-eval scores.
+  > **注記（2026-10-20, plan quality-metrics）**: read "Claude calls = 0" as the writer's
+  > call count (書き手の呼び出し), above 0 on every run that wrote prose, and the Jev
+  > question line now carries its token usage.
 - Tick a few checkboxes by hand → next run's decision log shows labels → fit script
   changes at least one threshold → the ticked claims appear as pydantic-evals Cases and
   pass.

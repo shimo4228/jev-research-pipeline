@@ -87,11 +87,18 @@ REVIEW_REASON: Final = Msg("「{question}」: {why}", '"{question}": {why}', "�
 
 # --- operations section: the run (pipeline.run, pipeline.runner) ----------------------------
 
-JEV_QUESTIONS: Final = Msg("Jev 質問数: {n}", "Jev questions: {n}", "Jev 问题数: {n}")
+JEV_QUESTIONS: Final = Msg(
+    "Jev 質問数: {n} (token: in {tokens_in} / out {tokens_out})",
+    "Jev questions: {n} (tokens: in {tokens_in} / out {tokens_out})",
+    "Jev 问题数: {n} (token: in {tokens_in} / out {tokens_out})",
+)
 GENERATION_TOKENS: Final = Msg(
     "生成 token ({spec}): in {tokens_in} / out {tokens_out}",
     "Generation tokens ({spec}): in {tokens_in} / out {tokens_out}",
     "生成 token ({spec}): in {tokens_in} / out {tokens_out}",
+)
+WRITER_CALLS: Final = Msg(
+    "書き手の呼び出し: {n} ({spec})", "Writer calls: {n} ({spec})", "写作模型调用: {n} ({spec})"
 )
 JEV_PRICE_UNSET: Final = Msg("Jev 単価未設定", "Jev price not set", "未设置 Jev 单价")
 SUBSCRIPTION_ZERO: Final = Msg(

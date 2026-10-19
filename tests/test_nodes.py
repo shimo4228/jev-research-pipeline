@@ -512,11 +512,27 @@ def test_unjudged_disjoint_from_claims():
         _report(unjudged=[b.claim().id])
 
 
-def test_claude_calls_must_be_zero():
-    # Non-goal: Claude at runtime. The meter exists to prove it stays 0.
-    ops = b.report().operations.model_dump() | {"claude_calls": 1}
+def test_writer_calls_replaces_claude_calls_on_write():
+    # The writer may be Claude (claude-code:), so its calls are counted, not pinned to 0.
+    ops = b.report().operations
+    dumped = ops.model_dump()
+    assert dumped["writer_calls"] == 2
+    assert "claude_calls" not in dumped
     with pytest.raises(ValidationError):
-        Operations.model_validate(ops)
+        Operations.model_validate(dumped | {"writer_calls": -1})
+
+
+def test_an_old_operations_reads_its_claude_calls_and_leaves_new_meters_unmeasured():
+    """A Report stored before writer_calls and the Jev token meters carries claude_calls 0
+    and none of the new keys: it reads, and the new meters say "not measured" (None),
+    never a measured 0."""
+    new = {"writer_calls", "jev_input_tokens", "jev_output_tokens"}
+    old = {k: v for k, v in b.report().operations.model_dump().items() if k not in new}
+    read = Operations.model_validate(old | {"claude_calls": 0})
+    assert (read.writer_calls, read.jev_input_tokens, read.jev_output_tokens) == (None,) * 3
+    assert "claude_calls" not in read.model_dump()
+    with pytest.raises(ValidationError):  # every stored Report has 0; anything else is not one
+        Operations.model_validate(old | {"claude_calls": 1})
 
 
 def test_rubric_axes_unique():

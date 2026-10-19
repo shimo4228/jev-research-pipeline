@@ -1220,25 +1220,33 @@ class LineRun:
         meters = axis_meters(today_judgments, agreements)
         cost = self.budget.cost(jev_questions=self.jev.questions_asked, meters=self.meters)
         fill = fill_rate_previous(self.known, self.ctx.line.id, self.now)
+        writer_calls = sum(m.requests for m in self.meters.values())
         ops = Operations(
             jev_questions=self.jev.questions_asked,
+            jev_input_tokens=self.jev.input_tokens,
+            jev_output_tokens=self.jev.output_tokens,
             generation_input_tokens=sum(m.input_tokens for m in self.meters.values()),
             generation_output_tokens=sum(m.output_tokens for m in self.meters.values()),
-            claude_calls=0,
+            writer_calls=writer_calls,
             cost_usd=cost,
             rubric=meters,
             fill_rate_previous=fill,
         )
         lang = self.lang
         lines = [
-            t.JEV_QUESTIONS(lang, n=ops.jev_questions),
+            t.JEV_QUESTIONS(
+                lang,
+                n=ops.jev_questions,
+                tokens_in=self.jev.input_tokens,
+                tokens_out=self.jev.output_tokens,
+            ),
             t.GENERATION_TOKENS(
                 lang,
                 spec=self.writer.spec,
                 tokens_in=ops.generation_input_tokens,
                 tokens_out=ops.generation_output_tokens,
             ),
-            "claude_calls: 0",
+            t.WRITER_CALLS(lang, n=writer_calls, spec=self.writer.spec),
             f"cost: ${cost:.4f}" + self._cost_caveats(),
             t.FILL_RATE(lang, rate=f"{fill:.2f}") if fill is not None else t.FILL_RATE_NONE(lang),
             self._used_rate_line(),

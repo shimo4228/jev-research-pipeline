@@ -28,8 +28,8 @@ Each morning:
    own draft once. Jev then scores the section on a rubric (readable, coherent, nothing the claims and
    excerpts do not support); a failing draft is rewritten once, then the section falls back to a list
    of its sources.
-7. The note is written to the vault with an operations block: Jev question count, tokens, cost,
-   per-net acceptance, and canary results (whether the papers a question must always keep were kept).
+7. The note is written to the vault with an operations block: Jev questions and their tokens, the
+   writer's tokens and calls, cost, per-net acceptance, and canary results (whether the papers a question must always keep were kept).
 
 Your ticks are the labels. They seed the recommendation net (papers related to the ones you ticked),
 feed the threshold proposals that `jrp fit` writes for you to apply, and become evaluation cases.
