@@ -7,9 +7,11 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.adapters import arxiv, firehose, hf_papers, openalex, semantic_scholar
 from jev_research_pipeline.adapters.base import credits_used
 from jev_research_pipeline.model import Claim, SourceItem, Unit
+from jev_research_pipeline.note_text import LANGS, Lang
 from jev_research_pipeline.pipeline import meters, nets
 from jev_research_pipeline.store import GraphStore
 
@@ -538,19 +540,14 @@ async def test_hf_daily_is_cut_in_its_own_order_even_with_query_text(
 # --- meters -------------------------------------------------------------------------------
 
 
-NET_TOPICS = {"firehose": 10001, "recommendation": 10002, "citation": 10003, "keyword": 10004}
-
-
 def _claim(net: str, text: str) -> tuple[Claim, Unit, SourceItem]:
     src = SourceItem.new(
         line=b.LINE_IRI,
         adapter="arxiv",
         net=net,  # pyright: ignore[reportArgumentType]
-        # deterministic: str hash() changes per process, and two nets landing on one topic
-        # (1 run in 100) made test_topic_clusters_count_distinct_topics fail at random
         url=f"https://arxiv.org/abs/{text}",
         title="t",
-        text=f"{text} — OpenAlex topic: T{NET_TOPICS[net]}",
+        text=text,
         fetched_at=b.T0,
     )
     unit = Unit.cut(src, start=0, end=len(text), granularity="sentence")
@@ -566,66 +563,27 @@ def test_accepted_share_per_net():
     assert shares == {"firehose": pytest.approx(2 / 3), "keyword": pytest.approx(1 / 3)}
 
 
-def test_topic_clusters_count_distinct_topics():
-    sources = [s for _, _, s in (_claim("firehose", "a"), _claim("keyword", "b"))]
-    assert meters.topic_clusters(sources) == 2
+SAYS_CONVERGED: dict[Lang, tuple[str, ...]] = {
+    "ja": ("連続", "収束"),
+    "en": ("consecutive", "onvergence"),
+    "zh": ("连续", "收敛"),
+}
 
 
-def test_convergence_needs_enough_runs_and_rises_with_saturation():
-    assert meters.convergence([3, 6]) is None
-    slow = meters.convergence([5, 10, 15, 20])
-    fast = meters.convergence([20, 24, 25, 25])
-    assert slow is not None and fast is not None
-    assert fast > slow  # a curve that flattened is further along
-
-
-def test_consecutive_irrelevant_is_not_reported_as_convergence():
-    # Repke 2026: a run of irrelevant results is not a stopping signal, so no meter line
-    # may say it is. The only convergence line is the fitted one.
-    lines = meters.lines(
-        {"keyword": 0},
-        {},
-        clusters=1,
-        previous_clusters=3,
-        fit=None,
-        openalex_credits=0,
-    )
-    assert any("収束推定 f: データ不足" in line for line in lines)
-    assert not any("連続" in line for line in lines)
-    assert any("減少" in line for line in lines)  # a falling cluster count is the alarm
-
-
-def test_time_to_discovery_is_the_median_over_ticked_sources():
-    from datetime import timedelta
-
-    from jev_research_pipeline.model import Label
-
-    made = [_claim("firehose", "a"), _claim("keyword", "b")]
-    sources = {s.id: s for _, _, s in made}
-    units = {u.id: u for _, u, _ in made}
-    claims = {c.id: c for c, _, _ in made}
-    labels = [
-        Label.new(
-            subject=made[0][2].id,
-            report=b.report().id,
-            verdict="correct",
-            provenance="source",
-            harvested_at=b.T0 + timedelta(days=2),
-        ),
-        Label.new(
-            subject=made[1][0].id,  # a claim tick resolves to its source
-            report=b.report().id,
-            verdict="correct",
-            provenance="claim",
-            harvested_at=b.T0 + timedelta(days=4),
-        ),
-        Label.new(
-            subject=made[1][2].id,
-            report=b.report().id,
-            verdict="incorrect",  # a ❌ is not a discovery
-            provenance="source",
-            harvested_at=b.T0 + timedelta(days=30),
-        ),
+@pytest.mark.parametrize("lang", LANGS)
+def test_consecutive_irrelevant_is_not_reported_as_convergence(lang: Lang):
+    # Repke 2026 (design "Meters"): a run of irrelevant results is not a stopping signal,
+    # so no meter line may say it is, and none says the search has converged. A day where
+    # every net came back empty is the case such a line would be tempted to report.
+    lines = meters.lines({"firehose": 0, "keyword": 0}, {}, openalex_credits=0, lang=lang)
+    assert not any(word in line for line in lines for word in SAYS_CONVERGED[lang]), lines
+    # The discovery block is the per-net counts and shares, nothing else.
+    assert lines == [
+        t.NET_SOURCES(lang, counts="firehose 0, keyword 0"),
+        t.NET_SHARES(lang, shares=t.NONE_WORD(lang)),
     ]
-    assert meters.time_to_discovery(labels, sources, claims, units) == pytest.approx(3.0)
-    assert meters.time_to_discovery([], sources, claims, units) is None
+
+
+def test_openalex_credits_get_a_line_only_when_spent():
+    assert meters.lines({}, {}, openalex_credits=3)[-1] == "openalex credit: 3"
+    assert not any("openalex" in line for line in meters.lines({}, {}, openalex_credits=0))

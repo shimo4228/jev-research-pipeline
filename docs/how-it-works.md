@@ -112,8 +112,8 @@ always needed), with one exception inside the keyword net: the Tavily web-search
 when `TAVILY_API_KEY` is unset, and the note says so. Semantic Scholar, OpenAlex and GitHub have
 shared keyless quotas; optional keys raise them. Budgets, the exploration share, arXiv categories and
 the OpenAlex daily credit cap are set under `[nets]` in `config.toml`. The operations block reports
-acceptance per net and the number of distinct OpenAlex topics among kept papers; a falling topic count
-is the convergence alarm.
+the sources and the acceptance per net. It does not say whether the search is narrowing; a weekly
+review that looks at repetition and novelty is planned for that.
 
 ## The writing model
 

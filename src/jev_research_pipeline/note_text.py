@@ -303,25 +303,6 @@ NET_SOURCES: Final = Msg(
 NET_SHARES: Final = Msg(
     "net 採用率: {shares}", "Accept share per net: {shares}", "各 net 采纳率: {shares}"
 )
-TOPIC_CLUSTERS: Final = Msg("topic クラスタ数: {n}", "Topic clusters: {n}", "topic 聚类数: {n}")
-CLUSTERS_BEFORE: Final = Msg(
-    " (前回 {n}{fewer})", " (previous run {n}{fewer})", " (上次 {n}{fewer})"
-)
-CLUSTERS_FEWER: Final = Msg("・減少", ", fewer", "・减少")
-CONVERGENCE: Final = Msg("収束推定 f: {f}", "Convergence estimate f: {f}", "收敛估计 f: {f}")
-CONVERGENCE_NONE: Final = Msg(
-    "収束推定 f: データ不足 (3 run 未満)",
-    "Convergence estimate f: not enough data (under 3 runs)",
-    "收敛估计 f: 数据不足 (少于 3 次 run)",
-)
-TIME_TO_DISCOVERY: Final = Msg(
-    "Time-to-Discovery 中央値: {days} 日",
-    "Time-to-Discovery median: {days} days",
-    "Time-to-Discovery 中位数: {days} 天",
-)
-TIME_TO_DISCOVERY_NONE: Final = Msg(
-    "Time-to-Discovery: 未計測", "Time-to-Discovery: not measured", "Time-to-Discovery: 未测量"
-)
 
 # --- Review reasons and rule candidates (jev.question_screening, reduction.rules) -----------
 

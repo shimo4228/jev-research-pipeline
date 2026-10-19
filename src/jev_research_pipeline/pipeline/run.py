@@ -1150,7 +1150,7 @@ class LineRun:
         )
 
     def _discovery_lines(self, accepted: list[_Accepted]) -> list[str]:
-        """Which net earned its budget, and whether the search is narrowing."""
+        """Which net earned its budget."""
         loaded = self.partition.load()
         # Today's units and claims are still in flight (they are stored after the note is
         # rendered), so the maps have to carry them or every share reads zero.
@@ -1158,32 +1158,8 @@ class LineRun:
         sources = {i: n for i, n in loaded.items() if isinstance(n, SourceItem)}
         sources |= {i.source.id: i.source for i in accepted}
         shares = meters.share_per_net([i.claim for i in accepted], units, sources)
-        today = [s for s in sources.values() if s.fetched_at.date() == self.now.date()]
-        before = [s for s in sources.values() if s.fetched_at.date() < self.now.date()]
-        reports = sorted(
-            (
-                n
-                for n in loaded.values()
-                if isinstance(n, Report)
-                and n.line == self.ctx.line.id
-                and n.run_date < self.now.date()  # today's own report is `accepted` below
-            ),
-            key=lambda r: r.run_date,
-        )
-        cumulative = [len(r.claims) for r in reports] + [len(accepted)]
-        running = [sum(cumulative[: i + 1]) for i in range(len(cumulative))]
-        claims = {i: n for i, n in loaded.items() if isinstance(n, Claim)}
-        claims |= {i.claim.id: i.claim for i in accepted}
-        labels = [n for n in loaded.values() if isinstance(n, Label)]
         return meters.lines(
-            self.st.per_net,
-            shares,
-            clusters=meters.topic_clusters(today),
-            previous_clusters=meters.topic_clusters(before) if before else None,
-            fit=meters.convergence(running),
-            openalex_credits=self.st.openalex_credits,
-            ttd=meters.time_to_discovery(labels, sources, claims, units),
-            lang=self.lang,
+            self.st.per_net, shares, openalex_credits=self.st.openalex_credits, lang=self.lang
         )
 
     def _cost_caveats(self) -> str:

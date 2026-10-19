@@ -76,8 +76,7 @@ for you to judge.
 - **No model chooses the searches.** The old agent, left to pick its own searches, put 88 of the 238 topics it chose in
   its first three months (37%) on one theme ([how-it-works](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/how-it-works.md#why-judgment-not-generation)).
   In jrp no model writes a search query at run time: code fixes which sources are searched and how
-  often, and every note counts how many distinct subject areas its kept papers cover, so any drift
-  that remains shows up as a falling number.
+  often.
 
 Why a judgment model is enough here: deciding whether a paper bears on a question is a call you can
 read off its abstract. On calls of that kind, an independent study from Carnegie Mellon

@@ -214,6 +214,15 @@ Nets, in code-fixed order, all keyless:
 6. meters — accepted-claim share per net; cluster count over OpenAlex topic ids of
    accepted papers (falling count = convergence alarm); per-net new-accept rate with a
    convergence stop (Undermind's f = 1 − e^(−n/τ)).
+   > **注記（2026-10-20, plan quality-metrics）**: the cluster count and the convergence
+   > estimate f are retired from the operations section, with their computation. Only
+   > sources from the OpenAlex adapter (citation, exploration) carry a topic, so the count
+   > read 0 on most lines and could not show drift in the other nets. f fixed the
+   > asymptote at 1.2 × the latest cumulative count of reported claims, which the note cap
+   > keeps near a straight line, so f read about 0.75 whatever the search did. The
+   > discovery block keeps the sources and the accepted-claim share per net. Nothing in a
+   > note says whether the search is narrowing; the planned weekly review is to look at
+   > repetition and novelty.
 Never measure recall against human citation lists; vendor recall claims are unreliable.
 Review-when: OpenAlex credit pricing or S2 keyless pool changes; an ablation separating
 query generation from snowballing is published.
@@ -316,6 +325,13 @@ Adopted into the Question-centric design:
 - **Meters**: Time-to-Discovery per ⭕ paper (ASReview), net share, topic cluster count;
   "n consecutive irrelevant" is NOT a convergence signal (Repke 2026); convergence
   claims need an author-audited random sample of rejects (CMH hypergeometric bound).
+  > **注記（2026-10-20, plan quality-metrics）**: Time-to-Discovery and the topic cluster
+  > count are retired (see Discovery meters 6). Time-to-Discovery was
+  > `label.harvested_at − source.fetched_at`, and both ends are overwritten (every harvest
+  > rewrites `harvested_at`, every re-fetch `fetched_at`), so it never measured a discovery
+  > delay. Net share stays. The Repke constraint stays and is pinned by
+  > `test_consecutive_irrelevant_is_not_reported_as_convergence`: no meter line says the
+  > search has converged, in any note language.
 - **Threshold refit**: evaluate jevcal (awesome-jev) before writing our own fit; refit
   only when held-out CI stays within a pre-set band (Cochrane RCT classifier practice).
 Not adopted: gold-report LLM judges (RACE), agent loops, keyed neural search, α-nDCG
