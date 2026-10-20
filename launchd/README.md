@@ -62,12 +62,20 @@ the log, never a message or a stop.
 The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
 through the same `~/.claude/scripts/notify-slack.sh`, with `&`, `<` and `>` escaped as Python
 escapes its own Slack messages, so a `<!channel>` in a reason stays text). A `jrp run` still going after
-`JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) gets SIGTERM
+`JRP_RUN_TIMEOUT_S` seconds awake (default 3600; a normal run takes 15 to 20 minutes) gets SIGTERM
 (Python cancels the run, which also stops a `claude -p` it started), then its whole process group
 is killed 10 s later; the notes it wrote before the kill are copied back, and the message is
 `jrp run TIMED OUT` (exit 124). A note that cannot be copied to the vault is named in a
 `jrp run FAILED` message and stays in the stage. If the wrapper itself stops before Python starts (uv missing,
 `JRP_VAULT_DIR` unset, the staging copy failing), the message is `jrp run FAILED` with the reason.
+
+The Mac stays awake while the job runs: launchd starts it at 05:00 in a dark wake that lasts
+seconds, and a sleeping Mac moved the run only in its next dark wakes (2026-10-21: 263 s of work
+in 67 minutes). The wrapper holds `caffeinate -i -s` until it exits (`-s` is honoured on AC power
+only, so leave the Mac plugged in overnight), and its log says `caffeinate: the Mac stays awake
+until the job ends`. The watchdogs count the seconds the Mac is awake, not the wall clock, so if
+the Mac sleeps anyway the run finishes when it next wakes instead of being killed. To check a
+morning: `pmset -g log | grep -E " (Sleep|DarkWake|Wake) "` around 05:00.
 
 Before each `jrp run` the wrapper runs `jrp doctor` (limited to 120 s) and writes its lines to
 the log, so the morning log shows whether the launchd job could reach the writer's login — Claude

@@ -5,6 +5,7 @@ fails before python starts."""
 
 import os
 import re
+import signal
 import subprocess
 import time
 from datetime import datetime
@@ -72,6 +73,7 @@ if [[ -n "${{WRITE_ANS:-}}" ]]; then  # a note whose vault copy is read-only
   rm -f "$notes/2026-09-24_jrp_ans.md"
   echo "ans" > "$notes/2026-09-24_jrp_ans.md"
 fi
+if [[ -n "${{RUN_SLEEP:-}}" ]]; then sleep "$RUN_SLEEP"; fi  # a run that takes this long
 echo "args: $*"
 exit "${{RUN_STATUS:-0}}"
 """
@@ -98,6 +100,7 @@ def _setup(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
         "JRP_STORE_DIR": str(store),
         "EXPECT_STAGE": str(store / "vault-stage"),
         "JRP_WBR_DUE": "0",  # not Monday, whatever day the tests run (the review's tests: 1)
+        "JRP_CAFFEINATE": "",  # no sleep assertion from a test (its own test below)
     }
     return env, vault, store / "vault-stage" / "daily-research"
 
@@ -766,7 +769,7 @@ def test_a_hung_review_is_killed_by_its_own_timeout_after_the_morning_reached_th
     assert not (vault / WBR_NOTE).exists()
     ((title, body),) = _messages(notified)
     assert title == "jrp wbr TIMED OUT"
-    assert "1 s (JRP_WBR_TIMEOUT_S)" in body and "0 note" in body
+    assert "1 s awake (JRP_WBR_TIMEOUT_S)" in body and "0 note" in body
     (end,) = [t for _, t in _timed(out.stdout) if t.startswith("end jrp wbr")]
     assert re.fullmatch(r"end jrp wbr status (?!0 )\d+ · \d+ s", end)
     child = int((tmp_path / "wbr.pid").read_text())
@@ -843,3 +846,72 @@ def test_a_review_timeout_that_is_not_a_number_skips_the_review_only(tmp_path: P
     ((title, body),) = _messages(notified)
     assert title == "jrp wbr FAILED"
     assert body.startswith("JRP_WBR_TIMEOUT_S is not a number of seconds: 10m;")
+
+
+def test_the_run_keeps_the_mac_awake_until_the_wrapper_exits(tmp_path: Path):
+    """launchd starts the 05:00 job in a dark wake of seconds; without an assertion the run
+    moved only in the next dark wakes and was killed (2026-10-21). caffeinate holds -i and -s
+    for the wrapper's own pid (-w), so the assertion ends with the job."""
+    env, _, _ = _setup(tmp_path)
+    seen = tmp_path / "caffeinate.args"
+    fake = tmp_path / "caffeinate"
+    fake.write_text(
+        f'#!/bin/bash\nprintf "%s\\n" "$*" > "{seen}.tmp" && mv "{seen}.tmp" "{seen}"\n'
+    )
+    fake.chmod(0o755)
+    env["JRP_CAFFEINATE"] = str(fake)
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    texts = [text for _, text in _timed(out.stdout)]
+    assert texts[0] == "caffeinate: the Mac stays awake until the job ends"
+    for _ in range(50):  # the fake runs in the background; give it a moment to write
+        if seen.exists():
+            break
+        time.sleep(0.1)
+    args = seen.read_text().split()
+    assert args[:3] == ["-i", "-s", "-w"] and args[3].isdigit()
+
+
+def test_no_caffeinate_holds_nothing_and_says_nothing(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    env["JRP_CAFFEINATE"] = str(tmp_path / "no-such-caffeinate")  # not macOS
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert not any("caffeinate" in text for _, text in _timed(out.stdout))
+
+
+def test_the_watchdog_counts_awake_seconds_not_the_wall_clock():
+    """A Mac asleep through the morning runs no tick of the watchdog's loop: the limit is
+    reached by ticks, never by SECONDS (bash's wall clock, which counts the sleep)."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    body = text[text.index("limited() {") : text.index("send_back() {")]
+    assert "awake=$((awake + 1))" in body and "((awake >= limit))" in body
+    assert "SECONDS" not in body
+
+
+def test_a_run_paused_like_a_sleeping_mac_is_not_killed_for_the_pause(tmp_path: Path):
+    """SIGSTOP stands in for a sleeping Mac: no tick runs while the wrapper is stopped. A
+    wall-clock deadline (bash SECONDS) killed the run the moment the wrapper resumed."""
+    env, vault, _ = _setup(tmp_path)
+    env |= {"JRP_RUN_TIMEOUT_S": "4", "RUN_SLEEP": "6"}
+    proc = subprocess.Popen(
+        ["bash", str(SCRIPT), "run"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:  # pause the wrapper once the run is going, not while it stages
+        if line.endswith(" start jrp run\n"):
+            break
+    time.sleep(0.5)
+    proc.send_signal(signal.SIGSTOP)
+    time.sleep(5.0)  # past the 4 s limit on the wall clock
+    proc.send_signal(signal.SIGCONT)
+    _, err = proc.communicate(timeout=60)
+    assert proc.returncode == 0, err
+    assert "TIMED OUT" not in err
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"

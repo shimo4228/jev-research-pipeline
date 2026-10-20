@@ -23,8 +23,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.jrp.run.plist
 The wrapper sources the env file, copies the vault's jrp notes and Obsidian's two lists of
 recently opened files (`.obsidian/workspace.json`, `workspace-mobile.json`; these only for the
 length of the run) to a local stage (macOS privacy guards a vault in iCloud Drive per
-executable), runs `jrp doctor` and then `jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default
-3600 s), copies back the notes the run wrote, on Monday then runs `jrp wbr` under its own
+executable), keeps the Mac awake for the job's length (`caffeinate -i -s`; `-s` holds on AC power
+only), runs `jrp doctor` and then `jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default
+3600 s awake: a Mac that sleeps anyway does not get its run killed for the time it slept), copies back the notes the run wrote, on Monday then runs `jrp wbr` under its own
 watchdog (`JRP_WBR_TIMEOUT_S`, default 600 s) and copies back the weekly review's note, and
 reports what python cannot (a hung run or review, a review that failed, a wrapper that stops
 before jrp starts) through the channels below; a failed review never changes the job's exit

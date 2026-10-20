@@ -29,8 +29,8 @@
 # What python cannot report, this script does (the log always; Slack / Notification Center
 # as pipeline/notify.py sends them, JRP_SLACK_NOTIFY / JRP_SLACK_WEBHOOK_URL / JRP_NOTIFY_MACOS,
 # the harness script with Slack's escaping like the webhook): a run past
-# JRP_RUN_TIMEOUT_S (default 3600 s; a normal run takes ~15-20 min) is killed with its whole
-# process group — the notes it wrote so far are still copied back — and a wrapper that
+# JRP_RUN_TIMEOUT_S (default 3600 s awake; a normal run takes ~15-20 min) is killed with its
+# whole process group — the notes it wrote so far are still copied back — and a wrapper that
 # fails before python starts (env, uv missing, staging) says so instead of exiting unseen.
 # Before `jrp run` it runs `jrp doctor` (pipeline/doctor.py) under the same watchdog and logs
 # its lines, so the log shows whether launchd could reach the writer's login (Claude Code's
@@ -48,10 +48,18 @@
 # that fails, is killed, cannot be copied or has a timeout that is not a number is notified
 # (`jrp wbr FAILED` / `jrp wbr TIMED OUT`) and never stops the morning or changes the job's
 # exit status, which stays the run's.
+#
+# The Mac stays awake while the morning runs: launchd starts the job in a dark wake that
+# lasts seconds, and on a sleeping Mac the run moves only in the next dark wakes (2026-10-21:
+# 263 s of work in 67 min, then killed). `caffeinate -i -s` holds an assertion until this
+# wrapper exits (-i idle sleep; -s system sleep, honoured on AC power only). The watchdogs
+# count the seconds the Mac is awake, not the wall clock, so a Mac that sleeps anyway does
+# not get its run killed for the time it slept.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ENV_FILE="${JRP_ENV_FILE:-${HOME}/.config/jrp/env}"
 UV="${JRP_UV:-${HOME}/.local/bin/uv}"  # both overridable for tests/test_launchd_wrapper.py
+CAFFEINATE="${JRP_CAFFEINATE-caffeinate}"  # empty: none; read before the env file, as JRP_UV
 NOTIFY_SCRIPT="${HOME}/.claude/scripts/notify-slack.sh"
 # How jrp is started: an installed jrp (JRP_BIN, set by `jrp schedule install`), else this
 # checkout through uv. Set once the env file is read.
@@ -107,8 +115,11 @@ unstage_workspaces() {  # remove the stage's copies of Obsidian's lists; a failu
 }
 
 # limited <seconds> <cmd...>: cmd as a job of its own process group (job control on for it),
-# so a kill reaches uv's python and whatever it started, not only uv. Past <seconds> the
-# group gets TERM, then KILL 10 s later. Sets TIMED_OUT; returns cmd's exit status.
+# so a kill reaches uv's python and whatever it started, not only uv. Past <seconds> awake
+# the group gets TERM, then KILL 10 s later. Awake, not wall time: the loop ticks once a
+# second and a sleeping Mac runs no tick, where SECONDS counts the sleep too (2026-10-21: a
+# run that had worked 263 s was killed at 3600 s of wall time the moment the Mac woke).
+# Sets TIMED_OUT; returns cmd's exit status.
 CHILD=""  # the job limited() is running: a TERM to the wrapper is passed on to its group
 limited() {
   local limit=$1 pid
@@ -119,9 +130,9 @@ limited() {
   pid=$!
   CHILD=$pid
   set +m
-  local deadline=$((SECONDS + limit))
+  local awake=0
   while kill -0 "$pid" 2>/dev/null; do
-    if ((SECONDS >= deadline)); then
+    if ((awake >= limit)); then
       TIMED_OUT=1
       kill -TERM -- "-$pid" 2>/dev/null
       for _ in 1 2 3 4 5 6 7 8 9 10; do  # until the whole group is gone: python unwinds
@@ -132,6 +143,7 @@ limited() {
       break
     fi
     sleep 1
+    awake=$((awake + 1))
   done
   wait "$pid"
   local status=$?
@@ -184,7 +196,7 @@ weekly_review() {
     notify "jrp wbr FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${UNCOPIED}"
   fi
   if ((TIMED_OUT)); then
-    notify "jrp wbr TIMED OUT" "killed after ${limit} s (JRP_WBR_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault, the run's notes are there"
+    notify "jrp wbr TIMED OUT" "killed after ${limit} s awake (JRP_WBR_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault, the run's notes are there"
   elif ((wbr_status != 0)); then
     notify "jrp wbr FAILED" "exit ${wbr_status}, see the log; the run's notes are in the vault"
   fi
@@ -230,6 +242,11 @@ fi
 if [[ "$CMD" != "run" ]]; then
   STARTED=1
   exec "${JRP[@]}" "$@"
+fi
+
+if [[ -n "$CAFFEINATE" ]] && command -v "$CAFFEINATE" >/dev/null 2>&1; then
+  "$CAFFEINATE" -i -s -w "$$" >/dev/null 2>&1 &
+  say "caffeinate: the Mac stays awake until the job ends"
 fi
 
 NOTES="daily-research"
@@ -287,7 +304,7 @@ doctor_status=$?
 set -e
 while IFS= read -r line || [[ -n "$line" ]]; do say "$line"; done <"$DOCTOR_OUT"
 if ((TIMED_OUT)); then
-  notify "jrp doctor FAILED" "no answer in ${DOCTOR_TIMEOUT_S} s and killed; the run goes ahead"
+  notify "jrp doctor FAILED" "no answer in ${DOCTOR_TIMEOUT_S} s awake and killed; the run goes ahead"
 elif ((doctor_status != 0)); then
   failed_checks="$(grep '^FAIL' "$DOCTOR_OUT" | tr '\n' ';' || true)"
   notify "jrp doctor FAILED" "${failed_checks:-exit ${doctor_status}, see the log} the run goes ahead"
@@ -313,7 +330,7 @@ if [[ -n "$UNCOPIED" ]]; then
   notify "jrp run FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${UNCOPIED}"
 fi
 if ((timed_out)); then  # a killed run's morning gets no weekly review
-  notify "jrp run TIMED OUT" "killed after ${TIMEOUT} s (JRP_RUN_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault"
+  notify "jrp run TIMED OUT" "killed after ${TIMEOUT} s awake (JRP_RUN_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault"
   exit 124
 fi
 if [[ -n "$UNCOPIED" ]] && ((status == 0)); then
