@@ -1234,6 +1234,49 @@ Review-when: the self-check stops matching on a day after the mechanism changed 
 no longer mirrors the run), the prefilter's version or ask changes (every stored answer is a
 new id), or TypeSafe's price changes (evals/judge.JEV_USD_PER_INPUT_TOKEN).
 
+### Listing sources: feed and sitemap (author decision 2026-10-20, claude-code line)
+
+A daily line that follows Claude Code's official updates ("逃したくない": release notes,
+Anthropic's technical posts and playbooks) and, beside them, third-party Claude Code usage
+cases. Its official sources publish listings, not a search, so the keyword net gained two
+listing adapters; every query line is still authored (`- feed:` / `- sitemap:` lines).
+Channels measured 2026-10-20 with the pipeline's own User-Agent (all answered 200):
+- Release notes: `code.claude.com/docs/en/changelog/rss.xml`, RSS 2.0, each version's
+  notes in full (`content:encoded`), 15 items, a link per version. GitHub's
+  CHANGELOG.md carries no dates and releases.atom trails npm by 1–5 h.
+- The Claude Code team's blog: `claude.dev/rss.xml`, summaries of 64–231 characters.
+- anthropic.com (news, engineering): no feed (`/rss.xml`, `/news/rss.xml` 404); its
+  sitemap.xml dates 536 of 566 URLs (lastmod).
+- claude.com/resources (articles, guides, playbooks): no feed and no lastmod in its
+  sitemap (3,794 URLs); read through a community scrape
+  (github.com/Olshansk/rss-feeds `feeds/feed_claude.xml`, rebuilt hourly, last
+  2026-10-19). If the scrape stops, those articles stop arriving with no failure (an
+  empty window looks like a quiet week).
+- Not covered: docs pages edited without a changelog entry (code.claude.com's sitemap
+  stamps every page with the deploy time, so lastmod says nothing per page).
+
+What was built:
+- **feed** (adapters.feed, feedparser 6.0.14): items published from 3 days before the
+  run's date on (undated items are left out); full content as one line per block, so a
+  release note's bullets are one unit each; a summary-only item is judged on its page.
+  A body that is not a feed is a parse failure.
+- **sitemap** (adapters.sitemap): the URLs below the query's prefix whose lastmod falls
+  in the same window, each page fetched.
+- **Follow** (base.Follow): the listing leaves a result without text and the adapter
+  fetches its https page (at most 10 per query, 12,000 characters of `<main>` /
+  `<article>`); a page that cannot be fetched is skipped and counted in the operations
+  section.
+- **web_time_range** (`[tracks.<slug>]`, nets.for_line): the line's `web:` searches ask
+  Tavily for that window and for published dates; other lines' requests are unchanged.
+  Tavily returns `published_date` only when asked (or on topic "news").
+
+Not built, by the author's choice: switching the third-party question off on days the
+official ones move. All three questions run daily and every moved question is written
+(about 1–3 question-days a day, $0.2 each on Opus 5.5 at API prices).
+Review-when: the community scrape goes stale (no claude.com article for two weeks while
+claude.com/resources shows new ones), Anthropic publishes a feed for anthropic.com or
+claude.com (replace the sitemap / scrape with it), or the release-notes feed changes host.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
@@ -1273,6 +1316,8 @@ LLM-as-judge with another LLM as the truth source.
   with no tools = one typed request + `retries={'output': N}`; `pydantic_ai.direct.
   model_request` for no-validation single calls.
 - `pydantic-evals`: `Dataset`/`Case` to YAML, pytest integration — the golden layer.
+- `feedparser` 6.0.14 (2026-07, BSD-2; one dependency, feedparser-sgmllib, PSF-2.0):
+  RSS and Atom for the feed adapter (added 2026-10-20). Handed bytes, never a str.
 - Borrowed from open_deep_research (as-of 2026-09-22): brief → per-topic research →
   compress → single report call; `eval_groundedness` = extract claims → verify each.
   Not borrowed: supervisor/researcher loops.

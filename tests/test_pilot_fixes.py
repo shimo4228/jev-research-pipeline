@@ -15,6 +15,7 @@ from jev_research_pipeline.adapters import (
     github,
     hf_papers,
     openalex,
+    page,
 )
 from jev_research_pipeline.pipeline import nets
 
@@ -233,7 +234,7 @@ def test_a_canary_page_is_its_title_and_its_text_without_tags():
         "<html><head><title>TypeSafe &amp; Jev</title><style>p{}</style></head>"
         "<body><script>x=1</script><p>Fields map to <b>questions</b>.</p></body></html>"
     )
-    (draft,) = canary.page_parse("https://example.org/p", body)
+    (draft,) = page.page_parse("https://example.org/p", body)
     assert draft["title"] == "TypeSafe & Jev"
     assert draft["text"] == "TypeSafe & Jev Fields map to questions ."
 

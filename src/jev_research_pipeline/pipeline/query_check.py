@@ -15,7 +15,8 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline.questions import open_questions, question_queries
 
-from .config import env_tracks, line_context
+from .config import config_path, env_tracks, line_context
+from .nets import NetConfig, for_line
 from .run import make_adapter
 
 TOP_TITLES: Final = 3
@@ -31,6 +32,7 @@ async def check_queries(
     ctx = line_context(tracks[slug])
     questions = open_questions(env, slug, line=ctx.line.id, now=now)
     queries = question_queries(env, slug, questions)
+    window = for_line(config_path(env), slug, NetConfig()).web_time_range
     out: list[str] = []
     for question in questions:
         out.append(f"## {question.title} ({question.slug})")
@@ -38,7 +40,7 @@ async def check_queries(
         if not authored:
             out.append("  クエリ未設定 — 実行時はこの問いの keyword 検索を送らない")
         for kind, text in authored:
-            adapter = make_adapter(kind, today=now.date())
+            adapter = make_adapter(kind, today=now.date(), query=text, web_time_range=window)
             needed = adapter.required_env
             if needed is not None and not env.get(needed):
                 out.append(f"  {kind}: {text} → {needed} 未設定のため未送信")

@@ -6,12 +6,13 @@ can appear under two adapters: `arxiv` keyword search (OpenAlex restricted to th
 source) and `arxiv` new listings (arXiv's RSS) are one endpoint each, one `net` each, and
 every SourceItem records which net found it.
 
-An adapter = (build_request, parse, pacing, optional key). fetch() never raises for
-source-side trouble: a missing key, an HTTP error status, a request error (transport,
-body decoding, redirects) or an unparseable body becomes FetchOutcome.failure (counted
-in the operations section). A single result that fails validation (empty text, non-http
-URL) is skipped and counted, not fatal to the other results. Only programming errors —
-and CassetteMiss in tests — propagate.
+An adapter = (build_request, parse, pacing, optional key, optional Follow). fetch() never
+raises for source-side trouble: a missing key, an HTTP error status, a request error
+(transport, body decoding, redirects) or an unparseable body becomes FetchOutcome.failure
+(counted in the operations section). A single result that fails validation (empty text,
+non-http URL) is skipped and counted, not fatal to the other results — a result whose page
+Follow could not fetch is one of them. Only programming errors — and CassetteMiss in tests
+— propagate.
 """
 
 import asyncio
@@ -19,7 +20,9 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
+from ipaddress import ip_address
 from typing import Final, Literal, Self, TypedDict
+from urllib.parse import urlsplit
 from xml.etree.ElementTree import ParseError
 
 import httpx2
@@ -174,6 +177,37 @@ def reset_pacing() -> None:
     _PACE_LOCKS.clear()
 
 
+def _public_https(url: str) -> bool:
+    """An https URL on a named public host: not an IP literal, not `localhost` or another
+    single-label name. A listing's links can come from a third party (a community feed), so
+    Follow does not let one point the run at the author's machine or network by address."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    try:
+        ip_address(host)
+    except ValueError:
+        return parts.scheme == "https" and "." in host and not host.endswith(".local")
+    return False
+
+
+@dataclass(frozen=True)
+class Follow:
+    """Fetch the page of each result that came back with no text, and use the page.
+
+    A listing names what is new without saying it: a sitemap entry has no text at all, and a
+    feed item that carries only a summary has a teaser the screen cannot judge (claude.dev's
+    run 64 to 231 characters; the screen skips a source under 200). The listing's parser leaves
+    such a result's text empty and Follow fills it from the page. Only https pages on a named
+    public host are asked for (_public_https); a page that cannot be fetched or read, or answers anything but 2xx (a redirect's
+    body is not the page), leaves the text empty, so validation skips the result and the
+    operations section counts it — a missed item is never silent."""
+
+    parse: Callable[[str, str], list[RawDraft]]
+    """(page URL, page body) → the page as one draft (adapters.page.page_parse)."""
+    limit: int
+    """Pages one fetch may ask for; results past it are skipped and counted."""
+
+
 @dataclass
 class Adapter:
     kind: AdapterKind
@@ -199,6 +233,8 @@ class Adapter:
     """Env var of the source's optional key (Semantic Scholar, OpenAlex, GitHub, HF daily):
     set, the request carries it; unset, it goes to the source's shared keyless pool, whose
     rate limit is expected (nets._record_failure). None = the source has no key to set."""
+    follow: Follow | None = None
+    """Fetch the page of each result the parser left without text (feed, sitemap)."""
 
     def keyless(self, env: Mapping[str, str]) -> bool:
         """Whether this request goes out without the source's optional key."""
@@ -257,6 +293,8 @@ class Adapter:
             raws = self.parse(response.text)
         except (ValueError, ValidationError, ParseError, KeyError, TypeError) as e:
             return fail("parse", type(e).__name__)
+        if self.follow is not None:
+            raws = await self._follow(client, raws, self.follow)
         sources: list[SourceItem] = []
         for raw in raws:
             try:
@@ -283,6 +321,44 @@ class Adapter:
             skipped=len(raws) - len(sources),
             credits=self._credits(response),
         )
+
+    async def _follow(
+        self, client: httpx2.AsyncClient, raws: list[RawDraft], follow: Follow
+    ) -> list[RawDraft]:
+        """Each result without text, with its page's title and text (Follow)."""
+        out: list[RawDraft] = []
+        asked = 0
+        for raw in raws:
+            if raw["text"]:
+                out.append(raw)
+                continue
+            page = None
+            if asked < follow.limit and _public_https(raw["url"]):
+                asked += 1
+                page = await self._page(client, raw["url"], follow)
+            out.append(
+                RawDraft(
+                    url=raw["url"],
+                    title=(page["title"] if page else "") or raw["title"],
+                    text=page["text"] if page else "",
+                    published_at=raw["published_at"],
+                )
+            )
+        return out
+
+    async def _page(self, client: httpx2.AsyncClient, url: str, follow: Follow) -> RawDraft | None:
+        request = httpx2.Request("GET", url, headers={"User-Agent": USER_AGENT})
+        try:
+            response = await self._paced(client, request)
+        except httpx2.RequestError:
+            return None
+        if not 200 <= response.status_code < 300:  # redirects are not followed (httpx default)
+            return None
+        try:
+            drafts = follow.parse(url, response.text)
+        except (ValueError, KeyError, TypeError):
+            return None
+        return drafts[0] if drafts else None
 
     def _credits(self, response: httpx2.Response) -> int:
         if not self.credit_cost:

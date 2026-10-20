@@ -64,6 +64,7 @@ from jev_research_pipeline.adapters import (
     http_status_kind,
     openalex,
     semantic_scholar,
+    web_search,
 )
 from jev_research_pipeline.model import DiscoveryNet, Line, SourceItem
 from jev_research_pipeline.note_text import Lang, note_lang
@@ -112,6 +113,9 @@ class NetConfig:
     firehose_max: int = DEFAULT_FIREHOSE_MAX
     """Firehose sources kept per line-run (the first pilot took 836); the arXiv listing is
     ranked by relevance before the cut (fetch_nets)."""
+    web_time_range: web_search.TimeRange | None = None
+    """A line's own `web_time_range` (for_line): its `web:` searches ask Tavily for results
+    of the last day / week / month / year only. None = no window (adapters.web_search)."""
 
     def budget(self, net: DiscoveryNet) -> int:
         return int(self.budgets.get(net, DEFAULT_BUDGETS.get(net, 0)))
@@ -159,10 +163,13 @@ def load_nets(config: Path) -> NetConfig:
 
 
 def for_line(config: Path, slug: str, base: NetConfig) -> NetConfig:
-    """`base` with the line's own firehose settings from `[tracks.<slug>]`, both optional:
+    """`base` with the line's own settings from `[tracks.<slug>]`, all optional:
     `firehose = false` sends no firehose request for the line (HF daily and the arXiv
     listing), `arxiv_categories = [...]` replaces `[nets] arxiv_categories` for its arXiv
-    listing. A line without them runs on `base` unchanged.
+    listing, `web_time_range = "week"` (or "day" / "month" / "year") limits its `web:`
+    searches to that window. A value outside the four is refused where the config loads
+    (config.load_tracks: `jrp doctor` fails and the run stops before any line) and is
+    ignored here. A line without them runs on `base` unchanged.
 
     Why per line: the firehose categories were global (cs.AI, cs.CL, cs.LG, cs.HC), and a
     line whose literature lives elsewhere spent a fixed share of every run screening
@@ -181,6 +188,9 @@ def for_line(config: Path, slug: str, base: NetConfig) -> NetConfig:
     categories = track.get("arxiv_categories")
     if isinstance(categories, list) and categories:
         out = replace(out, categories=tuple(str(c) for c in categories))
+    window = track.get("web_time_range")
+    if window in (ranges := web_search.TIME_RANGES):
+        out = replace(out, web_time_range=ranges[ranges.index(window)])
     return out
 
 

@@ -63,7 +63,18 @@ at the line's vocabulary in general. Words of a `not:` topic stay out.
 - `- hf:` a natural English phrase (Hugging Face papers search).
 - `- web:` Tavily web search (needs `TAVILY_API_KEY`; free tier 1,000 searches a month).
   A question whose primary sources are in another language (blogs, Japanese or Chinese
-  posts) may have a query in that language here.
+  posts) may have a query in that language here. A line whose `web:` queries should find
+  recent posts only sets `web_time_range = "week"` (or `"day"` / `"month"` / `"year"`) in
+  its `[tracks.<slug>]` of config.toml.
+- `- feed:` the https URL of an RSS or Atom feed, for a source that publishes a feed and no
+  search (release notes, a team blog). Its items of the last 3 days come in; one that has
+  only a summary is read from its page.
+- `- sitemap:` an https URL prefix, for a site with no feed whose sitemap.xml dates its
+  pages (`<lastmod>`): the pages below the prefix changed in the last 3 days. Open
+  `<site>/sitemap.xml` first; without lastmod it finds nothing.
+
+Search before writing a `feed:` line too: a site's feed is often not linked from its pages
+(look for `<link rel="alternate" type="application/rss+xml">`, `/rss.xml`, `/feed.xml`).
 
 A question with no query line sends no keyword search at all (the other nets still run).
 

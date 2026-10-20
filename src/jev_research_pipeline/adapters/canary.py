@@ -15,7 +15,6 @@ every other fetch.
 """
 
 import functools
-import html
 import re
 from collections.abc import Mapping
 from dataclasses import replace
@@ -27,17 +26,14 @@ from pydantic import AwareDatetime
 from jev_research_pipeline.model import Line, SourceItem
 
 from .arxiv import paper_adapter
-from .base import USER_AGENT, Adapter, FetchFailure, RawDraft, one_line
+from .base import USER_AGENT, Adapter, FetchFailure, RawDraft
 from .github import adapter as github_adapter
 from .github import build_request as github_request
+from .page import PAGE_CHARS, page_parse, strip_tags
 
 _GITHUB: Final = re.compile(r"^https://github\.com/([\w.-]+/[\w.-]+?)/?$")
 _ARXIV: Final = re.compile(r"^https://arxiv\.org/abs/([\w.]+?)(v\d+)?/?$")
-_TAG: Final = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.DOTALL | re.IGNORECASE)
-_TITLE: Final = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
-_MAIN: Final = re.compile(r"<(main|article)\b.*?</\1>", re.DOTALL | re.IGNORECASE)
 _MD: Final = re.compile(r"!\[[^\]]*\]\([^)]*\)|[`#*>|]+")
-PAGE_CHARS: Final = 4000
 
 
 def _readme(query: str, env: Mapping[str, str]) -> httpx2.Request:
@@ -48,23 +44,12 @@ def _readme(query: str, env: Mapping[str, str]) -> httpx2.Request:
 
 def readme_parse(repo: str, url: str, body: str) -> list[RawDraft]:
     """The README as plain text: markup and HTML stripped, the first PAGE_CHARS kept."""
-    text = one_line(html.unescape(_TAG.sub(" ", _MD.sub(" ", body))))[:PAGE_CHARS]
+    text = strip_tags(_MD.sub(" ", body))[:PAGE_CHARS]
     return [RawDraft(url=url, title=repo, text=text, published_at=None)]
 
 
 def _page(query: str, _env: Mapping[str, str]) -> httpx2.Request:
     return httpx2.Request("GET", query, headers={"User-Agent": USER_AGENT})
-
-
-def page_parse(url: str, body: str) -> list[RawDraft]:
-    """Title and text of a page; the <main> or <article> element when there is one, so
-    the navigation that opens most docs pages does not fill the excerpt."""
-    found = _TITLE.search(body)
-    title = one_line(html.unescape(found.group(1))) if found else url
-    main = _MAIN.search(body)
-    content = main.group(0) if main else body
-    text = one_line(html.unescape(_TAG.sub(" ", content)))[:PAGE_CHARS]
-    return [RawDraft(url=url, title=title, text=text, published_at=None)]
 
 
 def plan(url: str) -> tuple[Adapter, str] | None:

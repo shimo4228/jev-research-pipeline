@@ -48,10 +48,12 @@ from jev_research_pipeline.adapters import (
     FetchFailure,
     arxiv,
     canary,
+    feed,
     firehose,
     github,
     hf_papers,
     openalex,
+    sitemap,
     web_search,
 )
 from jev_research_pipeline.generation import GenerationMeter, ProseResult, Rendering, Writer
@@ -126,14 +128,25 @@ GIST_CHARS: Final = 120
 """One evidence line shows this much of a source's text — enough to recognize it."""
 
 
-def make_adapter(kind: AdapterKind, *, today: date, pacing: bool = True) -> Adapter:
-    """`today` = the run's date (arXiv search is windowed on it, adapters.arxiv).
+def make_adapter(
+    kind: AdapterKind,
+    *,
+    today: date,
+    pacing: bool = True,
+    query: str = "",
+    web_time_range: web_search.TimeRange | None = None,
+) -> Adapter:
+    """`today` = the run's date (arXiv search, feeds and sitemaps are windowed on it).
+    `query` = the query the adapter is made for: a feed keeps its own content only for items
+    on its host (adapters.feed), a sitemap keeps the pages under it (adapters.sitemap). `web_time_range` = the line's (nets.NetConfig).
     `pacing=False` only for replayed runs (tests): no live request, no rate limit."""
     adapter = {
         "arxiv": lambda: arxiv.adapter(today),
         "hf_papers": hf_papers.adapter,
         "github": github.adapter,
-        "web_search": web_search.adapter,
+        "web_search": lambda: web_search.adapter(web_time_range),
+        "feed": lambda: feed.adapter(today, query),
+        "sitemap": lambda: sitemap.adapter(today, query),
     }[kind]()
     return adapter if pacing else replace(adapter, min_interval_s=0.0)
 
@@ -698,7 +711,16 @@ class LineRun:
         """Every net, in the code-fixed order, within its budget (packet "Discovery").
         `on_sources` sees each request's new sources as they arrive (nets.fetch_nets)."""
         keyword = [
-            (make_adapter(q.adapter, today=self.now.date(), pacing=self.pacing), q.text)
+            (
+                make_adapter(
+                    q.adapter,
+                    today=self.now.date(),
+                    pacing=self.pacing,
+                    query=q.text,
+                    web_time_range=self.nets.web_time_range,
+                ),
+                q.text,
+            )
             for q in queries
         ]
         positives, negatives = self._positives_and_negatives()

@@ -16,7 +16,7 @@ from pydantic import AwareDatetime, Field, PositiveInt, StringConstraints, model
 from .jsonld import IRI, Node, Sha256Hex, Value, content_id, kind_of, sha256_hex
 
 type AdapterKind = Literal[
-    "arxiv", "hf_papers", "github", "web_search", "semantic_scholar", "openalex"
+    "arxiv", "hf_papers", "github", "web_search", "semantic_scholar", "openalex", "feed", "sitemap"
 ]
 """Typed source adapters fixed in code per line (decision 4). X is a v1 non-goal."""
 

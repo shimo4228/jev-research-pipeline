@@ -27,6 +27,7 @@ from typing import Any, Final
 
 from pydantic import JsonValue
 
+from jev_research_pipeline.adapters import web_search
 from jev_research_pipeline.home import JRP_HOME
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.model import STORE_NS, AdapterKind, Line
@@ -36,7 +37,14 @@ from jev_research_pipeline.store import RotationConfig
 CONFIG_ENV: Final = "JRP_DAILY_RESEARCH_CONFIG"
 DEFAULT_CONFIG: Final = JRP_HOME / "config.toml"
 OWNER_ENV: Final = "JRP_GITHUB_OWNER"
-ADAPTERS: Final[tuple[AdapterKind, ...]] = ("arxiv", "hf_papers", "github", "web_search")
+ADAPTERS: Final[tuple[AdapterKind, ...]] = (
+    "arxiv",
+    "hf_papers",
+    "github",
+    "web_search",
+    "feed",
+    "sitemap",
+)
 """Fixed in code for every line (decision 4); the model never chooses sources."""
 RESERVED_SLUGS: Final = frozenset({"wbr"})
 """Track slugs a config may not use: the file name `<date>_jrp_<slug>.md` of a line's notes
@@ -72,6 +80,12 @@ def load_tracks(path: Path, *, owner: str | None = None) -> list[TrackSpec]:
             raise ReservedSlug(
                 f"[tracks.{slug}] in {path}: {slug!r} is reserved for jrp's weekly review "
                 "note; rename the track"
+            )
+        window = spec.get("web_time_range")
+        if window is not None and window not in web_search.TIME_RANGES:
+            raise ValueError(
+                f"[tracks.{slug}] in {path}: web_time_range = {window!r}; "
+                f"use one of {web_search.TIME_RANGES}"
             )
         repos: list[dict[str, Any]] = spec.get("repos", [])
         repo = Path(str(repos[0]["target_repo"])).expanduser() if repos else None

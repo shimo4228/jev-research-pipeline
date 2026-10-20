@@ -88,6 +88,7 @@ daily = true                       # runs on every tick beside the rotated lines
 name = "Attention, Not Self"
 arxiv_categories = ["q-bio.NC"]    # optional: this line's arXiv listing, instead of [nets]
 # firehose = false                 # optional: no firehose request at all for this line
+# web_time_range = "week"          # optional: this line's web: searches, recent results only
 
 [nets]                             # all keys optional
 firehose = 2                       # API requests per run, per net
@@ -119,6 +120,12 @@ listing), and `arxiv_categories` replaces `[nets] arxiv_categories` for its arXi
 categories: over its history the `ans` line (meditation, Buddhist psychology) passed the
 prefilter with 0 of 1,070 arXiv listing items and 0 of 96 HF daily papers, each of them
 screened against every open question.
+
+`web_time_range` (`"day"`, `"week"`, `"month"` or `"year"`) makes a line's `web:` searches ask
+Tavily for results of that window only, with each result's published date; other values stop
+the run with the line named. Lines without it send their searches unchanged. A line that reads
+feeds and sitemaps (`feed:` / `sitemap:` query lines) needs no setting: their window is the last
+3 days, fixed in code.
 
 A track's slug names its notes (`<date>_jrp_<slug>.md`), so `wbr` is reserved for the weekly
 review's note: a config with `[tracks.wbr]` does not load, `jrp doctor` fails its config check

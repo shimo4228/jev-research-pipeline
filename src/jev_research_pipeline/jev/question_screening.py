@@ -230,6 +230,8 @@ def weighted(judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESH
 
 def no_abstract(source: SourceItem) -> bool:
     """Too short to screen. Checked before the request, not after it."""
+    if source.adapter == "feed":
+        return False  # a feed item is its full content, or its page (adapters.feed)
     floor = MIN_REPO_CHARS if source.adapter == "github" else MIN_ABSTRACT_CHARS
     return len(source.text) < floor
 

@@ -137,7 +137,10 @@ and `evidence` go into what Jev sees for every (source, question) pair; `not:` l
 yes/no checks the neighbouring topics that would otherwise pass every day. `canary:` names a paper or
 repo the question must always keep: if no search brings it in, it is fetched and screened anyway, and a
 dropped canary shows up in the note as a sign that screening drifted. The `arxiv:`, `github:`, `hf:`
-and `web:` lines are this question's search queries, sent as written; `jrp queries check --line
+and `web:` lines are this question's search queries, sent as written; `feed:` (an RSS or Atom feed's
+URL) and `sitemap:` (a URL prefix on a site whose sitemap.xml dates its pages) read a source that
+publishes a listing instead of a search, keeping what is new in the last 3 days and fetching an
+item's page when the listing carries no text. `jrp queries check --line
 <slug>` sends each one once and prints the first hits, storing nothing. A run never edits this file.
 
 ## Source nets

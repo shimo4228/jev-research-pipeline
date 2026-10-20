@@ -32,6 +32,11 @@ Search queries are written into the same block, one line per query, keyed by ada
     - github: agent memory
     - hf: long-term memory for LLM agents
     - web: agent memory evaluation
+    - feed: https://code.claude.com/docs/en/changelog/rss.xml
+    - sitemap: https://www.anthropic.com/engineering/
+
+`feed:` and `sitemap:` read a listing rather than a search (adapters.feed, adapters.sitemap):
+their text is a URL, not keywords.
 
 They are authored when the question is (by the author, or by Claude in the author's
 session — never at run time), trial-fetched with `jrp queries check`, and rewritten when
@@ -62,6 +67,8 @@ QUERY_FIELDS: Final[Mapping[str, AdapterKind]] = {
     "github": "github",
     "hf": "hf_papers",
     "web": "web_search",
+    "feed": "feed",
+    "sitemap": "sitemap",
 }
 """Field key in the question block → the keyword adapter it is sent to."""
 
