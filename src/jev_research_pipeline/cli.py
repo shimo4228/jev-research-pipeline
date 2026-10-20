@@ -29,6 +29,10 @@ jrp wbr [--week YYYY-Www] [--out DIR]
                    under today's schema in memory, never migrated
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
+jrp eval intake --candidate <toml> [--line <slug>]... [--days N] [--freeze]
+                   compare a candidate intake configuration with the current one on frozen
+                   fetches, judged by the production prefilter (evals.intake_report); writes
+                   only <store>/evals/intake/ (or JRP_EVAL_DIR)
 jrp prose export|bench|read|gate
                    the prose bench: frozen inputs, variants, the author's blind reading file,
                    the fidelity judge's gate files (pipeline.prose_bench)
@@ -68,9 +72,11 @@ from .evals.gate_score import GateInputError, load_candidate
 from .evals.gate_score import render as render_score
 from .evals.gate_score import write as write_score
 from .evals.gate_set import SINCE, GateSet, NoSet, freeze, load
+from .evals.intake_report import DEFAULT_DAYS, IntakeArgs, intake_command
 from .evals.jitter import DEFAULT_MAX_QUESTIONS as JITTER_MAX_QUESTIONS
 from .evals.jitter import DEFAULT_N as JITTER_N
 from .evals.jitter import jitter
+from .evals.judge import DEFAULT_MAX_USD, JITTER_SOURCES
 from .evals.paths import NAME as EVAL_NAME
 from .evals.paths import eval_root
 from .evals.silver import label, labels, ledger_path
@@ -201,6 +207,17 @@ def _eval_parser(ev: argparse.ArgumentParser) -> None:
     )
     g.add_argument("--out", help="check: the page to write")
     g.add_argument("--read", help="check: the ticked page to read back")
+    ei = evsub.add_parser("intake", help="a candidate intake configuration against the current")
+    ei.add_argument("--candidate", required=True, help="the candidate's TOML (evals.intake)")
+    ei.add_argument("--line", dest="lines", action="append", default=[], help="line slug")
+    ei.add_argument("--days", type=int, default=DEFAULT_DAYS, help="history window in days")
+    ei.add_argument("--as-of", type=date.fromisoformat, help="the window's last day")
+    ei.add_argument("--bench", help="the bench folder (default <store>/evals/intake)")
+    ei.add_argument("--max-usd", type=float, default=DEFAULT_MAX_USD, help="Jev spend cap")
+    ei.add_argument("--freeze", action="store_true", help="fetch today's snapshot once first")
+    ei.add_argument(
+        "--jitter", type=int, default=JITTER_SOURCES, help="sources re-asked for the noise floor"
+    )
 
 
 def _iso_week(text: str) -> Week:
@@ -445,15 +462,36 @@ async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> in
             code = 0 if notify(str(args.title), str(args.body), env=env) else 1
         case "queries":
             code = await _check_queries(env, str(args.line))
+        case "eval":
+            code = await _eval(env, args)
         case "prose":
             code = await _prose(env, args)
         case "codex":
             code = await _codex_login(env)
-        case "eval":
-            code = await _eval_gate(env, args)
         case _:
             code = await _drift(env, Path(args.cassettes))
     return code
+
+
+async def _eval(env: Mapping[str, str], args: argparse.Namespace) -> int:
+    """`jrp eval <part>`: one offline eval per part (evals)."""
+    match args.eval_command:
+        case "gate":
+            return await _eval_gate(env, args)
+        case _:
+            return await intake_command(
+                env,
+                IntakeArgs(
+                    candidate=Path(args.candidate),
+                    lines=tuple(str(x) for x in args.lines),
+                    days=int(args.days),
+                    as_of=args.as_of,
+                    bench=Path(args.bench) if args.bench else None,
+                    max_usd=float(args.max_usd),
+                    freeze=bool(args.freeze),
+                    jitter=int(args.jitter),
+                ),
+            )
 
 
 def _ids(raw: str | None) -> set[str] | None:
