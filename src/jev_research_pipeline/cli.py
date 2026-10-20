@@ -34,6 +34,12 @@ jrp prose export|bench|read|gate
                    the fidelity judge's gate files (pipeline.prose_bench)
 jrp codex login    sign in to the ChatGPT/Codex subscription once, for the default prose
                    model (generation.codex)
+jrp eval gate [freeze|label|jitter|check] [--set NAME] [--candidate FILE]
+                   the S (selection) and X (evidence, slots) eval on a frozen set under
+                   <store>/evals/gate/NAME/: freeze it from the store, label its sample with
+                   Claude Opus 5.5 (ANTHROPIC_API_KEY, JRP_EVAL_WEEKLY_USD), ask Jev the same
+                   states again for the noise floor, write or read the author's blind check,
+                   or (no action) score one candidate against today's run (evals.gate_score)
 
 A store file from an older build stops every command with one line (store.migrate):
 additive differences are migrated in place first (`jrp wbr`: lifted in memory, the file left
@@ -50,12 +56,24 @@ import sys
 import time
 import webbrowser
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Final
 
 import httpx2
 
+from .evals.check import CHECK_N, read_check, render_agreement, write_check
+from .evals.gate_run import freeze_lines, jitter_lines, label_lines, score_candidate
+from .evals.gate_score import GateInputError, load_candidate
+from .evals.gate_score import render as render_score
+from .evals.gate_score import write as write_score
+from .evals.gate_set import SINCE, GateSet, NoSet, freeze, load
+from .evals.jitter import DEFAULT_MAX_QUESTIONS as JITTER_MAX_QUESTIONS
+from .evals.jitter import DEFAULT_N as JITTER_N
+from .evals.jitter import jitter
+from .evals.paths import NAME as EVAL_NAME
+from .evals.paths import eval_root
+from .evals.silver import label, labels, ledger_path
 from .generation import (
     MissingCredentials,
     ModelSpecError,
@@ -149,7 +167,40 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("--verdicts", help="gate: summarize the judge's verdict dir instead")
     c = sub.add_parser("codex")
     c.add_argument("action", choices=["login"])
+    _eval_parser(
+        sub.add_parser("eval", help="offline evals of the pipeline's parts on frozen data")
+    )
     return p
+
+
+def _positive(text: str) -> int:
+    """A count of 1 or more: 0 would read as 'use the default' and spend the default."""
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more: {text}")
+    return value
+
+
+def _eval_parser(ev: argparse.ArgumentParser) -> None:
+    """`jrp eval <part>`: the intake eval adds `intake` beside `gate` (evals/)."""
+    evsub = ev.add_subparsers(dest="eval_command", required=True)
+    g = evsub.add_parser("gate", help="S and X: score a candidate on the frozen set")
+    g.add_argument(
+        "action",
+        nargs="?",
+        default="score",
+        choices=["score", "freeze", "label", "jitter", "check"],
+    )
+    g.add_argument("--set", dest="set_name", default="sx", help="the eval set's name")
+    g.add_argument("--candidate", help="score: the candidate TOML (evals.gate_score)")
+    g.add_argument("--since", type=date.fromisoformat, help="freeze: first day (YYYY-MM-DD)")
+    g.add_argument("--limit", type=_positive, help="label: at most this many calls")
+    g.add_argument("--n", type=_positive, help="jitter: states to ask again; check: items")
+    g.add_argument(
+        "--max-questions", type=_positive, help="jitter / ask candidate: Jev questions cap"
+    )
+    g.add_argument("--out", help="check: the page to write")
+    g.add_argument("--read", help="check: the ticked page to read back")
 
 
 def _iso_week(text: str) -> Week:
@@ -398,6 +449,8 @@ async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> in
             code = await _prose(env, args)
         case "codex":
             code = await _codex_login(env)
+        case "eval":
+            code = await _eval_gate(env, args)
         case _:
             code = await _drift(env, Path(args.cassettes))
     return code
@@ -531,6 +584,71 @@ async def _codex_login(env: Mapping[str, str]) -> int:
     await login(path, show=show)
     sys.stdout.write(f"Codex login saved → {path}\n")
     return 0
+
+
+async def _eval_gate(env: Mapping[str, str], args: argparse.Namespace) -> int:
+    """`jrp eval gate`: the S and X eval (evals.gate_set / gate_score / silver / jitter / check)."""
+    name = str(args.set_name)
+    if not EVAL_NAME.match(name) or ".." in name:
+        sys.stderr.write(f"not an eval set name: {name!r}\n")
+        return 1
+    now = datetime.now().astimezone()
+    try:
+        if args.action == "freeze":
+            frozen = freeze(env, name, since=args.since or SINCE)
+            lines = freeze_lines(frozen)
+        else:
+            lines = await _eval_on_set(env, args, load(env, name), now)
+    except (NoSet, GateInputError) as e:
+        sys.stderr.write(f"{e}\n")
+        return 1
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+async def _eval_on_set(
+    env: Mapping[str, str], args: argparse.Namespace, gs: GateSet, now: datetime
+) -> list[str]:
+    ledger = ledger_path(eval_root(env))
+    lang = note_lang(env)
+    match args.action:
+        case "label":
+            async with httpx2.AsyncClient(timeout=CALL_TIMEOUT_S) as http:
+                got = await label(gs, env, ledger, http=http, now=now, lang=lang, limit=args.limit)
+            return label_lines(got)
+        case "jitter":
+            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
+                result = await jitter(
+                    gs,
+                    env,
+                    http=http,
+                    now=now,
+                    n=args.n or JITTER_N,
+                    max_questions=args.max_questions or JITTER_MAX_QUESTIONS,
+                )
+            return jitter_lines(result)
+        case "check":
+            if args.read:
+                return [render_agreement(read_check(Path(args.read)))]
+            if not args.out:
+                raise GateInputError("check: give --out PAGE to write, or --read PAGE to read back")
+            n = write_check(
+                gs, labels(ledger, gs.manifest.name, lang), Path(args.out), n=args.n or CHECK_N
+            )
+            if not n:
+                raise GateInputError("check: no labelled item yet (run `jrp eval gate label`)")
+            return [
+                f"check page → {args.out}, {n} items (key: {Path(args.out).with_suffix('.key.json')})"
+            ]
+        case _:
+            if not args.candidate:
+                raise GateInputError("score: give --candidate FILE (bench/gate/candidates/*.toml)")
+            candidate = load_candidate(Path(args.candidate))
+            report = await score_candidate(
+                gs, candidate, env, ledger, now=now, lang=lang, max_questions=args.max_questions
+            )
+            path = write_score(report, gs.root, now=now)
+            return [render_score(report), f"→ {path}"]
 
 
 def _prepared(env: Mapping[str, str]) -> None:

@@ -1,0 +1,6 @@
+# The threshold candidate: question_screening keeps from a weighted score of 0.55 (today 0.6).
+# 37-39% of screening judgments sit within 0.05 of the cut (inventory 2026-10-19).
+name = "keep-055"
+
+[thresholds.question_screening]
+keep = 0.55

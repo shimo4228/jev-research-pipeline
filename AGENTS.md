@@ -52,6 +52,30 @@ zh = `zh1.md` + `zh-check1.md`。言語のベンチは `jrp prose bench --lang e
 読み手の指示文も言語に従う）。本番のモデルは `claude-code:claude-opus-5-5`（2026-10-03 の run から。著者の blind 読み
 5/5）。Jev の claim_fidelity は記録だけで足切りではない（design「Production check vs the prose bench」）。
 
+## 選別と根拠化の候補を比べる（gate eval）
+
+S（prefilter・triage・trust・screening）と X（claim_detection・novelty・掲載枠の並べ順）の変更は、
+週報を待たずに固定データで基準（今の run）と比べる。正本は design「Gate eval: S and X on frozen data」、
+調査は `docs/plans/research/2026-10-20-sx-eval-loop.md`。本番 store は読むだけにし、写しに向けて回す:
+
+```bash
+cp -cR "$JRP_STORE_DIR"/{lines,pipeline.jsonld} <scratch>/store/   # APFS の複製
+JRP_STORE_DIR=<scratch>/store uv run jrp eval gate freeze            # 評価集合を凍結（--set で名前）
+JRP_STORE_DIR=<scratch>/store uv run jrp eval gate --candidate bench/gate/candidates/<name>.toml
+```
+
+1. 候補は `bench/gate/candidates/*.toml` に 1 ファイル 1 変更で書く（閾値の名前・並べ順・screen の言い回し。
+   形は `evals/gate_score.py` の docstring）。閾値と並べ順は保存済みの Judgment から再計算するので 0 円、
+   言い回しの候補は標本の state に Jev を聞き直す（`--max-questions` で上限、既定 600 問）
+2. 読む順は holdout の判定 → 変わる対・line-day → silver の行。比べるのは区間の重ならない差だけにする。
+   holdout の label 付きで変わる項目が 85 未満のあいだは回帰 gate として読み、候補の間で選ぶのは著者
+3. silver label: `uv run jrp eval gate label`（`ANTHROPIC_API_KEY`、週 `JRP_EVAL_WEEKLY_USD` 既定 $10。
+   key が無ければ未測定のまま）。付いたら `jrp eval gate check --out <scratch>/check.md` で 30 件の blind
+   確認ファイルを作って著者に渡し、`--read` で一致率を読む
+4. 雑音の床: `uv run jrp eval gate jitter`（同じ state を Jev に聞き直す。既定 40 件・400 問）
+
+候補を本番に入れるのは著者の判断。入れたら 1 週に 1 つにし、週報の分解で転移を確かめる。
+
 ## trace を見る（OTel）
 
 本番（launchd）の run は trace を送らない。`~/.config/jrp/env` の `OTEL_EXPORTER_OTLP_ENDPOINT`

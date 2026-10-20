@@ -1140,6 +1140,49 @@ list showed unfolded.
 Review-when: the author's ticks start landing in a folded list (then it is read, and
 belongs on the surface), or the fill rate drops after this change.
 
+### Gate eval: S and X on frozen data (2026-10-20)
+
+The weekly review gives one point per change, so it cannot pick between candidates. `jrp eval
+gate` scores a candidate for S (prefilter, triage, trust, screening) and X (claim detection,
+novelty, the slot order) against today's run on a frozen set, dev and holdout apart. Research:
+`docs/plans/research/2026-10-20-sx-eval-loop.md`. Code: `src/jev_research_pipeline/evals/`.
+
+- **The set** (`jrp eval gate freeze`, from a store copy): every (source, question) pair a
+  current prefilter judged since screening v3 (2026-10-02), with its triage, trust and
+  screening Judgments; every line-day's claim pool (claims novelty judged that day and no
+  earlier note showed). Written under `<store>/evals/gate/<name>/` (third-party text, so never
+  in the repo). As built on the 2026-10-20 store: 41,379 pairs, 52 line-days, 2,777 pool claims;
+  the prefilter's question order rebuilt for 99%, the screening state for 95% (sha256 match),
+  1,197 of 1,197 stored screening Decisions reproduced, 89 of 102 notes' slot sets reproduced
+  (the rest differ by about one claim, ties on the 0.01 grid; unconfirmed).
+- **Recomputed, not asked.** Thresholds and the slot order are replayed from the stored
+  Judgments with the module rules (`thresholds=` on each rule, `run.capped` for the slots):
+  $0. A pair whose next Judgment the run never asked is counted as unasked, never guessed. A
+  reworded screen asks Jev again over the rebuilt states of the labelled sample, capped.
+- **Labels.** The author's ⭕ only exist where the baseline delivered: they can punish a
+  candidate that drops one and never reward one that adds (a floor, research §A). So a
+  stratified sample (S 160, X 80; strata from the baseline's score band, a quarter of the S
+  labels on what it drops) gets silver labels from Claude Opus 5.5 on the Claude API (S: is
+  the source worth getting evidence from for the question; X: the weekly review's precision
+  question). Precision and recall come with Webber's stratified Beta interval. The author
+  checks a few dozen blind (`jrp eval gate check`): that tells a broken labeller, not a
+  correction (about 200 labels would be needed, research §B).
+- **Noise floor.** `jrp eval gate jitter` asks Jev the same rebuilt states again: 2 of 39
+  routes flipped [1%, 17%], mean |Δ weighted| 0.006 (2026-10-20, 280 questions, $0.0056).
+- **Verdict.** Holdout only. A regression is a change whose interval lies wholly below 0, or
+  fewer ⭕ kept or shown. Choosing among candidates needs 85 changed and labelled items in the
+  holdout (80% power at a 65% win rate, research §C); below that the eval is a regression gate
+  and the choice is the author's (harness rule evals.md).
+- **First two candidates** (2026-10-20, no silver labels yet): `keep-055`
+  (`bench/gate/candidates/`) keeps 19 more holdout pairs (151 → 170) and loses no ⭕;
+  `new-paper-first` shows 7 more papers new to the line over 17 holdout line-days (66 → 73,
+  +0.41 a line-day [+0.12, +0.76], none fewer), and 4 fewer ⭕ claims on dev (43 → 39; 9 → 9
+  on holdout). Both pass the gate on what is measured; neither may be chosen on these numbers.
+
+Review-when: the silver labels are checked by the author (re-read the precision rows); a
+candidate is adopted into the run (its next weeks' factors in the weekly review are the
+transfer check); Jev's version changes (refreeze: every stored answer belongs to 1.13.0).
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into
@@ -1161,6 +1204,13 @@ LLM-as-judge with another LLM as the truth source.
 > O1 sources are used (calibrate the precision sample on them, or replace it with the used
 > rate), or the judge's model, its prompts or the rubric change (cut the series there; the
 > weekly row keeps the model and the rubric's sha).
+
+> **注記（2026-10-20, research 2026-10-20-sx-eval-loop）**: a second exception, offline. `jrp eval gate label`
+> labels the gate eval's sample with Claude Opus 5.5 (up to `JRP_EVAL_WEEKLY_USD`, default
+> $10 a week, its own ledger `<store>/evals/silver.jsonl` with the monitoring judge's
+> reservation and lock). The labels are silver, not truth: they compare candidates offline and
+> are read beside the author's blind check; no run, threshold or fit reads them, and adopting a
+> candidate stays the author's decision ("Gate eval: S and X on frozen data").
 
 ## Libraries (verified as-of 2026-09-22)
 

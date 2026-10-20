@@ -1,0 +1,7 @@
+# The slot-order candidate: within a question's slots, a paper no earlier note showed for that
+# question goes before one already delivered; ties keep claim_detection's score order
+# (inventory 2026-10-19, "最初の 1 手の候補").
+name = "new-paper-first"
+
+[slots]
+order = "new_paper_first"
