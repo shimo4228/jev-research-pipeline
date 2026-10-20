@@ -234,7 +234,7 @@ Code CLI, whose own system prompt may not be in the recorded counts.
 
 ## Status
 
-- **Daily since 2026-09-24** on my seven lines, in about 15 minutes a morning, writing Japanese. An
+- **Daily since 2026-09-24** on my seven lines (eight from 2026-10-21), in about 15 minutes a morning, writing Japanese. An
   evaluation of 11 runs before that is in [pilot-log.md](pilot-log.md).
 - **Thresholds.** Jev's routing thresholds started from TypeSafe's published examples and were tuned
   by hand; they have not been refit on ticks yet, so expect borderline calls in each note's Review

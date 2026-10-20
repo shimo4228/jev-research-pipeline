@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
-[![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](docs/pilot-log.md)
+[![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green.svg)](#現状と限界)
 
 [ノートの見本](#毎朝届くもの) · [なぜ jrp か](#なぜ-jrp-か) · [試す](#試す) · [現状と限界](#現状と限界)
 
@@ -14,7 +14,7 @@
   <img src="assets/overview.ja.svg" width="540" alt="「あなたの問い」を中心に 4 つの枠が回るループの図。毎朝、新しい論文とリポジトリを集める。Jev が一つずつ、あなたの問いの答えに役立つかを判定し、採る・保留・捨てるに振り分ける。LLM が問いごとに短い節を書く。その日のノートが Obsidian に届き、読む価値があったものに印を付けると、点線の矢印のとおり、その印が翌朝の実行に効く。">
 </p>
 
-jrp は、1 人で研究分野を追いかけるためのコマンドラインのツールです。テーマごとに、まだ答えの出ていない問いを 2〜4 本立てておくと、jrp は毎朝、輪番で次の 3 テーマを選び（1 朝に選ぶ数は設定で変えられます）、新しい論文とリポジトリをその問いに照らして確かめ、テーマごとに 1 枚の Markdown のノートをフォルダ（ふつうは Obsidian の vault）に書きます。ループを回すのは素の Python のコードです。ふるい分けの判定（この論文はこの問いの答えに役立つか、どの文が証拠か）はすべて Jev に聞きます。Jev は TypeSafe 社がホストする有料のモデルで、答えの決まった質問（はい・いいえや、いくつかの選択肢）に、答えごとの確率で答え、文章は書きません。説明の文章は、選んだ LLM（ChatGPT か Claude のサブスクリプション、または Qwen）が書き、自分の草稿を 1 回見直します。仕上がった節は Jev が採点します。ノートは英語・中国語・日本語で書けます。
+jrp は、1 人で研究分野を追いかけるためのコマンドラインのツールです。テーマごとに、まだ答えの出ていない問いを 2〜4 本立てておくと、jrp は毎朝、輪番で次の 3 テーマを選び（1 朝に選ぶ数は設定で変えられます）、新しい論文とリポジトリをその問いに照らして確かめ、テーマごとに 1 枚の Markdown のノートをフォルダ（ふつうは Obsidian の vault）に書きます。ループを回すのは素の Python のコードです。ふるい分けの判定（この論文はこの問いの答えに役立つか、どの文が証拠か）はすべて Jev に聞きます。Jev は TypeSafe 社がホストする有料のモデルで、答えの決まった質問（はい・いいえや、いくつかの選択肢）に、答えごとの確率で答え、文章は書きません。説明の文章は、選んだ LLM（ChatGPT か Claude のサブスクリプション、Claude API、または Qwen）が書き、自分の草稿を 1 回見直します。仕上がった節は Jev が採点します。ノートは英語・中国語・日本語で書けます。
 
 ## 毎朝届くもの
 
@@ -62,7 +62,7 @@ Python 3.12 と [uv](https://docs.astral.sh/uv/) のほかに、アカウント�
   - Claude API（従量課金）、`anthropic:claude-opus-5-5`: `ANTHROPIC_API_KEY`。Claude の Max プランに付く毎月の API クレジットで払えます（このクレジットは Claude Code CLI には使えません）。
   - Qwen（従量課金）、`dashscope:qwen3.7-max`: `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio）。
 
-**外に出るもの**: 問いの検索語は arXiv（OpenAlex 経由）、Hugging Face、GitHub、`TAVILY_API_KEY` を設定すれば Tavily へ、印を付けた論文と Jev が残した論文の ID は Semantic Scholar の推薦（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使います）と、引用している論文を探す OpenAlex へ、Jev が判定する論文と箇所は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。`ANTHROPIC_API_KEY` を設定していれば、週報がその週の節（証拠と本文）と引用された claim を問いと一緒に標本として Claude API へ送り、週 $5 までの検査をします。ノートは手元のフォルダに残ります。任意の Slack 通知が送るのはノートの名前、主張の件数、失敗の理由、未解決の問いが無い問いのファイルの場所で、ノートの中身は送られません。
+**外に出るもの**: 問いの検索語は arXiv（OpenAlex 経由）、Hugging Face、GitHub、`TAVILY_API_KEY` を設定すれば Tavily へ送られます。問いが名指したフィードとサイトマップ（`feed:` と `sitemap:` の行）は取得されます。そこに並ぶ最近のページのうち本文の無いものも、1 回の実行で一覧ごとに 10 件まで取得されます。印を付けた論文と Jev が残した論文の ID は Semantic Scholar の推薦（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使います）と、引用している論文を探す OpenAlex へ、Jev が判定する論文と箇所は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。`ANTHROPIC_API_KEY` を設定していれば、週報がその週の節（証拠と本文）と引用された claim を問いと一緒に標本として Claude API へ送り、週 $5 までの検査をします。ノートは手元のフォルダに残ります。任意の Slack 通知が送るのはノートの名前、主張の件数、失敗の理由、未解決の問いが無い問いのファイルの場所で、ノートの中身は送られません。
 
 そのうえで、インストールして最初の設定を書きます。インストールせずに試すときは、以下の `jrp init`、`jrp doctor`、`jrp try` の前に代わりに `uvx` を付けます。定期実行にはインストールした jrp が要ります。
 
@@ -88,7 +88,7 @@ jrp wbr                         # 直前の 1 週間の週報を、store だけ�
 
 ## 現状と限界
 
-- **試験運用（pilot）です。** 2026-09-24 から毎朝、私自身の 7 つのテーマで動かしています。macOS（launchd）と Linux（cron か systemd）で動きます。
+- **私 1 人が毎日使っています。** 2026-09-24 から毎朝動かしていて、2026-10-21 からは私自身の 8 つのテーマを回します（7 つは輪番で 1 朝 2 つ、1 つは毎朝）。macOS（launchd）と Linux（cron か systemd）で動きます。
 - **中核は 1 社に依存しています。** TypeSafe が Jev を値上げすれば、あなたの費用もそのぶん上がります。提供をやめれば、代わりの判定役が無いので jrp は止まります。
 - **閾値は手で調整したものです。** Jev の振り分けの閾値は、まだ印から再推定していないので、各ノートの保留（Review）の一覧には境界の論文が出てきます。
 - **英語と中国語のノートは、まだ誰も読んでいません。** 私が読めるのは日本語だけです。英語と中国語のプロンプトは、Claude Opus が書いた草稿の自動の測定だけで受け入れました（開発時の `jrp prose bench` で、草稿を出典と照らす Opus の採点役に通ったのは、英語 32 件中 28 件、中国語 32 件中 32 件）。既定の書き手の GPT-6 Luna は、どちらの言語でもまだ測っていません。英語か中国語を読む方が見本を読んだら、読みにくいところを [読みの感想の issue](https://github.com/shimo4228/jev-research-pipeline/issues/new?template=reading-feedback.yml)（どの言語でも可。引用は短く）で教えてください。
@@ -97,7 +97,7 @@ jrp wbr                         # 直前の 1 週間の週報を、store だけ�
 
 - [jrp の仕組み](docs/how-it-works.md)（英語）: 毎朝の実行の手順、ノートの中身、問いのファイル、資料の集め方、文章の書かせ方と点検、費用の内訳、エージェントでなく判定モデルに聞く理由。
 - [設計の記録](docs/design/pipeline-design.md)（英語）: すべての判断と、その根拠にした証拠。
-- 土台: [TypeSafe Jev](https://docs.typesafe.ai) を [Pydantic AI の `typesafe:` モデル](https://pydantic.dev/docs/ai/models/typesafe/)（英語）経由で使い、書き手には [Pydantic AI の OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md)（英語）、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)（英語）、[DashScope の Qwen](https://www.alibabacloud.com/help/en/model-studio/models)（英語）を使います。
+- 土台: [TypeSafe Jev](https://docs.typesafe.ai) を [Pydantic AI の `typesafe:` モデル](https://pydantic.dev/docs/ai/models/typesafe/)（英語）経由で使い、書き手には [Pydantic AI の OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md)（英語）、[Claude Code](https://docs.anthropic.com/en/docs/claude-code)（英語）、Claude API 用の [Pydantic AI の Anthropic のモデル](https://pydantic.dev/docs/ai/models/anthropic/)（英語）、[DashScope の Qwen](https://www.alibabacloud.com/help/en/model-studio/models)（英語）を使います。
 
 ## 著者のほかの仕事
 
@@ -127,7 +127,7 @@ jrp（jev-research-pipeline）は、1 人で研究分野を追いかける人の
 
 これがあるのは、著者が前に使っていた仕組み（[daily-research](https://github.com/shimo4228/daily-research) で、Web 検索ができる Opus のエージェントにループ全体を任せていたもの）が、1 朝 107〜242 回のモデルとの往復で $8〜15 かかり、1 つの主題に偏った（動かし始めて 3 か月で選んだ 238 の調査題目のうち 88）からです。jrp では、ループは素の Python のコードが持ち、どの資料源を探すかもコードが決めます。ふるい分けの判定（この論文はこの問いの答えに役立つか、どの文が証拠か）はすべて TypeSafe 社の Jev（答えの決まった質問に確率で答え、文章は書かないホスト型のモデル）に聞き、文章は LLM が書いて自分の草稿を 1 回見直し、仕上がった節を Jev が採点基準に沿って採点します。
 
-ライセンスは MIT です。言語は Python 3.12 で、uv で入れます（`uv tool install jrp`。PyPI のパッケージ名は `jrp`）。状態は試験運用（pilot）で、このリポジトリで手で保守し、著者が 2026-09-24 から毎朝、自分の 7 つのテーマで動かしています。macOS（launchd）と Linux（cron か systemd）で動きます。有料の鍵として、Jev 用の TypeSafe の API キーが必要です（有料で無料枠は公表されていません。2026-10-07 時点で入力 10 億トークンあたり $42、著者の運用で 1 朝 $0.03〜0.17）。Jev は差し替えられません。書き手は、Codex を含む ChatGPT のプラン（`openai-codex:gpt-6-luna`、既定）、Claude Code CLI 経由の Claude のサブスクリプション（`claude-code:claude-opus-5-5`）、従量課金の DashScope の Qwen（`dashscope:qwen3.7-max`）のどれか 1 つです。ノートは英語・中国語・日本語で書け、人が読んで確かめたのは日本語のプロンプトだけです（著者自身が目隠しで読み比べました）。外に出るデータとして、問いの検索語は arXiv（OpenAlex 経由）、Hugging Face papers、GitHub、鍵があれば Tavily へ、印を付けた論文と残した論文の ID は Semantic Scholar の推薦 API（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使う）と、引用している論文を探す OpenAlex へ、Jev が判定する文章は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。任意の Slack 通知が送るのは、ノートごとの名前と主張の件数、実行がうまくいかなかった理由（下書きや資料源の失敗など）やテーマが失敗した理由、未解決の問いが無い問いのファイルの場所で、主張そのものは送りません。
+ライセンスは MIT です。言語は Python 3.12 で、uv で入れます（`uv tool install jrp`。PyPI のパッケージ名は `jrp`）。状態は著者が毎日使っている段階で、このリポジトリで手で保守し、2026-09-24 から毎朝、2026-10-21 からは自分の 8 つのテーマ（7 つは輪番で 1 朝 2 つ、1 つは毎朝）で動かしています。macOS（launchd）と Linux（cron か systemd）で動きます。有料の鍵として、Jev 用の TypeSafe の API キーが必要です（有料で無料枠は公表されていません。2026-10-07 時点で入力 10 億トークンあたり $42、著者の運用で 1 朝 $0.03〜0.17）。Jev は差し替えられません。書き手は、Codex を含む ChatGPT のプラン（`openai-codex:gpt-6-luna`、既定）、Claude Code CLI 経由の Claude のサブスクリプション（`claude-code:claude-opus-5-5`）、従量課金の Claude API（`anthropic:claude-opus-5-5`、2026-10-21 からの著者の書き手）、従量課金の DashScope の Qwen（`dashscope:qwen3.7-max`）のどれか 1 つです。ノートは英語・中国語・日本語で書け、人が読んで確かめたのは日本語のプロンプトだけです（著者自身が目隠しで読み比べました）。外に出るデータとして、問いの検索語は arXiv（OpenAlex 経由）、Hugging Face papers、GitHub、鍵があれば Tavily へ送られ、問いが名指したフィードとサイトマップは、そこに並ぶ最近のページのうち本文の無いもの（1 回の実行で一覧ごとに 10 件まで）とともに取得されます。印を付けた論文と残した論文の ID は Semantic Scholar の推薦 API（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使う）と、引用している論文を探す OpenAlex へ、Jev が判定する文章は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。任意の Slack 通知が送るのは、ノートごとの名前と主張の件数、実行がうまくいかなかった理由（下書きや資料源の失敗など）やテーマが失敗した理由、未解決の問いが無い問いのファイルの場所で、主張そのものは送りません。
 
 例: `jrp init --lang ja` が `~/.config/jrp/{env, config.toml, questions/agent-memory.md}` を書きます。env ファイルに `JRP_VAULT_DIR`、`TYPESAFE_API_KEY`、`JRP_PROSE_MODEL` を埋めたあと、`jrp doctor` が実行せずに設定を確かめ、`jrp try --line agent-memory` がそのテーマを使い捨てのフォルダに 1 回だけ回してノートの置き場所を表示します。ノートは、新しい証拠が出た問いごとに短い節を 1 つ持ちます。`[n]` はどれも出典から一字一句写した 1 文を指し、確信の低い論文は保留（Review）の一覧に回り、節ごとの「読む価値があった」の印が翌朝の実行に効きます。測った費用は、テーマ 3〜4 本で 1 朝 $1.1〜1.5（2026-10-03〜10-07、書き手の Opus 5.5 を API 単価で換算し、Jev を足したもの）で、置き換えた Opus のエージェントは $8〜15 でした。
 

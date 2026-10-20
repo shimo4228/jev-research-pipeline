@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/pyproject.toml)
-[![Status: pilot](https://img.shields.io/badge/status-pilot-orange.svg)](https://github.com/shimo4228/jev-research-pipeline/blob/main/docs/pilot-log.md)
+[![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green.svg)](https://github.com/shimo4228/jev-research-pipeline#status-and-limits)
 
 [A sample note](https://github.com/shimo4228/jev-research-pipeline#what-you-get-each-morning) · [Why jrp](https://github.com/shimo4228/jev-research-pipeline#why-jrp) · [Try it](https://github.com/shimo4228/jev-research-pipeline#try-it) · [Status and limits](https://github.com/shimo4228/jev-research-pipeline#status-and-limits)
 
@@ -21,7 +21,7 @@ folder, usually an Obsidian vault. Plain Python code runs
 the loop. Every screening call in it (does this paper help answer this question? which sentence is the
 evidence?) goes to Jev, a paid hosted model from TypeSafe that answers fixed-choice questions (yes
 or no, or one of a few options) with a probability for each answer and writes no text. An LLM you
-choose, on your ChatGPT or Claude subscription or on Qwen, writes the explanation and checks its own
+choose, on your ChatGPT or Claude subscription, on the Claude API or on Qwen, writes the explanation and checks its own
 draft once; Jev then scores the finished section. Notes come in English, Chinese or Japanese.
 
 ## What you get each morning
@@ -103,7 +103,7 @@ You need Python 3.12, [uv](https://docs.astral.sh/uv/), and two accounts:
     credits of a Claude Max plan pay for it (they do not cover the Claude Code CLI).
   - Qwen, pay per token, `dashscope:qwen3.7-max`: `DASHSCOPE_API_KEY` (Alibaba Cloud Model Studio).
 
-**What leaves your machine:** your questions' search queries go to arXiv (through OpenAlex), Hugging Face, GitHub and, if you set `TAVILY_API_KEY`, Tavily; the IDs of papers you ticked and papers Jev kept go to Semantic Scholar's recommender (with the papers you marked `[-]` as negatives, or random papers when there are none yet) and to OpenAlex to find papers citing them; the papers and passages Jev judges go to TypeSafe; and each section's evidence goes to the writer you picked. If `ANTHROPIC_API_KEY` is set, the weekly review also sends a sample of the week's sections (their evidence and prose) and of its cited claims with their questions to the Claude API, for a check that costs at most $5 a week. Notes stay in your folder; the optional Slack notification carries note names, claim counts, failure reasons and the path of any question file with no open question, not the notes' content.
+**What leaves your machine:** your questions' search queries go to arXiv (through OpenAlex), Hugging Face, GitHub and, if you set `TAVILY_API_KEY`, Tavily; the feeds and sitemaps a question names (`feed:` and `sitemap:` lines) are fetched, and so are the recent pages they list without text, up to 10 per listing a run; the IDs of papers you ticked and papers Jev kept go to Semantic Scholar's recommender (with the papers you marked `[-]` as negatives, or random papers when there are none yet) and to OpenAlex to find papers citing them; the papers and passages Jev judges go to TypeSafe; and each section's evidence goes to the writer you picked. If `ANTHROPIC_API_KEY` is set, the weekly review also sends a sample of the week's sections (their evidence and prose) and of its cited claims with their questions to the Claude API, for a check that costs at most $5 a week. Notes stay in your folder; the optional Slack notification carries note names, claim counts, failure reasons and the path of any question file with no open question, not the notes' content.
 
 Then install it and write the starter config. To try it without installing, put `uvx` in front of
 the `jrp init`, `jrp doctor` and `jrp try` commands below instead; scheduling needs the installed copy.
@@ -141,8 +141,9 @@ A run never edits either file.
 
 ## Status and limits
 
-- **A pilot.** I have run it every morning since 2026-09-24 on seven topics of my own. It runs on
-  macOS (launchd) or Linux (cron or systemd).
+- **In daily use, by one person.** I have run it every morning since 2026-09-24. From 2026-10-21 it
+  covers eight topics of my own: seven take turns, two a morning, and one runs every morning. It runs
+  on macOS (launchd) or Linux (cron or systemd).
 - **One vendor at the core.** If TypeSafe raises Jev's price, your cost rises with it; if TypeSafe
   shuts Jev down, jrp stops, because there is no fallback judge.
 - **Thresholds are hand-tuned.** Jev's routing thresholds have not been refit on ticks yet, so expect
@@ -168,7 +169,8 @@ A run never edits either file.
 - Built on [TypeSafe Jev](https://docs.typesafe.ai) through
   [Pydantic AI's `typesafe:` model](https://pydantic.dev/docs/ai/models/typesafe/); the writers use
   [Pydantic AI's OpenAI Codex provider](https://github.com/pydantic/pydantic-ai/blob/main/docs/models/openai-codex.md),
-  [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+  [Pydantic AI's Anthropic model](https://pydantic.dev/docs/ai/models/anthropic/) for the Claude API, or
   [Qwen on DashScope](https://www.alibabacloud.com/help/en/model-studio/models).
 
 ## More from the author
@@ -199,7 +201,7 @@ jrp (jev-research-pipeline) is a command-line research monitor for one person ke
 
 It exists because the author's previous setup, an Opus agent with web search that ran the whole loop in [daily-research](https://github.com/shimo4228/daily-research), cost $8 to $15 a morning over 107 to 242 model turns and drifted onto one theme (88 of the 238 topics it chose in its first three months). In jrp, plain Python owns the loop and fixes which sources are searched; every screening call (does this paper help answer this question? which sentence is the evidence?) goes to TypeSafe's Jev, a hosted model that answers fixed-choice questions with probabilities and writes no text; and an LLM writes the prose and checks its own draft once, after which Jev scores the section on a rubric.
 
-Canonical facts. License: MIT. Language: Python 3.12, installed with uv (`uv tool install jrp`; the package is `jrp` on PyPI). Status: a pilot, maintained by hand in this repository and run by the author every morning since 2026-09-24 on seven of the author's own topics; macOS (launchd) or Linux (cron or systemd). Paid keys: a TypeSafe API key for Jev is required (paid, no free tier published; $42 per billion input tokens as of 2026-10-07, $0.03 to $0.17 a morning in the author's runs), and Jev cannot be swapped out. The writer is one of a ChatGPT plan that includes Codex (`openai-codex:gpt-6-luna`, the default), a Claude subscription through the Claude Code CLI (`claude-code:claude-opus-5-5`), or Qwen on DashScope, paid per token (`dashscope:qwen3.7-max`). Notes come in English, Chinese or Japanese; only the Japanese prompt has had a human reader (the author's own blind reading). Data that leaves the machine: each question's search queries go to arXiv (through OpenAlex), Hugging Face papers, GitHub and, with a key, Tavily; the IDs of ticked and kept papers go to Semantic Scholar's recommendation API (with papers marked `[-]` as negatives, or random papers when none are marked) and to OpenAlex for citing papers; the text Jev judges goes to TypeSafe; and the evidence for each section goes to the chosen writer. Optional Slack notifications carry each note's name and claim count, the reasons a run was degraded (a draft or a source that failed, for example) or a topic failed, and the path of any question file with no open question, not the claims themselves.
+Canonical facts. License: MIT. Language: Python 3.12, installed with uv (`uv tool install jrp`; the package is `jrp` on PyPI). Status: in daily use by the author, every morning since 2026-09-24 and, from 2026-10-21, on eight of the author's own topics (seven in rotation, two a morning, plus one every morning), maintained by hand in this repository; macOS (launchd) or Linux (cron or systemd). Paid keys: a TypeSafe API key for Jev is required (paid, no free tier published; $42 per billion input tokens as of 2026-10-07, $0.03 to $0.17 a morning in the author's runs), and Jev cannot be swapped out. The writer is one of a ChatGPT plan that includes Codex (`openai-codex:gpt-6-luna`, the default), a Claude subscription through the Claude Code CLI (`claude-code:claude-opus-5-5`), the Claude API, paid per token (`anthropic:claude-opus-5-5`, the author's writer from 2026-10-21), or Qwen on DashScope, paid per token (`dashscope:qwen3.7-max`). Notes come in English, Chinese or Japanese; only the Japanese prompt has had a human reader (the author's own blind reading). Data that leaves the machine: each question's search queries go to arXiv (through OpenAlex), Hugging Face papers, GitHub and, with a key, Tavily; the feeds and sitemaps a question names are fetched, with the recent pages they list without text (up to 10 per listing a run); the IDs of ticked and kept papers go to Semantic Scholar's recommendation API (with papers marked `[-]` as negatives, or random papers when none are marked) and to OpenAlex for citing papers; the text Jev judges goes to TypeSafe; and the evidence for each section goes to the chosen writer. Optional Slack notifications carry each note's name and claim count, the reasons a run was degraded (a draft or a source that failed, for example) or a topic failed, and the path of any question file with no open question, not the claims themselves.
 
 Example: `jrp init --lang en` writes `~/.config/jrp/{env, config.toml, questions/agent-memory.md}`; after filling `JRP_VAULT_DIR`, `TYPESAFE_API_KEY` and `JRP_PROSE_MODEL` in the env file, `jrp doctor` checks the setup without running, and `jrp try --line agent-memory` runs that topic once into a throwaway folder and prints the note's path. A note has one short section per question with new evidence; each `[n]` cites a sentence copied word for word from its source, uncertain papers go to a Review list, and a "Worth reading" checkbox per section feeds the next run. Measured cost: $1.1 to $1.5 a morning for 3 or 4 topics (2026-10-03 to 10-07, Opus 5.5 as the writer priced at API rates, plus Jev), against $8 to $15 for the Opus agent it replaced.
 
