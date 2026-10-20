@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import json
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx2
@@ -72,6 +73,12 @@ def _stable(text: str) -> str:
     return "\n".join(ln for ln in text.splitlines() if not _timed(ln))
 
 
+def _end() -> datetime:
+    """The tick's end on its RunRecord (pipeline.jsonld): a wall clock would differ
+    between the two runs compared."""
+    return b.T0 + timedelta(minutes=20)
+
+
 def _store_bytes(root: Path) -> dict[str, bytes]:
     return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*.jsonld"))}
 
@@ -89,7 +96,9 @@ async def test_parallel_run_writes_what_a_sequential_run_writes(
             "JRP_VAULT_DIR": str(tmp_path / f"vault-{limit}"),
         }
         Path(run_env["JRP_VAULT_DIR"]).mkdir()
-        (outcome,) = await run_pipeline(run_env, now=b.T0, http=_client(InFlight()), pacing=False)
+        (outcome,) = await run_pipeline(
+            run_env, now=b.T0, http=_client(InFlight()), pacing=False, clock=_end
+        )
         outputs.append(
             (
                 _stable(outcome.note.read_text(encoding="utf-8")),
@@ -98,6 +107,7 @@ async def test_parallel_run_writes_what_a_sequential_run_writes(
             )
         )
     (seq_note, seq_store, seq_ops), (par_note, par_store, par_ops) = outputs
+    assert "pipeline.jsonld" in seq_store  # the RunRecord is compared too
     assert par_note == seq_note
     assert par_store == seq_store
     assert par_ops == seq_ops
@@ -195,7 +205,7 @@ async def test_several_question_days_in_parallel_write_the_sequential_note(
         }
         Path(run_env["JRP_VAULT_DIR"]).mkdir()
         (outcome,) = await run_pipeline(
-            run_env, now=b.T0, http=_client(InFlight(_is_prose)), pacing=False
+            run_env, now=b.T0, http=_client(InFlight(_is_prose)), pacing=False, clock=_end
         )
         notes.append(
             (

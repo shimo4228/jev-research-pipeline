@@ -1,6 +1,6 @@
 """Minimal valid instances of every node kind, wired to each other by @id."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from jev_research_pipeline.model import (
     AxisMeter,
@@ -10,6 +10,7 @@ from jev_research_pipeline.model import (
     Judgment,
     Label,
     Line,
+    LineRecord,
     NoulAnswer,
     Operations,
     QueryCandidate,
@@ -17,7 +18,9 @@ from jev_research_pipeline.model import (
     QuestionLog,
     Report,
     RotationCursor,
+    RunRecord,
     ScoreAnswer,
+    SectionRendering,
     Sighting,
     SourceItem,
     StageRecord,
@@ -191,6 +194,27 @@ def stage_record() -> StageRecord:
     )
 
 
+def run_record() -> RunRecord:
+    return RunRecord.new(
+        started_at=T0,
+        finished_at=T0 + timedelta(minutes=20),
+        lines=("akc", "edge"),
+        reasons=("edge: raised (RuntimeError: boom)",),
+        notify_configured=True,
+        line_records=(
+            LineRecord(
+                slug="akc",
+                report=report().id,
+                questions=(question().id,),
+                review=(source().id,),
+                renderings=(SectionRendering(question=question().id, rendering="rewritten"),),
+                invalid_citations=1,
+                claim_count=1,
+            ),
+        ),
+    )
+
+
 def every_node_kind() -> list[GraphNodeType]:
     return [
         line(),
@@ -208,4 +232,5 @@ def every_node_kind() -> list[GraphNodeType]:
         used_mark(),
         cursor(),
         stage_record(),
+        run_record(),
     ]

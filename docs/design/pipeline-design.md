@@ -34,6 +34,19 @@ while Jev question count goes up is.
    aligned to the line graph so triples merge; a derived BM25/embedding index over
    claims for candidate retrieval. Promotion into graph.jsonld (new Concept /
    ExternalReference) = pipeline proposes a diff, the author applies.
+
+   > **注記（2026-10-20, plan quality-metrics）**: the pipeline partition also keeps one
+   > `RunRecord` per tick, put once after the tick's lines are done (`run_pipeline`; a tick
+   > that raised writes none). Identity = (run_date, started_at), so a same-day re-run keeps
+   > its own record while its Report overwrites the first. It holds what no Report keeps,
+   > for the weekly review: the lines the tick set out to run, each line's DEGRADED reasons
+   > (and `raised` for a line that raised), whether a notification channel was set
+   > (`notify.configured`; false for `jrp try`), and per note a `LineRecord`: the open
+   > questions in prefilter order (questions[i] is `q{i}_on_topic`, which the prefilter
+   > Judgment keeps only inside its state hash), the Review sources after the byte fit, each
+   > section's rendering, the dropped invalid `[n]`, and the claim count. `finished_at`
+   > comes from an injectable clock. The CONTEXT gained terms only, so older stores are
+   > rewritten once and read on; a store without a RunRecord runs as before.
 4. **Collection layer = typed source adapters fixed in code per line** (arXiv API, HF
    papers, GitHub search, web search API). The model never chooses where to search.
    Built 2026-09-22: arxiv / hf_papers / github / web_search (Tavily chosen by the build

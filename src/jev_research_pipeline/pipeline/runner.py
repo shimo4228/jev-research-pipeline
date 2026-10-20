@@ -25,8 +25,8 @@ The store is checked before anything else (store.migrate.prepare_store).
 
 import asyncio
 import tomllib
-from collections.abc import Mapping, Sequence
-from datetime import date
+from collections.abc import Callable, Mapping, Sequence
+from datetime import date, datetime
 from pathlib import Path
 from typing import Final
 
@@ -43,7 +43,7 @@ from jev_research_pipeline.generation import (
 )
 from jev_research_pipeline.home import DATA_HOME
 from jev_research_pipeline.jev.core import JEV_REQUESTS_PER_MINUTE, RequestPacer
-from jev_research_pipeline.model import GraphNodeType, Label, QuestionLog, Report
+from jev_research_pipeline.model import GraphNodeType, Label, QuestionLog, Report, RunRecord
 from jev_research_pipeline.note_text import DEFAULT_LANG, BadNoteLang, Lang, note_lang
 from jev_research_pipeline.questions import (
     NO_QUESTIONS,
@@ -65,6 +65,7 @@ from jev_research_pipeline.store.migrate import StoreSchemaError, prepare_store
 
 from .config import TrackSpec, config_path, env_tracks, line_context, rotation_config
 from .nets import DayBudget, for_line, load_nets
+from .notify import configured
 from .run import Keys, LineOutcome, LineRun
 
 STORE_ENV: Final = "JRP_STORE_DIR"
@@ -205,6 +206,37 @@ def lines_per_day(config: Path) -> int:
     return int(general.get("lines_per_day", 3))
 
 
+def local_now() -> AwareDatetime:
+    return datetime.now().astimezone()
+
+
+def run_record(
+    *,
+    started_at: AwareDatetime,
+    finished_at: AwareDatetime,
+    lines: Sequence[str],
+    outcomes: Sequence[LineOutcome],
+    raised: Mapping[str, str],
+    notify_configured: bool,
+) -> RunRecord:
+    """The tick's RunRecord. `raised` maps a line that raised to its error; every reason is
+    `<slug>: <reason>`, in `lines` order, so the record does not depend on which line
+    finished first."""
+    why: dict[str, list[str]] = {slug: [] for slug in lines}
+    for o in outcomes:
+        why[o.record.slug] += o.health.reasons()
+    for slug, error in raised.items():
+        why[slug].append(f"raised ({error})")
+    return RunRecord.new(
+        started_at=started_at,
+        finished_at=finished_at,
+        lines=tuple(lines),
+        reasons=tuple(f"{slug}: {r}" for slug, rs in why.items() for r in rs),
+        notify_configured=notify_configured,
+        line_records=tuple(o.record for o in outcomes),
+    )
+
+
 async def run_pipeline(
     env: Mapping[str, str],
     *,
@@ -214,11 +246,14 @@ async def run_pipeline(
     unanswered: list[str] | None = None,
     failed: list[str] | None = None,
     only: Sequence[str] | None = None,
+    clock: Callable[[], AwareDatetime] = local_now,
 ) -> list[LineOutcome]:
     """`unanswered` collects the lines skipped for having no open question, so the caller
     can show them (the CLI prints them; a silent skip would look like a quiet success).
     `failed` collects the lines that raised; without it they go to `unanswered`.
-    `only` runs exactly these lines and leaves the rotation where it is (`jrp try`)."""
+    `only` runs exactly these lines and leaves the rotation where it is (`jrp try`).
+    Once the lines are done, the tick's RunRecord goes into the pipeline partition, with
+    `now` as its start and `clock()` as its end (tests pass a fixed clock)."""
     unanswered = unanswered if unanswered is not None else []
     failed = failed if failed is not None else unanswered
     vault = vault_dir(env)
@@ -290,6 +325,8 @@ async def run_pipeline(
         run.jev.pacer = pacer
         return await run.execute()
 
+    raised: dict[str, str] = {}  # slug -> the error of a line that raised (its RunRecord reason)
+
     # The lines run side by side: each has its own partition, meters and note; what they
     # share (the Jev rate window, adapter pacing per source, the day's OpenAlex credits)
     # is shared explicitly.
@@ -303,10 +340,24 @@ async def run_pipeline(
         except Exception as e:
             detail = " ".join(str(e).split())[:160]
             failed.append(f"{slug}: 失敗 ({type(e).__name__}: {detail})")
+            raised[slug] = f"{type(e).__name__}: {detail}"
             return None
 
     ran = await asyncio.gather(*(guarded(slug) for slug in picked))
-    return [o for o in ran if o is not None]
+    outcomes = [o for o in ran if o is not None]
+    store.pipeline().put(
+        [
+            run_record(
+                started_at=now,
+                finished_at=clock(),
+                lines=picked,
+                outcomes=outcomes,
+                raised=raised,
+                notify_configured=not only and configured(env),
+            )
+        ]
+    )
+    return outcomes
 
 
 def run_summary(

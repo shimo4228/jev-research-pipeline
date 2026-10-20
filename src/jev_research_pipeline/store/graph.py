@@ -2,7 +2,7 @@
 
 Layout under the store root:
     lines/<slug>.jsonld   research data of one line (+ its StageRecords)
-    pipeline.jsonld       pipeline-wide state (RotationCursor)
+    pipeline.jsonld       pipeline-wide state (RotationCursor, Sighting, one RunRecord per tick)
 Partition = one file per line (search-first 2026-09-22: named graphs in one file would
 rewrite every line on any write; JSONL is not a JSON-LD document) — a line-run commits
 with one atomic os.replace of its own file and gets its own git history.

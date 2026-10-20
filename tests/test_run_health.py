@@ -33,7 +33,7 @@ from jev_research_pipeline.generation.claude_code import (
     ClaudeCodeError,
     parse_result,
 )
-from jev_research_pipeline.model import QuestionLog, Report
+from jev_research_pipeline.model import LineRecord, QuestionLog, Report
 from jev_research_pipeline.pipeline import nets, run
 from jev_research_pipeline.pipeline.health import UNJUDGED_SHARE, LineHealth
 from jev_research_pipeline.pipeline.notify import NOTIFY_ENV, notify
@@ -129,6 +129,7 @@ def _outcome(tmp_path: Path, slug: str, claims: int, health: LineHealth) -> Line
         report=report,
         note=tmp_path / f"{report.run_date}_jrp_{slug}.md",
         operations=[],
+        record=LineRecord(slug=slug, report=report.id, claim_count=claims),
         health=health,
     )
 

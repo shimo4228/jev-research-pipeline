@@ -82,6 +82,8 @@ IRI_FIELDS: Final = frozenset(
         "sources",
         "evidence",
         "canary_papers",
+        "questions",
+        "review",
     }
 )
 # Fields whose order carries meaning. JSON-LD arrays are unordered sets unless @list.
@@ -97,6 +99,12 @@ ORDERED_FIELDS: Final = frozenset(
         "method_constraints",
         "evidence_constraints",
         "negative_topics",
+        "lines",
+        "reasons",
+        "line_records",
+        "questions",
+        "review",
+        "renderings",
     }
 )
 
@@ -206,6 +214,18 @@ CONTEXT: Final[dict[str, str | dict[str, str]]] = {
     "input_sha256": f"{VOCAB_NS}inputSha256",
     "outputs": _iri("outputs"),
     "completed_at": _typed("completedAt", "dateTime"),
+    # run record (one per tick, read by the weekly review)
+    "started_at": _typed("startedAt", "dateTime"),
+    "finished_at": _typed("finishedAt", "dateTime"),
+    "lines": _list("lines"),
+    "reasons": _list("reasons"),
+    "notify_configured": _typed("notifyConfigured", "boolean"),
+    "line_records": _list("lineRecords"),
+    "questions": _iri_list("questions"),
+    "review": _iri_list("review"),
+    "renderings": _list("renderings"),
+    "invalid_citations": _typed("invalidCitations", "integer"),
+    "claim_count": _typed("claimCount", "integer"),
 }
 
 

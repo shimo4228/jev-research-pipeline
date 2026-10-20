@@ -62,6 +62,12 @@ def _slack_text(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def configured(env: Mapping[str, str]) -> bool:
+    """Whether `notify` would try at least one channel: its return value, sending nothing.
+    The run's RunRecord keeps it (model.RunRecord.notify_configured)."""
+    return bool(env.get(WEBHOOK_ENV)) or env.get(MACOS_ENV) == "1" or env.get(NOTIFY_ENV) == "1"
+
+
 def notify(
     title: str,
     body: str,
@@ -70,19 +76,15 @@ def notify(
     runner: Runner = _run,
     poster: Poster = _post,
 ) -> bool:
-    """True when at least one channel was configured (and tried)."""
-    sent = False
+    """True when at least one channel was configured (and tried) = configured(env)."""
     if url := env.get(WEBHOOK_ENV):
-        sent = True
         try:
             poster(url, {"text": f"*{_slack_text(title)}*\n{_slack_text(body)}"})
         except Exception as e:
             sys.stderr.write(f"notify: Slack webhook failed ({type(e).__name__})\n")
     if env.get(MACOS_ENV) == "1":
-        sent = True
         # `--`: a title that starts with "-" is not an osascript option
         runner(["osascript", *(a for line in OSASCRIPT for a in ("-e", line)), "--", title, body])
     if env.get(NOTIFY_ENV) == "1":
-        sent = True
         runner(["bash", str(SCRIPT), _slack_text(title), _slack_text(body)])
-    return sent
+    return configured(env)

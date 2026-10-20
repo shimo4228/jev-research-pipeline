@@ -1065,6 +1065,131 @@ class StageRecord(StoreNode):
         )
 
 
+# ------------------------------------------------- run record (read by the weekly review)
+
+
+class SectionRendering(Value):
+    """How one question's section of a note was written: the rung of the rendering ladder
+    it ended on (generation.prose.render). template = the section has no prose (every
+    draft failed, the rubric rejected both drafts, or the rubric could not judge). A
+    section reused from the same day's earlier run reads prose."""
+
+    question: IRI
+    rendering: Literal["prose", "rewritten", "template"]
+
+    @model_validator(mode="after")
+    def _kind(self) -> Self:
+        _require(kind_of(self.question) == "question", "rendering question must be a Question IRI")
+        return self
+
+
+class LineRecord(Value):
+    """What one line-run of a tick keeps for the weekly review that its Report does not
+    (plan quality-metrics, claim 5). Built by LineRun.execute (pipeline.run)."""
+
+    slug: Slug
+    report: IRI
+    """The Report the line-run wrote (a same-day re-run overwrites that Report, while each
+    tick keeps its own RunRecord)."""
+    questions: tuple[IRI, ...] = ()
+    """The run's open questions in the order the prefilter asked them: questions[i] is the
+    question behind `q{i}_on_topic` in that day's question_prefilter Judgments, whose only
+    subject is the source (jev.question_prefilter.state)."""
+    review: tuple[IRI, ...] = ()
+    """The sources under the note's Review, in note order (nearest the cut first), after
+    the note was fitted to its byte budget."""
+    renderings: tuple[SectionRendering, ...] = ()
+    """One per section the note wrote, in question order. Report.rendering keeps only the
+    day's joined value."""
+    invalid_citations: NonNegInt = 0
+    """[n]s the writer wrote that named no claim of its section, summed over every draft of
+    the day as ProseResult.invalid_citations records them. check_citations drops them
+    before the text is stored, so QuestionLog.text cannot count them."""
+    claim_count: NonNegInt = 0
+    """Claims on the note: len(Report.claims). Not named `claims`: that CONTEXT term is a
+    list of Claim IRIs."""
+
+    @model_validator(mode="after")
+    def _kinds(self) -> Self:
+        _require(kind_of(self.report) == "report", "line record report must be a Report IRI")
+        _require(_all_kind(self.questions, "question"), "questions must be Question IRIs")
+        _require(_unique(self.questions), "questions must be unique")
+        _require(_all_kind(self.review, "source"), "review must be SourceItem IRIs")
+        return self
+
+
+class RunRecord(StoreNode):
+    """One tick of `jrp run` (or `jrp try`): which lines it ran, what went wrong and what
+    each note was made of, for the weekly review (plan quality-metrics, claim 5). The
+    pipeline partition gets one per tick, put once after the tick's lines are done
+    (pipeline.runner.run_pipeline); a tick that raised writes none. Identity = (run_date,
+    started_at): a same-day re-run is a record of its own."""
+
+    type: Literal["RunRecord"] = Field(
+        default="RunRecord", validation_alias="@type", serialization_alias="@type"
+    )
+    KIND: ClassVar[str] = "run"
+    run_date: date
+    """started_at's date: the run_date of every Report the tick wrote."""
+    started_at: AwareDatetime
+    """The tick's `now`, the time every node it wrote is stamped with."""
+    finished_at: AwareDatetime | None = None
+    """Wall clock once the tick's lines were done; None = not recorded."""
+    lines: tuple[Slug, ...] = ()
+    """Every line the tick set out to run, in run order: the rotation's pick, then the
+    daily tracks (`jrp try`: its one line). A line without a LineRecord wrote no note: it
+    raised (its reason says `raised`) or had no open question (no reason)."""
+    reasons: tuple[str, ...] = ()
+    """`<slug>: <reason>` in `lines` order: each line's DEGRADED reasons
+    (pipeline.health.LineHealth.reasons), and `raised (<error>)` for a line that raised."""
+    notify_configured: bool = False
+    """At least one notification channel was set in the tick's environment
+    (pipeline.notify.configured), so the run's message could reach someone. False for
+    `jrp try`, whose caller notifies nobody."""
+    line_records: tuple[LineRecord, ...] = ()
+    """One per line that wrote a note, in `lines` order."""
+
+    @staticmethod
+    def id_for(run_date: date, started_at: AwareDatetime) -> str:
+        return content_id("run", run_date.isoformat(), started_at.isoformat())
+
+    @override
+    def expected_id(self) -> str:
+        return self.id_for(self.run_date, self.started_at)
+
+    @model_validator(mode="after")
+    def _invariants(self) -> Self:
+        _require(self.run_date == self.started_at.date(), "run_date must be started_at's date")
+        _require(
+            all(r.slug in self.lines for r in self.line_records),
+            "every line record must be one of lines",
+        )
+        return self
+
+    @classmethod
+    def new(
+        cls,
+        *,
+        started_at: AwareDatetime,
+        finished_at: AwareDatetime | None = None,
+        lines: tuple[str, ...] = (),
+        reasons: tuple[str, ...] = (),
+        notify_configured: bool = False,
+        line_records: tuple[LineRecord, ...] = (),
+    ) -> Self:
+        run_date = started_at.date()
+        return cls(
+            id=cls.id_for(run_date, started_at),
+            run_date=run_date,
+            started_at=started_at,
+            finished_at=finished_at,
+            lines=lines,
+            reasons=reasons,
+            notify_configured=notify_configured,
+            line_records=line_records,
+        )
+
+
 GraphNodeType = (
     Line
     | Question
@@ -1081,5 +1206,6 @@ GraphNodeType = (
     | UsedMark
     | RotationCursor
     | StageRecord
+    | RunRecord
 )
 GraphNode = Annotated[GraphNodeType, Field(discriminator="type")]

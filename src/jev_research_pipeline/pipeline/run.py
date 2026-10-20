@@ -88,12 +88,14 @@ from jev_research_pipeline.model import (
     Judgment,
     Label,
     Line,
+    LineRecord,
     Operations,
     QueryCandidate,
     Question,
     QuestionLog,
     Report,
     RubricAxis,
+    SectionRendering,
     SourceItem,
     Unit,
     UsedMark,
@@ -289,6 +291,8 @@ class LineOutcome:
     report: Report
     note: Path
     operations: list[str]
+    record: LineRecord
+    """What the tick's RunRecord keeps of this line-run (pipeline.runner.run_pipeline)."""
     health: LineHealth = field(default_factory=LineHealth)
     """What the operations lines say went wrong, as values: the run's notification reads
     this, not the note (pipeline.health)."""
@@ -1318,6 +1322,7 @@ class LineRun:
         report_id = Report.id_for(self.ctx.line.id, self.now.date())
         sections: list[QuestionSection] = []
         logs: list[QuestionLog] = []
+        renderings: list[SectionRendering] = []
         rendering = Rendering(rendering="template", prose=None, rubric=())
         slug = self.ctx.line.slug
         with span("jrp.line", line=slug, date=self.now.date().isoformat()) as line:
@@ -1352,6 +1357,11 @@ class LineRun:
                         section, log, rendering = day.made
                         sections.append(section)
                         logs.append(log)
+                        renderings.append(
+                            SectionRendering(
+                                question=section.question_id, rendering=rendering.rendering
+                            )
+                        )
             with self._stage("rubric", claims=len(accepted)):
                 prose = {s.question_id: s.prose for s in sections}
                 await self._rubric_claims(report_id, prose, accepted)
@@ -1405,7 +1415,23 @@ class LineRun:
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
             operations=lines,
+            record=self._record(report, review, renderings),
             health=self._health(claims=len(report.claims), review=len(review), logs=logs),
+        )
+
+    def _record(
+        self, report: Report, review: Sequence[SourceEntry], renderings: Sequence[SectionRendering]
+    ) -> LineRecord:
+        """The line-run as the tick's RunRecord keeps it. `review` is what the note kept
+        after it was fitted, `renderings` one per section the note wrote."""
+        return LineRecord(
+            slug=self.ctx.line.slug,
+            report=report.id,
+            questions=tuple(q.id for q in self.questions),
+            review=tuple(e.source_id for e in review),
+            renderings=tuple(renderings),
+            invalid_citations=sum(len(d.invalid_citations) for d in self.st.drafts),
+            claim_count=len(report.claims),
         )
 
     def _health(self, *, claims: int, review: int, logs: Sequence[QuestionLog]) -> LineHealth:
