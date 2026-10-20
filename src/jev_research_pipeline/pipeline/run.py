@@ -308,8 +308,8 @@ class _Accepted:
     contradicts: bool = False
     """The claim counts against the answer the evidence set supports (claim_detection)."""
     bears_on: float = 0.0
-    """claim_detection's combined advances-or-contradicts probability — the order in which
-    claims are kept when a question has more than CLAIMS_PER_QUESTION."""
+    """claim_detection's Decision score, min(advances-or-contradicts probability, checkable)
+    — the order in which claims are kept when a question has more than CLAIMS_PER_QUESTION."""
 
 
 @dataclass
