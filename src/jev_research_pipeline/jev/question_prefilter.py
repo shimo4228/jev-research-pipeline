@@ -76,11 +76,15 @@ def items(
     return [((s.id,), state(ctx, s, questions)) for s in sources]
 
 
-def passing(result: Judged[BaseModel] | JevFailure, n: int) -> list[int]:
+def passing(
+    result: Judged[BaseModel] | JevFailure,
+    n: int,
+    thresholds: tuple[Threshold, ...] = THRESHOLDS,
+) -> list[int]:
     """Indices of the questions this source passes for (none when unjudged)."""
     if isinstance(result, JevFailure):
         return []
-    cut = threshold(THRESHOLDS, "on_topic")
+    cut = threshold(thresholds, "on_topic")
     return [i for i in range(n) if float(getattr(result.output, field(i))) >= cut]
 
 

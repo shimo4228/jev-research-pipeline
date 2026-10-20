@@ -92,9 +92,11 @@ def p_duplicate(judged: Judged[Answers]) -> float:
     return level_probability(judged, "novelty", "same_as_known")
 
 
-def rule(judged: Judged[Answers]) -> tuple[bool, float]:
+def rule(
+    judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS
+) -> tuple[bool, float]:
     novelty = position(judged, "novelty")
-    return novelty >= threshold(THRESHOLDS, "min_novelty"), novelty
+    return novelty >= threshold(thresholds, "min_novelty"), novelty
 
 
 def decision(result: Judged[Answers] | JevFailure) -> Decision:

@@ -34,7 +34,7 @@ flight count toward the cap, and the week stays within it.
 
 Two reviews at once (a launchd run and one by hand) take turns: the sum, the decision and
 each row are read and written under an exclusive fcntl lock on judge.jsonl.lock beside the
-ledger (_locked), so each decides on a sum that holds the other's reservations. The lock is
+ledger (locked), so each decides on a sum that holds the other's reservations. The lock is
 held for one read and one append; the event loop waits on it.
 
 What stops the judge, leaving the rest of the sample 未測定 with the reason (Stop): no
@@ -312,7 +312,7 @@ def week_spent(ledger: Path, spent_week: str) -> float:
 
 
 @contextmanager
-def _locked(ledger: Path) -> Generator[None]:
+def locked(ledger: Path) -> Generator[None]:
     """The ledger's exclusive lock (LOCK_SUFFIX beside it), held while a sum is read and a
     row appended: another process waits until it is released."""
     ledger.parent.mkdir(parents=True, exist_ok=True)
@@ -458,7 +458,7 @@ def _jobs(sample: Sample, model: Model, rubric: str | None) -> list[_Job]:
     return out
 
 
-def _halt(error: ModelHTTPError) -> Stop | None:
+def halt(error: ModelHTTPError) -> Stop | None:
     """The refusals that would repeat on every call left: stop there, never retry."""
     if error.status_code == 429:
         return "rate-limit"
@@ -520,7 +520,7 @@ class _Burst:
             error, answered = None, True
         except ModelHTTPError as e:
             error, answered = f"http {e.status_code}", True
-            self.stop = self.stop or _halt(e)
+            self.stop = self.stop or halt(e)
         except AgentRunError as e:
             error = type(e).__name__
         except asyncio.CancelledError:
@@ -536,7 +536,7 @@ class _Burst:
     def _reserve(self, job: _Job, call_id: str) -> bool:
         """Under the lock: when the week's spending plus the call's bound stays within the
         cap, append the call's reservation and say so."""
-        with _locked(self._ledger):
+        with locked(self._ledger):
             if week_spent(self._ledger, self._spent_week) + job.bound > self.budget:
                 return False
             self._append(job, call_id, RunUsage(), job.bound, reserved=True)
@@ -554,7 +554,7 @@ class _Burst:
     ) -> None:
         """The row that replaces the call's reservation, under the lock."""
         self.usd += usd
-        with _locked(self._ledger):
+        with locked(self._ledger):
             self._append(job, call_id, usage, usd, answer=answer, error=error)
 
     def _append(

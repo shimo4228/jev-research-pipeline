@@ -210,21 +210,21 @@ def _ask_of(result: Judged[Answers] | JevFailure) -> Ask[Answers]:
     return BATCH_ASK if result.bundle_sha256 == BATCH_ASK.sha256 else ASK
 
 
-def gates_pass(a: Answers) -> bool:
+def gates_pass(a: Answers, thresholds: tuple[Threshold, ...] = THRESHOLDS) -> bool:
     return (
-        a.on_topic >= threshold(THRESHOLDS, "on_topic")
-        and a.method_transferable >= threshold(THRESHOLDS, "method_transferable")
-        and a.evidence_compatible >= threshold(THRESHOLDS, "evidence_compatible")
+        a.on_topic >= threshold(thresholds, "on_topic")
+        and a.method_transferable >= threshold(thresholds, "method_transferable")
+        and a.evidence_compatible >= threshold(thresholds, "evidence_compatible")
     )
 
 
-def weighted(judged: Judged[Answers]) -> float:
+def weighted(judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS) -> float:
     """The three placing dimensions on their unrounded positions, by the configured
     weights. The gates are not in it: a gate can only drop, never compensate."""
     return (
-        threshold(THRESHOLDS, "weight_problem_overlap") * position(judged, "problem_overlap")
-        + threshold(THRESHOLDS, "weight_evidence_strength") * position(judged, "evidence_strength")
-        + threshold(THRESHOLDS, "weight_novelty") * position(judged, "novelty_vs_evidence_set")
+        threshold(thresholds, "weight_problem_overlap") * position(judged, "problem_overlap")
+        + threshold(thresholds, "weight_evidence_strength") * position(judged, "evidence_strength")
+        + threshold(thresholds, "weight_novelty") * position(judged, "novelty_vs_evidence_set")
     )
 
 
@@ -234,20 +234,33 @@ def no_abstract(source: SourceItem) -> bool:
     return len(source.text) < floor
 
 
-def route(result: Judged[Answers] | JevFailure, *, source: SourceItem) -> Route:
-    """Keep / Review / Drop / Incomplete — decided by code over the stored answers."""
+def route(
+    result: Judged[Answers] | JevFailure,
+    *,
+    source: SourceItem,
+    thresholds: tuple[Threshold, ...] = THRESHOLDS,
+) -> Route:
+    """Keep / Review / Drop / Incomplete — decided by code over the stored answers.
+    `thresholds` replaces THRESHOLDS whole (the gate eval scores a candidate set with it,
+    evals.gate_score); a run always routes under THRESHOLDS."""
     if no_abstract(source):
         return "incomplete"
     if isinstance(result, JevFailure):
         return "unjudged"  # a Jev failure goes to 未判定; Review is for judged borderlines
-    return _placed(result) if gates_pass(result.output) else "drop"
+    return judged_route(result, thresholds)
 
 
-def _placed(result: Judged[Answers]) -> Route:
+def judged_route(result: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS) -> Route:
+    """route() of a judged pair whose source cleared the floor: a failed gate drops, the
+    rest is placed by the weighted score."""
+    return _placed(result, thresholds) if gates_pass(result.output, thresholds) else "drop"
+
+
+def _placed(result: Judged[Answers], thresholds: tuple[Threshold, ...]) -> Route:
     """Where a source that passed the gates lands, by its weighted score."""
-    score = weighted(result)
-    keep = threshold(THRESHOLDS, "keep")
-    band = threshold(THRESHOLDS, "review_band")
+    score = weighted(result, thresholds)
+    keep = threshold(thresholds, "keep")
+    band = threshold(thresholds, "review_band")
     if score < keep - band:
         return "drop"
     if score >= keep + band:
@@ -255,7 +268,7 @@ def _placed(result: Judged[Answers]) -> Route:
         # (scratch run 7: a canary at 0.87 went to Review on novelty split between
         # adds_detail and changes_answer, certainty 0.49).
         return "keep"
-    if score < keep or certainty(result, ROUTING_FIELDS) < threshold(THRESHOLDS, "min_certainty"):
+    if score < keep or certainty(result, ROUTING_FIELDS) < threshold(thresholds, "min_certainty"):
         return "review"
     return "keep"
 

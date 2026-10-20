@@ -76,10 +76,12 @@ def bears_on(judged: Judged[Answers]) -> float:
     )
 
 
-def rule(judged: Judged[Answers]) -> tuple[bool, float]:
+def rule(
+    judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS
+) -> tuple[bool, float]:
     related = bears_on(judged)
-    accept = related >= threshold(THRESHOLDS, "bears_on") and judged.output.checkable >= threshold(
-        THRESHOLDS, "checkable"
+    accept = related >= threshold(thresholds, "bears_on") and judged.output.checkable >= threshold(
+        thresholds, "checkable"
     )
     return accept, min(related, judged.output.checkable)
 

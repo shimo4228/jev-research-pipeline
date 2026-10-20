@@ -377,6 +377,36 @@ def claims_per_question(with_claims: int) -> int:
     return min(CLAIMS_PER_QUESTION, max(2, CLAIMS_PER_NOTE // max(with_claims, 1)))
 
 
+def capped[T](
+    items: Sequence[T],
+    questions: Sequence[str],
+    *,
+    question: Callable[[T], str],
+    source: Callable[[T], str],
+    rank: Callable[[T], tuple[float, ...]],
+) -> list[T]:
+    """The claims a note shows: per question of `questions` (in that order), the items of
+    that question by ascending `rank` (a stable sort, so ties keep their order in `items`),
+    at most claims_per_question(k) of them for the k questions that have items, and at most
+    CLAIMS_PER_SOURCE from one source. A run ranks by claim_detection's Decision score,
+    highest first (LineRun._capped_claims); the gate eval replays the same cap under a
+    candidate rank (evals.gate_score)."""
+    per_question = claims_per_question(len({question(i) for i in items}))
+    kept: list[T] = []
+    for qid in questions:
+        mine = sorted((i for i in items if question(i) == qid), key=rank)
+        per_source: dict[str, int] = {}
+        chosen = 0
+        for item in mine:
+            if chosen >= per_question:
+                break
+            if per_source.get(source(item), 0) < CLAIMS_PER_SOURCE:
+                per_source[source(item)] = per_source.get(source(item), 0) + 1
+                kept.append(item)
+                chosen += 1
+    return kept
+
+
 NOTE_MAX_BYTES: Final = 12_000
 """A note above this drops the Review lines farthest from the cut, until it fits (author
 mandate: note ≤ 12 KB = 12,288 bytes; margin for the line that says what was dropped).
@@ -1301,28 +1331,23 @@ class LineRun:
         one question made a 24.6 KB note; the prose cannot use 31 anyway). The rest keep
         their Decisions and Claim nodes in the store but are not reported, so they do not
         join the evidence set and may be judged again on a later day."""
-        kept: list[_Accepted] = []
         # The note-wide budget shared by the questions that have claims.
-        per_question = claims_per_question(len({i.question.id for i in accepted}))
+        kept = capped(
+            accepted,
+            [q.id for q in self.questions],
+            question=lambda i: i.question.id,
+            source=lambda i: i.source.id,
+            rank=lambda i: (-i.bears_on,),
+        )
         for question in self.questions:
-            mine = sorted(
-                (i for i in accepted if i.question.id == question.id), key=lambda i: -i.bears_on
-            )
-            per_source: dict[str, int] = {}
-            chosen: list[_Accepted] = []
-            for item in mine:
-                if len(chosen) >= per_question:
-                    break
-                if per_source.get(item.source.id, 0) < CLAIMS_PER_SOURCE:
-                    per_source[item.source.id] = per_source.get(item.source.id, 0) + 1
-                    chosen.append(item)
+            mine = [i for i in accepted if i.question.id == question.id]
+            chosen = [i for i in kept if i.question.id == question.id]
             if len(mine) > len(chosen):
                 self.st.notes.append(
                     t.CLAIMS_SHOWN(
                         self.lang, question=question.slug, total=len(mine), shown=len(chosen)
                     )
                 )
-            kept += chosen
             self.st.nodes += [i.claim for i in mine if i not in chosen]
         return kept
 

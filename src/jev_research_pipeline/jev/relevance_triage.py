@@ -61,11 +61,13 @@ async def judge(
     return await jev.judge(ASK, (source.id,), state(ctx, source), now=now)
 
 
-def rule(judged: Judged[Answers]) -> tuple[bool, float]:
+def rule(
+    judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS
+) -> tuple[bool, float]:
     a = judged.output
     accept = a.contains_evidence >= threshold(
-        THRESHOLDS, "contains_evidence"
-    ) and a.prompt_injection < threshold(THRESHOLDS, "prompt_injection")
+        thresholds, "contains_evidence"
+    ) and a.prompt_injection < threshold(thresholds, "prompt_injection")
     return accept, min(a.contains_evidence, 1.0 - a.prompt_injection)
 
 

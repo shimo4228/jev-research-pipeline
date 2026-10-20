@@ -65,9 +65,11 @@ async def judge(
     return await jev.judge(ASK, (source.id,), state(source), now=now)
 
 
-def rule(judged: Judged[Answers]) -> tuple[bool, float]:
+def rule(
+    judged: Judged[Answers], thresholds: tuple[Threshold, ...] = THRESHOLDS
+) -> tuple[bool, float]:
     t = trust(judged)
-    return t >= threshold(THRESHOLDS, "min_trust"), t
+    return t >= threshold(thresholds, "min_trust"), t
 
 
 def decision(result: Judged[Answers] | JevFailure) -> Decision:
