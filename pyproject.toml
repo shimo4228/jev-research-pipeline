@@ -2,7 +2,7 @@
 # Distribution `jrp` (so `uvx jrp init` works); the import package stays
 # jev_research_pipeline (tool.uv.build-backend below).
 name = "jrp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A daily research note per research line: your questions steer the search, TypeSafe Jev makes the judgments, an LLM writes the explanation (ja / en / zh)."
 readme = "README.md"
 license = "MIT"
