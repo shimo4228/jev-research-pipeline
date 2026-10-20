@@ -9,6 +9,7 @@
 <header>
   <h1>jrp の入口を凍結した取得で比べる</h1>
   <doc-changes new="13" changed="6"></doc-changes>
+  <doc-note tone="ok"><strong>実装済み（2026-10-20）</strong> 著者の指示どおり Respond を待たず、既定の選択（窓の初日の store / 今日の問いで一致する判定だけを再生 / cut は候補にしない / Chao2 は要求 × 日 / このセッション）で実装した。結果（store の写し、7 ライン、14 日の窓）: backlog_days = 7 は N_ot 703 → 732（+29 [+7.4, +50.6] p=0.002、雑音の床 ±4.1、うち 17 は境界の論文）で、新しい prefilter の判定が 2 週間で +3,885。どのラインも単独では判別できない。枯渇した hf: 14 本を外すと N_ot は全ラインで ±0、送信は run あたり 0〜2 件減り、rotation の見込みは aap・authorship・edge・jev で +0.6〜+1.1/run。今日の凍結（aap・authorship・jev）では、それらのクエリの結果はすべて store にあった。本番に入れるかは著者が決める。詳細は design「Intake eval」。</doc-note>
   <details class="thread"><summary>Why · 4 件</summary>
     <doc-quote via="prompt" from="著者" at="2026-10-20">2つの実装セッションも実行しといて</doc-quote>
     <doc-quote via="prompt" from="著者" at="2026-10-20">Planして実装まで進めといて</doc-quote>
