@@ -1,9 +1,11 @@
-"""Weekly drift job (decision 9): replay recorded Jev inputs against the live model.
+"""Drift replay (decision 9): replay recorded Jev inputs against the live model.
 
 Each recorded /v1/systemone request body (kept in live cassettes; headers never are) is
 sent again, and every question's answer distribution is compared with the recording.
 The body pins the model version, so a delta means the pinned model changed behaviour.
-Live calls happen only through the CLI when JRP_DRIFT_LIVE=1 is set by a human.
+Live calls happen only through the CLI when JRP_DRIFT_LIVE=1 is set by a human. No live
+cassette has been recorded, so the weekly launchd job is stopped until a fixed replay probe
+exists (launchd/README.md); `jrp drift` exits non-zero when it compared nothing (cli._drift).
 """
 
 from pathlib import Path
@@ -54,7 +56,7 @@ async def drift(paths: list[Path], client: httpx2.AsyncClient, *, api_key: str) 
 async def drift_with_failures(
     paths: list[Path], client: httpx2.AsyncClient, *, api_key: str
 ) -> tuple[list[DriftRow], int]:
-    """(rows, replays that got no 200). All-failed is a failure, never "no drift"."""
+    """(rows, replays that got no 200). No rows is a failure, never "no drift"."""
     rows: list[DriftRow] = []
     failed = 0
     for path in paths:

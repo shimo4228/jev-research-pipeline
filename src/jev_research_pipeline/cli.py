@@ -1,4 +1,5 @@
-"""`jrp` — the pipeline's only entry point (launchd calls `jrp run` / `jrp drift`).
+"""`jrp` — the pipeline's only entry point (launchd calls `jrp run`; the weekly
+`jrp drift` job is stopped, launchd/README.md).
 
 jrp run            harvest, then the next lines in rotation (env: pipeline.runner)
 jrp doctor         check what a run needs (env, config, questions, keys, the writer's login)
@@ -15,7 +16,8 @@ jrp questions new --line <slug>
                    a Claude Code session that writes the line's questions (skill jrp-question)
 jrp fit            threshold proposals per line → <store>/proposals/<slug>/ (not applied)
 jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
-jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1
+jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1; non-zero exit
+                   when it compared nothing (pipeline.drift)
 jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
@@ -278,21 +280,37 @@ def _export(env: Mapping[str, str]) -> int:
 
 
 async def _drift(env: Mapping[str, str], cassettes: Path) -> int:
+    """0 only when at least one answer was compared. Exit 2 = the live gate is closed (no
+    message: a launchd job left loaded stays silent); exit 1 = it compared nothing (no
+    cassette dir, no *.json in it, or no replay answered), sent as `jrp drift FAILED`."""
     if env.get(LIVE_ENV) != "1" or not env.get("TYPESAFE_API_KEY"):
         sys.stderr.write(f"drift calls the live API: set {LIVE_ENV}=1 and TYPESAFE_API_KEY\n")
         return 2
+    paths = sorted(cassettes.glob("*.json")) if cassettes.is_dir() else []
+    if not paths:
+        state = "has no *.json cassette" if cassettes.is_dir() else "does not exist"
+        return _drift_failed(env, f"nothing to compare: {cassettes} {state}")
     async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
-        rows, failed = await drift_with_failures(
-            sorted(cassettes.glob("*.json")), http, api_key=env["TYPESAFE_API_KEY"]
+        rows, failed = await drift_with_failures(paths, http, api_key=env["TYPESAFE_API_KEY"])
+    if not rows:
+        return _drift_failed(
+            env, f"no answer compared: {len(paths)} cassettes, {failed} replays failed"
         )
     sys.stdout.write(drift_table(rows))
-    worst = max((r.delta for r in rows), default=0.0)
+    worst = max(r.delta for r in rows)
     notify(
         "jrp drift",
         f"{len(rows)} answers compared, max Δp {worst:.3f}, {failed} replays failed",
         env=env,
     )
-    return 1 if failed and not rows else 0
+    return 0
+
+
+def _drift_failed(env: Mapping[str, str], why: str) -> int:
+    """Compared nothing: never the shape of "no drift" (0 answers is not Δp 0)."""
+    sys.stderr.write(f"jrp drift: {why}\n")
+    notify("jrp drift FAILED", why, env=env)
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:

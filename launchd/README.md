@@ -6,18 +6,32 @@ These two plists are the author's (this checkout, run through uv). For any other
 | plist | when | runs |
 |---|---|---|
 | `com.shimo4228.jrp.run.plist` | daily 05:00 | `jrp run` — harvest ticks, then the next lines in rotation |
-| `com.shimo4228.jrp.drift.plist` | Monday 05:30 | `jrp drift` — live replay of recorded Jev inputs |
+| `com.shimo4228.jrp.drift.plist` | Monday 05:30 — **stopped** | `jrp drift` — live replay of recorded Jev inputs |
 
-Both call `scripts/launchd-jrp.sh`, which reads secrets from `~/.config/jrp/env` (outside
+The Monday drift job is stopped until a fixed replay probe exists (author's decision,
+2026-10-20). No live cassette was ever recorded, so the job could only stop at its gate or
+compare nothing. Its plist stays in the repo for when the probe replaces it, and the commands
+below copy only the run plist. If the drift job is loaded on this Mac, unload it and take its
+plist out of `~/Library/LaunchAgents/` (a plist left there is loaded again at the next login;
+the repo keeps the original):
+
+```bash
+launchctl bootout gui/$(id -u)/com.shimo4228.jrp.drift
+mv ~/Library/LaunchAgents/com.shimo4228.jrp.drift.plist ~/.Trash/
+```
+
+`jrp drift` by hand still works with `JRP_DRIFT_LIVE=1`, and exits non-zero when it compared
+no answer (no cassette dir, no `*.json` in it, or no replay answered).
+
+Both plists call `scripts/launchd-jrp.sh`, which reads secrets from `~/.config/jrp/env` (outside
 the repo). The default prose model (`openai-codex:gpt-6-luna`) also needs the pipeline's own
 ChatGPT login: run `uv run jrp codex login` once in a terminal on this Mac before the first
 scheduled run (it writes `~/.config/jrp/codex-auth.json`; without it `jrp run` stops at the
 start and says so). To start the parallel run:
 
 ```bash
-cp launchd/com.shimo4228.jrp.*.plist ~/Library/LaunchAgents/
+cp launchd/com.shimo4228.jrp.run.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.shimo4228.jrp.run.plist
-launchctl load ~/Library/LaunchAgents/com.shimo4228.jrp.drift.plist
 ```
 
 The vault is in iCloud Drive, which macOS privacy (TCC) guards per executable: under launchd

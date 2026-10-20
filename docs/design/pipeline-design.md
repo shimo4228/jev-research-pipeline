@@ -149,6 +149,17 @@ state (filter state in code), adversarial text (treat as data).
    cassette inputs against live Jev and reports probability deltas (model-update
    detector). Pin `jev-1.13.0` (aliases drift; no deprecation policy published).
 
+   > **注記（2026-10-20, plan quality-metrics）**: the weekly drift job is stopped until a fixed
+   > replay probe exists (author's decision). The live cassettes it replays
+   > (`tests/cassettes/live`) were never recorded, so every Monday it exited 2 at the
+   > `JRP_DRIFT_LIVE` gate, and with the gate open it would have sent "0 answers compared"
+   > with exit 0, the shape of "no drift". `jrp drift` now exits 1 and sends
+   > `jrp drift FAILED` when it compared no answer (no cassette dir, no `*.json` in it, or
+   > no replay answered); the gate still comes first and stays silent. The plist stays in
+   > `launchd/` and is no longer copied to LaunchAgents (launchd/README.md); unloading the
+   > loaded job is the author's step. The probe that replaces it re-asks fixed inputs after
+   > measuring the jitter of one input asked twice (inventory 2026-10-19, "外部手法").
+
 ### Providers, placement, cutover
 
 10. **Qwen via DashScope** (the prose moved to GPT-5.6 Sol on the Codex subscription on
@@ -180,11 +191,16 @@ state (filter state in code), adversarial text (treat as data).
   `DASHSCOPE_API_KEY`, `JRP_COST_CAP_USD`, `JRP_JEV_USD_PER_QUESTION` (unset price = 0,
   shown as "単価未設定"). Optional: `TAVILY_API_KEY`, `GITHUB_TOKEN`, `JRP_SLACK_NOTIFY=1`,
   `JRP_DRIFT_LIVE=1`, `JRP_CASSETTE_RECORD=1`.
+  > **注記（2026-10-20, plan quality-metrics）**: `JRP_DRIFT_LIVE=1` now matters only for a
+  > `jrp drift` run by hand; the scheduled drift job is stopped (decision 9).
 - Lines and vocabulary come from `~/MyAI_Lab/daily-research/config.toml` tracks + each
   repo's graph.jsonld (read-only); tracks without a graph (desire, edge) use the track
   name only.
 - launchd: `launchd/com.shimo4228.jrp.{run,drift}.plist` (05:00 daily / Mon 05:30), not
   loaded by the build.
+  > **注記（2026-10-20, plan quality-metrics）**: only the 05:00 run job is loaded. The
+  > Mon 05:30 drift plist stays in the repo, stopped until a fixed replay probe exists
+  > (decision 9).
 - Same-day re-run carries the author's ticks over; harvester withdraws Labels for `[ ]`.
   > **注記（2026-10-20, plan quality-metrics）**: a re-harvested Label keeps its
   > `first_harvested_at` (the first harvest that saw the tick; `harvested_at` stays the
@@ -1049,6 +1065,8 @@ LLM-as-judge with another LLM as the truth source.
    as features; validated-axis silver at lower weight); label→Case exporter.
    ③ proposal detector (feature agreement scan) printing into operations section.
 10. launchd plist (3-line rotation), weekly drift job, Slack one-line notify.
+    > **注記（2026-10-20, plan quality-metrics）**: the weekly drift job is built but stopped
+    > (decision 9).
 11. Parallel-run period; cutover by fill rate.
 
 ## Verification
@@ -1064,6 +1082,9 @@ LLM-as-judge with another LLM as the truth source.
   changes at least one threshold → the ticked claims appear as pydantic-evals Cases and
   pass.
 - Drift job produces a delta table against the cassette baseline.
+  > **注記（2026-10-20, plan quality-metrics）**: never verified: no live cassette baseline
+  > was recorded, and the job is stopped until a fixed replay probe exists (decision 9).
+  > A drift that compared no answer now fails instead of reporting an empty table.
 
 ## Routing (grill-me output)
 

@@ -1,6 +1,7 @@
 """Step 10 tools: drift job, Slack one-liner, CLI wiring (no live calls, no real script)."""
 
 import json
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from pathlib import Path
 
@@ -114,6 +115,143 @@ async def test_drift_counts_failed_replays(tmp_path: Path):
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(down)) as client:
         rows, failed = await drift_with_failures([_cassette(tmp_path)], client, api_key="k")
     assert (rows, failed) == ([], 1)
+
+
+Handler = Callable[[httpx2.Request], Coroutine[None, None, httpx2.Response]]
+
+
+def _drift_cli(
+    monkeypatch: pytest.MonkeyPatch, live: Handler | None, *, gate: bool = True
+) -> list[tuple[str, str]]:
+    """`jrp drift` through main: the live gate set (or not), notify captured, and the client
+    _drift opens answered by `live` (None = no request may be sent)."""
+    from jev_research_pipeline import cli
+
+    if gate:
+        monkeypatch.setenv(LIVE_ENV, "1")
+        monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    else:
+        monkeypatch.delenv(LIVE_ENV, raising=False)
+    sent: list[tuple[str, str]] = []
+
+    def fake_notify(title: str, body: str, *, env: object) -> bool:
+        sent.append((title, body))
+        return True
+
+    async def nothing(request: httpx2.Request) -> httpx2.Response:
+        pytest.fail(f"replayed {request.url} although there was nothing to replay")
+
+    real = httpx2.AsyncClient
+
+    def client(**_: object) -> httpx2.AsyncClient:
+        return real(transport=httpx2.MockTransport(live or nothing))
+
+    monkeypatch.setattr(cli, "notify", fake_notify)
+    monkeypatch.setattr(cli.httpx2, "AsyncClient", client)
+    return sent
+
+
+@pytest.mark.parametrize("make", [False, True], ids=["missing", "empty"])
+def test_drift_without_cassettes_says_so_and_fails(
+    make: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """The default dir (tests/cassettes/live) was never recorded: no call, and no "0 answers
+    compared" that reads like no drift."""
+    from jev_research_pipeline.cli import main
+
+    cassettes = tmp_path / "live"
+    if make:
+        cassettes.mkdir()
+        (cassettes / "notes.txt").write_text("not a cassette", encoding="utf-8")
+    sent = _drift_cli(monkeypatch, None)
+    assert main(["drift", "--cassettes", str(cassettes)]) == 1
+    state = "has no *.json cassette" if make else "does not exist"
+    why = f"nothing to compare: {cassettes} {state}"
+    captured = capsys.readouterr()
+    assert captured.err == f"jrp drift: {why}\n"
+    assert captured.out == ""  # no empty table
+    assert sent == [("jrp drift FAILED", why)]
+
+
+async def _refused(request: httpx2.Request) -> httpx2.Response:
+    return httpx2.Response(401, json={"error": "bad key"})
+
+
+@pytest.mark.parametrize(
+    ("live", "failed"),
+    [(_refused, 1), (None, 0)],
+    ids=["every-replay-failed", "no-recorded-jev-request"],
+)
+def test_drift_that_compared_no_answer_fails_whatever_failed_says(
+    live: Handler | None,
+    failed: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """failed 0 (a cassette with no recorded Jev request: live None) is still nothing
+    compared."""
+    from jev_research_pipeline.cli import main
+
+    if live:
+        path = _cassette(tmp_path)
+    else:
+        path = tmp_path / "live" / "c.json"
+        only_arxiv = Cassette(path)
+        only_arxiv.put(
+            "GET https://export.arxiv.org/api/query",
+            Entry(status=200, content_type="text/xml", body="<feed/>"),
+        )
+        only_arxiv.save()
+    sent = _drift_cli(monkeypatch, live)
+    assert main(["drift", "--cassettes", str(path.parent)]) == 1
+    why = f"no answer compared: 1 cassettes, {failed} replays failed"
+    assert capsys.readouterr().err == f"jrp drift: {why}\n"
+    assert sent == [("jrp drift FAILED", why)]
+
+
+async def _moved(request: httpx2.Request) -> httpx2.Response:
+    body = {
+        "model": "jev-1.13.0",
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+        "answers": {
+            "relevant": {"type": "noul", "noul": 0.5},
+            "trust": {
+                "type": "score",
+                "score": 1.0,
+                "confidence": 0.6,
+                "legend": {"0": "a", "1": "b"},
+                "probabilities": {"0": 0.4, "1": 0.6},
+            },
+        },
+    }
+    return httpx2.Response(200, json=body)
+
+
+def test_drift_that_compared_answers_succeeds_with_the_worst_delta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    from jev_research_pipeline.cli import main
+
+    sent = _drift_cli(monkeypatch, _moved)
+    assert main(["drift", "--cassettes", str(_cassette(tmp_path).parent)]) == 0
+    assert "| c.json | relevant | 0.300 |" in capsys.readouterr().out
+    assert sent == [("jrp drift", "2 answers compared, max Δp 0.300, 0 replays failed")]
+
+
+def test_drift_with_the_gate_closed_stays_silent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """The gate comes first: a Monday job still loaded exits 2 with no message, as before."""
+    from jev_research_pipeline.cli import main
+
+    sent = _drift_cli(monkeypatch, None, gate=False)
+    assert main(["drift", "--cassettes", str(tmp_path / "live")]) == 2
+    assert f"set {LIVE_ENV}=1" in capsys.readouterr().err
+    assert sent == []
 
 
 def _timed_texts(out: str) -> list[str]:
