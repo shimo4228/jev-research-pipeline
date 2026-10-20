@@ -81,6 +81,10 @@ one past its limit is killed with its process group and sends `jrp wbr TIMED OUT
 `JRP_WBR_TIMEOUT_S` that is not a number sends `jrp wbr FAILED` and skips only the review. None
 of them stops the morning or changes the job's exit status, which stays the run's. A Monday
 whose run does not happen gets no review that week; `jrp wbr --week YYYY-Www` makes it by hand.
+With `ANTHROPIC_API_KEY` in `~/.config/jrp/env`, the review's monitoring judge calls the Claude API
+(`JRP_MONITOR_WEEKLY_USD` a week, default $5) and gives up after 300 s, inside that limit; its
+stops (a 429, spent credits, a refused key, the cap) show in the note as "not measured", not as a
+notification.
 
 Every line the wrapper writes to the log starts with the local time (`2026-10-21T05:00:02+0900`),
 on stdout or stderr as before, and `jrp run` sits between `start jrp run` and

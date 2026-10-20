@@ -759,6 +759,15 @@ author-calibrated-eval, the steps AGENTS.md):
   pass / fail verdict (`docs/prose-rubric.md`, the skill llm-as-judge shape); code checks
   form. This supersedes the non-goal "LLM-as-judge with another LLM as the truth source"
   for the dev-time fidelity gate only; runs call no Claude.
+  > **注記（2026-10-20, plan quality-metrics）**: the same rubric also has a production
+  > reader, outside a run: with ANTHROPIC_API_KEY set, `jrp wbr` sends up to 8 of the week's
+  > sections with prose to Claude Opus 5.5 on the Claude API, with this judge's instructions,
+  > gate text and verdict type (`pipeline/monitor.py`; author decision 2026-10-20: the Claude
+  > API, at most $5 a week, `JRP_MONITOR_WEEKLY_USD`). The review prints pass k/n and the
+  > line / question of each fail. It is a guard shown beside O1 only: no gate, threshold, fit
+  > or run reads it, so the dev-time rule above stands and runs still call no Claude. The
+  > bench files are not written; the materials come from today's `SourceItem.text`, so a
+  > source re-fetched since the run can make Q5 read No where the writer's excerpt agreed.
 - **Why the judge does not judge readability.** On one case the author found qwen3.7-max's
   628-char draft "very clear" and Opus's 1,267-char draft "informative but hard to read";
   the Opus judge, under a rubric saying information volume is no reason to win, chose Opus
@@ -1133,6 +1142,19 @@ ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing int
 graph.jsonld; automatic rule application; local decision model; Claude at runtime (except
 as the configured prose writer, "Prose model" 2026-10-01);
 LLM-as-judge with another LLM as the truth source.
+
+> **注記（2026-10-20, plan quality-metrics）**: one monitoring exception to both, outside a run.
+> `jrp wbr` may call Claude Opus 5.5 on the Claude API, only with ANTHROPIC_API_KEY set and up
+> to `JRP_MONITOR_WEEKLY_USD` (default $5) of calls per ISO week, priced by `costs.PRICES` and
+> logged per call in `<store>/metrics/judge.jsonl`. It judges a sample seeded with the week's
+> label: up to 8 sections with prose on the prose rubric (W fidelity) and up to 12 O1 papers,
+> each asked whether its claim moves the question forward (OUT precision). The answers are
+> shown in the weekly review only, never used as a gate, as fit's truth or as a threshold,
+> and no run calls the judge. It stops without retrying at a 429, spent credits, a 401 / 403,
+> the cap or its 300 s deadline (a repeated rate limit is a policy signal). Review-when: 30
+> O1 sources are used (calibrate the precision sample on them, or replace it with the used
+> rate), or the judge's model, its prompts or the rubric change (cut the series there; the
+> weekly row keeps the model and the rubric's sha).
 
 ## Libraries (verified as-of 2026-09-22)
 

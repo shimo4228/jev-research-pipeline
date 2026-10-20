@@ -35,7 +35,8 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_PROSE_MODEL` | no | the model that writes the prose, `<backend>:<model>` (default `openai-codex:gpt-6-luna`; or e.g. `claude-code:claude-opus-5-5`, `anthropic:claude-opus-5-5`, `dashscope:qwen3.7-max`). See [The writing model](how-it-works.md#the-writing-model) |
 | `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
 | `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
-| `ANTHROPIC_API_KEY` | for `anthropic:` | the Claude API, billed per token to the key's Console organization (a Claude Max plan's monthly API credits pay it once that organization is linked to the plan); only needed when `JRP_PROSE_MODEL` names an `anthropic:` model. The `claude-code:` backend never passes it to the CLI |
+| `ANTHROPIC_API_KEY` | for `anthropic:` | the Claude API, billed per token to the key's Console organization (a Claude Max plan's monthly API credits pay it once that organization is linked to the plan); needed when `JRP_PROSE_MODEL` names an `anthropic:` model. `jrp wbr` uses it too, for the weekly review's monitoring judge (Claude Opus 5.5, up to `JRP_MONITOR_WEEKLY_USD` a week, see [The weekly review](#the-weekly-review)); unset, the review calls nothing and says "not measured (no key)". The `claude-code:` backend never passes it to the CLI |
+| `JRP_MONITOR_WEEKLY_USD` | no | the weekly review's monitoring judge stops starting calls once the calls made in the current ISO week cost this much at API prices (default 5.0; calls already running finish). A value that is not a number of 0 or more turns the judge off for that review |
 | `JRP_DAILY_RESEARCH_CONFIG` | no | the `config.toml` with your lines and `[nets]` (default `~/.config/jrp/config.toml`) |
 | `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`, `claude-code:`) counts 0 toward it; `anthropic:` counts at API prices (about $0.3 to $0.5 a line on Opus 5.5) |
 | `JRP_JEV_USD_PER_QUESTION` | recommended | the Jev price assumed per question, for the note's cost line ("Jev estimated cost" on a subscription writer; "Estimated cost", Jev plus the writer's tokens, on a per-token one); unset, Jev is not counted and the line says the price is not set |
@@ -144,9 +145,20 @@ files and writes two things: the note `<DIR>/<the Monday after the week>_jrp_wbr
 `DIR` = `<JRP_VAULT_DIR>/daily-research`, beside the daily notes) and one line appended to
 `<JRP_STORE_DIR>/metrics/weekly.jsonl`. `--week` defaults to the last complete ISO week (on a
 Monday, the week that just ended). It uses the same `JRP_STORE_DIR`, `JRP_QUESTIONS_DIR`,
-`JRP_DAILY_RESEARCH_CONFIG` and `JRP_NOTE_LANG` as a run, and calls no API, so it can be made
-again any number of times; each time appends another line to `weekly.jsonl`. What each number
-means is in [how-it-works.md](how-it-works.md#the-weekly-review). On macOS the launchd wrapper
+`JRP_DAILY_RESEARCH_CONFIG` and `JRP_NOTE_LANG` as a run. Without `ANTHROPIC_API_KEY` it calls
+no API, so it can be made again any number of times; each time appends another line to
+`weekly.jsonl`. With the key set, the monitoring judge (Claude Opus 5.5 on the Claude API) reads a
+sample of the week: up to 8 sections with prose, judged pass / fail against the fidelity checks of
+`docs/prose-rubric.md` (`.en.md` / `.zh.md` for a note in English or Chinese; read from the
+checkout, so an installed copy without `docs/` shows "not measured"), and up to 12 of the week's
+O1 papers, each asked whether its claim moves the question forward. The sample is drawn from the
+week's label, so the same week draws the same sections and papers. Each call is priced at the
+Claude API's rates and appended to `<JRP_STORE_DIR>/metrics/judge.jsonl`; the judge stops at
+`JRP_MONITOR_WEEKLY_USD`, at a 429, at spent credits or a refused key (none of them retried), and
+after 300 s, and the rest of the sample shows as not measured with the reason. Its answers are
+shown in the note only: no gate, threshold or run reads them. Making a week again with the key
+set calls and pays again. What each number means is in
+[how-it-works.md](how-it-works.md#the-weekly-review). On macOS the launchd wrapper
 runs it every Monday after the morning's notes reach the vault, limited by `JRP_WBR_TIMEOUT_S`
 ([launchd/README.md](../launchd/README.md)); on Linux it is a second cron or systemd entry
 ([scheduling.md](scheduling.md#linux-cron-or-systemd)).

@@ -61,7 +61,8 @@ The headings follow the note's language.
 ## The weekly review
 
 `jrp wbr` writes one more note a week, `<Monday>_jrp_wbr.md` beside the daily ones, from the
-store alone: it calls no API and changes nothing in the store. On macOS the launchd job makes it
+store alone: it changes nothing in the store, and it calls no API unless `ANTHROPIC_API_KEY` is
+set (the monitoring judge below). On macOS the launchd job makes it
 every Monday once the morning's notes are in the vault. It asks one question: which part
 of the pipeline, if you fixed it next, would bring you the most new evidence. Its outputs are
 O1, the papers your notes' prose cited for the first time that week (counted by paper, so an
@@ -81,6 +82,17 @@ changed. A number is shown only when the instrument registry calls it alive; oth
 status word stands in its place (expected zero, declared degenerate, missing, contradiction,
 and so on). This first version stops at the breakdown: it does not pick the change for next
 week. Each review also appends its numbers as one line to `<store>/metrics/weekly.jsonl`.
+
+With `ANTHROPIC_API_KEY` set, a monitoring judge (Claude Opus 5.5 on the Claude API, at most
+$5 a week by default) adds two lines under O1 and O2. One samples up to 12 of the week's O1
+papers and asks, from the question, the claim and the paper's title alone, whether the claim
+moves the question forward: it prints how many it answered yes or partial. The other samples up
+to 8 sections of the week's prose and judges each against the same fidelity checks the prose
+bench uses (numbers, hedges, intent vs result, subject, sources, inference): it prints how many
+passed and names the line and question of each that failed. The samples are drawn from the
+week's label, so a week made again draws the same ones. These lines are a check beside O1, not a
+gate: nothing in jrp acts on them. Without the key, or once the week's cap, a rate limit or the
+credits stop it, the lines say "not measured" and why.
 
 ## The question file
 

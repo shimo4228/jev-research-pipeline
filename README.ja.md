@@ -62,7 +62,7 @@ Python 3.12 と [uv](https://docs.astral.sh/uv/) のほかに、アカウント�
   - Claude API（従量課金）、`anthropic:claude-opus-5-5`: `ANTHROPIC_API_KEY`。Claude の Max プランに付く毎月の API クレジットで払えます（このクレジットは Claude Code CLI には使えません）。
   - Qwen（従量課金）、`dashscope:qwen3.7-max`: `DASHSCOPE_API_KEY`（Alibaba Cloud Model Studio）。
 
-**外に出るもの**: 問いの検索語は arXiv（OpenAlex 経由）、Hugging Face、GitHub、`TAVILY_API_KEY` を設定すれば Tavily へ、印を付けた論文と Jev が残した論文の ID は Semantic Scholar の推薦（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使います）と、引用している論文を探す OpenAlex へ、Jev が判定する論文と箇所は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。ノートは手元のフォルダに残ります。任意の Slack 通知が送るのはノートの名前、主張の件数、失敗の理由、未解決の問いが無い問いのファイルの場所で、ノートの中身は送られません。
+**外に出るもの**: 問いの検索語は arXiv（OpenAlex 経由）、Hugging Face、GitHub、`TAVILY_API_KEY` を設定すれば Tavily へ、印を付けた論文と Jev が残した論文の ID は Semantic Scholar の推薦（`[-]` を付けた論文を負例として添え、まだ無いときは無作為の論文を使います）と、引用している論文を探す OpenAlex へ、Jev が判定する論文と箇所は TypeSafe へ、各節の証拠は選んだ書き手へ送られます。`ANTHROPIC_API_KEY` を設定していれば、週報がその週の節（証拠と本文）と引用された claim を問いと一緒に標本として Claude API へ送り、週 $5 までの検査をします。ノートは手元のフォルダに残ります。任意の Slack 通知が送るのはノートの名前、主張の件数、失敗の理由、未解決の問いが無い問いのファイルの場所で、ノートの中身は送られません。
 
 そのうえで、インストールして最初の設定を書きます。インストールせずに試すときは、以下の `jrp init`、`jrp doctor`、`jrp try` の前に代わりに `uvx` を付けます。定期実行にはインストールした jrp が要ります。
 
