@@ -101,6 +101,30 @@ def recorded(text: str) -> set[str]:
     return names
 
 
+def first_seen(text: str) -> dict[str, date]:
+    """Each name opened.jsonl holds, with its earliest first_seen (a name appended twice
+    keeps the earlier day). A line that cannot be read, or whose first_seen is not an ISO
+    date, holds none. Rows are split at LF only, as `recorded` splits them."""
+    out: dict[str, date] = {}
+    for line in text.split("\n"):
+        try:
+            row: JsonValue = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        note, seen = row.get("note"), row.get("first_seen")
+        if not isinstance(note, str) or not isinstance(seen, str):
+            continue
+        try:
+            day = date.fromisoformat(seen)
+        except ValueError:
+            continue
+        if note not in out or day < out[note]:
+            out[note] = day
+    return out
+
+
 def record_opened(vault: Path, store_root: Path, today: date) -> int:
     """Append the jrp notes on Obsidian's lists that opened.jsonl does not hold yet, in name
     order, each with `today` as its first_seen. Returns how many were appended. Nothing is

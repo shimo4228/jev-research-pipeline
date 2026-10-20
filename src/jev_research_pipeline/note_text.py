@@ -334,3 +334,28 @@ LOW_CERTAINTY: Final = Msg(
     "low certainty: {sure} (< {floor})",
     "置信度不足: {sure} (< {floor})",
 )
+
+# --- Instrument registry (pipeline.registry): the weekly review's status words --------------
+# A number that is not live is shown as its status word instead of its value.
+
+STATUS_LIVE: Final = Msg("live", "live", "live")
+STATUS_EXPECTED_ZERO: Final = Msg("暦どおりの 0", "expected zero", "按日历的 0")
+STATUS_DECLARED_DEGENERATE: Final = Msg("宣言済みの縮退", "declared degenerate", "已声明的退化")
+STATUS_INSUFFICIENT_N: Final = Msg("データ不足", "too few readings", "数据不足")
+STATUS_UNEXPLAINED_ZERO: Final = Msg("未説明の 0", "unexplained zero", "未解释的 0")
+STATUS_STUCK: Final = Msg("値が動かない", "stuck", "数值不变")
+STATUS_MISSING: Final = Msg("欠落", "missing", "缺失")
+STATUS_CONTRADICTION: Final = Msg("矛盾", "contradiction", "矛盾")
+DECLARED_CITATION_SEEDS: Final = Msg(
+    "引用の種が新しすぎる (公開から数日の preprint は、まだ誰にも引用されていない)",
+    "the citation seeds are too new (a preprint a few days old is cited by nobody yet)",
+    "引用的种子太新 (发布才几天的 preprint 还没有被任何人引用)",
+)
+DECLARED_USED_VAULT: Final = Msg(
+    "used の走査先は graph と ADR のみ (著者の決定 2026-10-20。本番の vault 経路は jrp の"
+    "ノートだけの stage を読む)",
+    "the used scan reads graph.jsonld and ADRs only (author decision 2026-10-20; in "
+    "production its vault path is the stage, which holds only jrp notes)",
+    "used 的扫描只读 graph 和 ADR (作者决定 2026-10-20。正式运行时 vault 路径读的是只有 "
+    "jrp 笔记的 stage)",
+)

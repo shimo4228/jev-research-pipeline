@@ -145,6 +145,29 @@ state (filter state in code), adversarial text (treat as data).
    > their source, so source_support practically always resolves by string match without
    > asking Jev, and the stage read 0 s.
 
+   > **注記（2026-10-20, plan quality-metrics）**: a number is compared only after the
+   > instrument registry (`pipeline/registry.py`) calls it live. Each instrument names what
+   > it reads, its part (M Q I S X W D OUT), what each reading should show, and the first
+   > run_date the store keeps it (`since`: writer calls, Jev tokens and first harvests from
+   > 2026-10-21). Every cell (instrument, line, run_date) and every instrument over a window
+   > gets one word: live / expected-zero / declared-degenerate / insufficient-n /
+   > unexplained-zero / stuck / missing / contradiction; the weekly review prints the word in
+   > place of any number that is not live. The calendar: the arXiv RSS feed of a day (it
+   > rolls over at midnight EST) is empty on Saturday, Sunday and the day after an arXiv
+   > holiday (info.arxiv.org availability page, 2026 list), so a 05:00 JST run reads 0 on
+   > Sunday and Monday and two days after a holiday; HF daily reads 0 when the UTC day before
+   > the run is a weekend; a listing on such a day is a contradiction, a 0 on another day is
+   > unexplained, the same count on three runs in a row is stuck, and a run with no
+   > StageRecord is missing. Declared degenerate until 2026-12-31, with their reasons as
+   > note_text Msgs: the citation net (its seeds are papers a few days old, cited by nobody
+   > yet) and the used scan's vault place (graph.jsonld and ADRs only, author decision
+   > 2026-10-20); after that day a declared 0 is unexplained until the declaration is renewed
+   > or removed. writer calls at 0 beside prose the same run wrote, or Jev tokens at 0 beside
+   > Jev questions, is a contradiction; O1 (sources first cited in a line's prose) or the
+   > note's claims at 0 on two of a line's Reports in a row is unexplained; new ticks
+   > (`Label.first_harvested_at`) and opened notes may be 0. `tests/test_registry.py`
+   > injects one fault per instrument and fails when an instrument in the registry has none.
+
 ### Failure policy, testing
 
 8. Jev timeout/error → item to an "unjudged" section (no fail-open into the body).
@@ -1104,6 +1127,10 @@ LLM-as-judge with another LLM as the truth source.
 ## Verification
 
 - `.claude/verify.sh` green offline (cassette replay; no keys).
+  > **注記（2026-10-20, plan quality-metrics）**: verify also runs the instrument drill
+  > (`tests/test_registry.py`): each instrument of `pipeline/registry.py` is healthy on a
+  > synthetic week and fails with one fault injected into it, and an instrument without a
+  > fault fails the test. The arXiv and HF calendars are pinned on synthetic dates.
 - One live smoke run per line with cost cap, confirming: report file appears in the vault
   subfolder with checkboxes; operations section shows Jev question count, generation
   tokens, Claude calls = 0, self-eval scores.

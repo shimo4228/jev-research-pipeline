@@ -14,6 +14,7 @@ from pydantic import JsonValue
 from jev_research_pipeline.pipeline.runner import run_pipeline, update_opened
 from jev_research_pipeline.reduction.opened import (
     OPENED_FILE,
+    first_seen,
     jrp_notes,
     opened_notes,
     record_opened,
@@ -146,6 +147,27 @@ def test_a_name_with_a_line_separator_in_it_is_recorded_once(tmp_path: Path, sep
     text = (store / OPENED_FILE).read_text("utf-8")
     assert recorded(text) == {f"2026-10-20_jrp_a{separator}b.md"}
     assert len(text.split("\n")) == 2  # one row and the empty tail
+
+
+def test_first_seen_keeps_each_names_earliest_day_and_skips_what_it_cannot_read():
+    """What the weekly review's registry reads back: a name appended twice (a line once
+    unreadable) keeps its earlier day; a row without a name or an ISO date holds none."""
+    text = "\n".join(
+        [
+            json.dumps({"note": AKC.split("/")[1], "first_seen": "2026-10-21"}),
+            json.dumps({"note": AKC.split("/")[1], "first_seen": "2026-10-20"}),
+            json.dumps({"note": EDGE.split("/")[1], "first_seen": "2026-10-22"}),
+            json.dumps({"note": "x.md", "first_seen": "10/22"}),
+            json.dumps({"note": 3, "first_seen": "2026-10-22"}),
+            json.dumps(["not", "a", "row"]),
+            '{"note": "cut short',
+            "",
+        ]
+    )
+    assert first_seen(text) == {
+        "2026-10-20_jrp_akc.md": date(2026, 10, 20),
+        "2026-10-19_jrp_edge.md": date(2026, 10, 22),
+    }
 
 
 def test_metrics_is_not_a_partition_so_migrate_never_touches_it(tmp_path: Path):
