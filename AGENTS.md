@@ -47,9 +47,9 @@ dev と holdout を合わせた 32 件で比べ、改善は holdout で崩れな
 コマンドは止まる（再試行しない）。
 
 本番の本文プロンプトは言語ごとに `src/jev_research_pipeline/generation/prompts/` にあり、bench の
-ファイルと同文であることをテストが固定している: ja = `v16.md` + `check10.md`（2026-10-19 から）、en = `en2.md` + `en-check1.md`、
+ファイルと同文であることをテストが固定している: ja = `v16.md` + `check10.md`（本番は 2026-10-20 の run から）、en = `en2.md` + `en-check1.md`、
 zh = `zh1.md` + `zh-check1.md`。言語のベンチは `jrp prose bench --lang en|zh`（判定役の rubric と
-読み手の指示文も言語に従う）。本番のモデルは `claude-code:claude-opus-5-5`（2026-10-02 から。著者の blind 読み
+読み手の指示文も言語に従う）。本番のモデルは `claude-code:claude-opus-5-5`（2026-10-03 の run から。著者の blind 読み
 5/5）。Jev の claim_fidelity は記録だけで足切りではない（design「Production check vs the prose bench」）。
 
 ## trace を見る（OTel）

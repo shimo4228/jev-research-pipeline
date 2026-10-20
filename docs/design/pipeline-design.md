@@ -832,9 +832,9 @@ within an eval loop. GPT is kept for the transfer check only (20 requests, used 
 - **Noise** (18 cases): re-judging the same drafts moves facts ±0.01, misbeliefs ±2, stops
   ±0.5; re-drafting with the same prompt moves facts ±0.07, misbeliefs ±7, the cutoff ±1.
   Only the cutoff separated the variants below.
-- **Production fails the cutoff 5-6 of 10** (v10 on gpt-6-luna, judged twice): mostly the lead
-  paragraph (merged studies, dropped hedges, no citation) and copied numbers (16.1 for 16.2,
-  relative read as points).
+- **Production passes the cutoff 5-6 of 10** (v10 on gpt-6-luna, judged twice); the fails sit
+  mostly in the lead paragraph (merged studies, dropped hedges, no citation) and copied numbers
+  (16.1 for 16.2, relative read as points).
 - **v11-v14 + check7/8** (prompts in bench/prose/prompts/): the lead says each study's finding
   with its conditions and cites; numbers copied exactly; comparators in the same sentence;
   guarantees keep their conditions; per study 1-2 paragraphs of 600-1,000 chars spent on
@@ -872,7 +872,8 @@ v16 leaves the field's terms unglossed (scaffold, harness, oracle); the author i
 reader. The two judge fails are inference paragraphs that over-reach, not the lists.
 - **The blind read cannot test a structural change**: the author could tell v15 from v16 by
   their shape alone, so the A/B read was skipped and the author chose v16 directly.
-- **Production**: v16 + check10 from 2026-10-19 (tests/test_prose.py pins the copies).
+- **Production**: v16 + check10 from the 2026-10-20 run (committed 2026-10-19 18:21, after
+  that day's 05:00 run; tests/test_prose.py pins the copies).
 Review-when: the author finds the list items too thin to judge a study, or the per-paragraph
 quality checks (quality.py) start rejecting list-form sections.
 
