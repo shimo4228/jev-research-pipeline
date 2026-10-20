@@ -19,6 +19,12 @@ jrp export-cases   labeled claims → <store>/cases/<slug>.yaml (pydantic-evals)
 jrp drift          replay recorded Jev inputs live; needs JRP_DRIFT_LIVE=1; non-zero exit
                    when it compared nothing (pipeline.drift)
 jrp migrate        bring the store up to today's schema; --dry-run prints the plan only
+jrp wbr [--week YYYY-Www] [--out DIR]
+                   the weekly review of one ISO week (default: the last complete one) from
+                   the store alone: the note <DIR>/<the Monday after>_jrp_wbr.md (default
+                   DIR <JRP_VAULT_DIR>/daily-research) and one line appended to
+                   <store>/metrics/weekly.jsonl, nothing else (pipeline.wbr). An older store
+                   is read under today's schema in memory, never migrated
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
 jrp prose export|bench|read|gate
@@ -28,7 +34,8 @@ jrp codex login    sign in to the ChatGPT/Codex subscription once, for the defau
                    model (generation.codex)
 
 A store file from an older build stops every command with one line (store.migrate):
-additive differences are migrated in place first, incompatible ones need `jrp migrate`.
+additive differences are migrated in place first (`jrp wbr`: lifted in memory, the file left
+as it is), incompatible ones need `jrp migrate` (exit 2).
 """
 
 import argparse
@@ -69,8 +76,11 @@ from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
 from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, run_summary, store_dir
+from .pipeline.wbr import Week, write_weekly_review
 from .questions import NoQuestions, questions_path
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
+from .report import VaultNotConfigured, vault_dir
+from .report.vault import REPORT_DIR
 from .scheduling import install, install_lines
 from .store import GraphStore
 from .store.migrate import StoreSchemaError, migrate_store, prepare_store
@@ -115,6 +125,11 @@ def parser() -> argparse.ArgumentParser:
     d.add_argument("--cassettes", default="tests/cassettes/live", help="dir of live cassettes")
     m = sub.add_parser("migrate")
     m.add_argument("--dry-run", action="store_true", help="print the plan, change nothing")
+    w = sub.add_parser("wbr", help="the weekly review of one ISO week, from the store alone")
+    w.add_argument(
+        "--week", type=_iso_week, help="ISO week YYYY-Www (default: the last complete week)"
+    )
+    w.add_argument("--out", help="where the note goes (default: <JRP_VAULT_DIR>/daily-research)")
     q = sub.add_parser("queries")
     q.add_argument("action", choices=["check"])
     q.add_argument("--line", required=True, help="line slug (config.toml track)")
@@ -140,6 +155,13 @@ def parser() -> argparse.ArgumentParser:
     c = sub.add_parser("codex")
     c.add_argument("action", choices=["login"])
     return p
+
+
+def _iso_week(text: str) -> Week:
+    try:
+        return Week.parse(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def _slugs(env: Mapping[str, str]) -> list[str]:
@@ -252,6 +274,24 @@ def _migrate(env: Mapping[str, str], *, dry_run: bool) -> int:
     return 0
 
 
+def _wbr(env: Mapping[str, str], week: Week | None, out: str | None) -> int:
+    """Read-only on the store (pipeline.wbr): an incompatible partition raises
+    StoreSchemaError, which main() prints as one line with exit 2."""
+    now = datetime.now().astimezone()
+    try:
+        target = Path(out) if out else vault_dir(env) / REPORT_DIR
+        written = write_weekly_review(
+            env, week=week or Week.last_complete(now.date()), out=target, now=now
+        )
+    except StoreSchemaError:
+        raise
+    except (VaultNotConfigured, OSError, ValueError) as e:  # config, questions, JRP_NOTE_LANG
+        sys.stderr.write(f"jrp wbr: {type(e).__name__}: {e}\n")
+        return 1
+    sys.stdout.write(f"{written.note}\n")
+    return 0
+
+
 def _fit(env: Mapping[str, str]) -> int:
     store = GraphStore(store_dir(env))
     for slug in _slugs(env):
@@ -320,21 +360,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         match args.command:
             case "run":
-                return asyncio.run(_run(env))  # run_pipeline prepares the store itself
+                code = asyncio.run(_run(env))  # run_pipeline prepares the store itself
             case "fit" | "export-cases":
                 _prepared(env)
-                return _fit(env) if args.command == "fit" else _export(env)
+                code = _fit(env) if args.command == "fit" else _export(env)
             case "migrate":
-                return _migrate(env, dry_run=bool(args.dry_run))
+                code = _migrate(env, dry_run=bool(args.dry_run))
             case "doctor":
-                return _doctor(env)
+                code = _doctor(env)
+            case "wbr":  # synchronous: never into _async_command, whose fallback is drift
+                code = _wbr(env, args.week, args.out)
             case _:
-                return asyncio.run(_async_command(env, args))
+                code = asyncio.run(_async_command(env, args))
     except StoreSchemaError as e:
         sys.stderr.write(f"{e}\n")
         if args.command == "run":
             notify("jrp run STOPPED", str(e), env=env)
         return 2
+    return code
 
 
 async def _async_command(env: Mapping[str, str], args: argparse.Namespace) -> int:

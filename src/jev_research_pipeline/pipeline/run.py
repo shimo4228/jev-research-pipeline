@@ -367,6 +367,16 @@ CLAIMS_PER_QUESTION: Final = 5
 CLAIMS_PER_SOURCE: Final = 2
 CLAIMS_PER_NOTE: Final = 9
 """Spread over the questions that have claims: 1 → 5, 2 → 4, 3 → 3, 4+ → 2 each."""
+
+
+def claims_per_question(with_claims: int) -> int:
+    """The claims each of `with_claims` questions may put on one note: CLAIMS_PER_NOTE
+    shared between them, at least 2 and at most CLAIMS_PER_QUESTION (scratch run 10: three
+    sections of five claims made a 16.4 KB note). The weekly review evaluates it at a run's
+    open questions to count the note's free slots (pipeline.wbr)."""
+    return min(CLAIMS_PER_QUESTION, max(2, CLAIMS_PER_NOTE // max(with_claims, 1)))
+
+
 NOTE_MAX_BYTES: Final = 12_000
 """A note above this drops the Review lines farthest from the cut, until it fits (author
 mandate: note ≤ 12 KB = 12,288 bytes; margin for the line that says what was dropped).
@@ -1292,10 +1302,8 @@ class LineRun:
         their Decisions and Claim nodes in the store but are not reported, so they do not
         join the evidence set and may be judged again on a later day."""
         kept: list[_Accepted] = []
-        with_claims = len({i.question.id for i in accepted})
-        # The note-wide budget shared by the questions that have claims (scratch run 10:
-        # three sections of five claims made a 16.4 KB note).
-        per_question = min(CLAIMS_PER_QUESTION, max(2, CLAIMS_PER_NOTE // max(with_claims, 1)))
+        # The note-wide budget shared by the questions that have claims.
+        per_question = claims_per_question(len({i.question.id for i in accepted}))
         for question in self.questions:
             mine = sorted(
                 (i for i in accepted if i.question.id == question.id), key=lambda i: -i.bears_on

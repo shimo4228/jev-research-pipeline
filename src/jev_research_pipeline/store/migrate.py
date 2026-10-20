@@ -7,6 +7,8 @@ migrate_store()  `jrp migrate [--dry-run]`: the same rewrite, and an incompatibl
                  is moved (never deleted) to <store>/retired/<date>/, with its derived
                  index, so the next run starts that line on an empty partition. What it
                  would do is printed first; --dry-run prints and stops.
+read_lifted()    a reader that must not write (`jrp wbr`): an additive partition is read as
+                 the rewrite would leave it, in memory only, and the file stays as it is.
 """
 
 import json
@@ -15,14 +17,20 @@ from datetime import date
 from pathlib import Path
 
 from jev_research_pipeline import note_text as t
-from jev_research_pipeline.model import from_document
+from jev_research_pipeline.model import GraphNodeType, from_document
 from jev_research_pipeline.model.jsonld import CONTEXT
 from jev_research_pipeline.note_text import Lang
 
 from .graph import Partition
-from .schema import Inspection, StoreSchemaError, inspect_partition
+from .schema import Inspection, StoreSchemaError, inspect_document, inspect_partition
 
-__all__ = ["StoreSchemaError", "inspect_partition", "migrate_store", "prepare_store"]
+__all__ = [
+    "StoreSchemaError",
+    "inspect_partition",
+    "migrate_store",
+    "prepare_store",
+    "read_lifted",
+]
 
 
 def partition_files(root: Path) -> list[Path]:
@@ -40,6 +48,21 @@ def _rewrite(path: Path) -> None:
     doc = json.loads(path.read_text(encoding="utf-8"))
     nodes = from_document({**doc, "@context": CONTEXT})
     Partition(path).write_all(nodes)
+
+
+def read_lifted(path: Path) -> dict[str, GraphNodeType]:
+    """A partition's nodes under today's schema, writing nothing: a current file reads as
+    Partition.load reads it, an additive one with CONTEXT put in place of its @context in
+    memory (the nodes `_rewrite` would write), an incompatible one raises StoreSchemaError.
+    A missing file is empty, as for Partition.load."""
+    if not path.exists():
+        return {}
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if doc.get("@context") != CONTEXT:
+        found = inspect_document(doc)
+        if found.verdict == "incompatible":
+            raise StoreSchemaError(path, found)
+    return {node.id: node for node in from_document({**doc, "@context": CONTEXT})}
 
 
 def prepare_store(root: Path, lang: Lang = t.DEFAULT_LANG) -> list[str]:

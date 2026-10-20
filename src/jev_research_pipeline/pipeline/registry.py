@@ -16,8 +16,10 @@ being healthy, and checks that every id in REGISTRY has such a fault: an instrum
 here without one does not pass verify.
 
 Nothing here writes: `read_snapshot` loads the partitions and metrics/opened.jsonl, and
-every other function is pure over the Snapshot. Partition.load raises StoreSchemaError on a
-store whose @context is older (the caller decides what to do; `jrp run` migrates first).
+every other function is pure over the Snapshot. A partition whose @context is older is read
+under today's schema in memory when the difference is additive, and stops the read with
+StoreSchemaError when it is incompatible (store.migrate.read_lifted): the weekly review
+reads a store and never migrates it.
 """
 
 from collections import Counter
@@ -44,6 +46,7 @@ from jev_research_pipeline.model import (
 from jev_research_pipeline.note_text import Msg
 from jev_research_pipeline.reduction.opened import OPENED_FILE, first_seen
 from jev_research_pipeline.store import GraphStore
+from jev_research_pipeline.store.migrate import read_lifted
 
 from .nets import DEFAULT_BUDGETS
 
@@ -179,11 +182,12 @@ class Snapshot:
 def read_snapshot(
     store: GraphStore, slugs: Sequence[str], *, firehose: Mapping[str, int] | None = None
 ) -> Snapshot:
-    """Load what the registry reads, writing nothing."""
+    """Load what the registry reads, writing nothing (an additive partition is lifted in
+    memory; an incompatible one raises StoreSchemaError)."""
     opened = store.root / OPENED_FILE
     return Snapshot(
-        lines={slug: store.line(slug).load() for slug in slugs},
-        pipeline=store.pipeline().load(),
+        lines={slug: read_lifted(store.line(slug).path) for slug in slugs},
+        pipeline=read_lifted(store.pipeline().path),
         opened=first_seen(opened.read_text(encoding="utf-8")) if opened.is_file() else {},
         firehose=dict(firehose or {}),
     )

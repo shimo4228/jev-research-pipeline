@@ -9,6 +9,10 @@
   (decision 3); with env JRP_GITHUB_OWNER, github.com/<owner>/<repo name> (or
   github.com/<owner> for a track with no repo — the ids the author's store was built on);
   else `<STORE_NS>line/<slug>`. Without a graph the track name is the only vocabulary term.
+- Reserved slugs (RESERVED_SLUGS): `wbr` names the weekly review's note
+  (`<date>_jrp_wbr.md`, pipeline.wbr), so a track of that name would have its notes and the
+  review's matched by the same `*_jrp_wbr.md` glob (report_notes harvests by it); a config
+  with one does not load, so `jrp doctor` fails its config check and `jrp run` stops.
 - Vocabulary: `name` + every `alternateName` value of the graph's Concept and
   DefinedTerm nodes. `@type` is matched by its last segment, so the `ans:` / `schema:`
   prefixes the real graphs use are not dropped (second live run, 2026-09-23).
@@ -34,6 +38,13 @@ DEFAULT_CONFIG: Final = JRP_HOME / "config.toml"
 OWNER_ENV: Final = "JRP_GITHUB_OWNER"
 ADAPTERS: Final[tuple[AdapterKind, ...]] = ("arxiv", "hf_papers", "github", "web_search")
 """Fixed in code for every line (decision 4); the model never chooses sources."""
+RESERVED_SLUGS: Final = frozenset({"wbr"})
+"""Track slugs a config may not use: the file name `<date>_jrp_<slug>.md` of a line's notes
+would be the weekly review's (pipeline.wbr.NOTE_SLUG)."""
+
+
+class ReservedSlug(ValueError):
+    """A track named after something jrp writes itself."""
 
 
 class TrackSpec(Value):
@@ -57,6 +68,11 @@ def load_tracks(path: Path, *, owner: str | None = None) -> list[TrackSpec]:
     tracks: dict[str, Any] = data.get("tracks", {})
     out: list[TrackSpec] = []
     for slug, spec in tracks.items():
+        if slug in RESERVED_SLUGS:
+            raise ReservedSlug(
+                f"[tracks.{slug}] in {path}: {slug!r} is reserved for jrp's weekly review "
+                "note; rename the track"
+            )
         repos: list[dict[str, Any]] = spec.get("repos", [])
         repo = Path(str(repos[0]["target_repo"])).expanduser() if repos else None
         out.append(

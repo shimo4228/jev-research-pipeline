@@ -359,3 +359,237 @@ DECLARED_USED_VAULT: Final = Msg(
     "used 的扫描只读 graph 和 ADR (作者决定 2026-10-20。正式运行时 vault 路径读的是只有 "
     "jrp 笔记的 stage)",
 )
+
+# --- Weekly review (pipeline.wbr): the note `<date>_jrp_wbr.md` ------------------------------
+# A number whose instrument is not live is shown as its STATUS_* word instead.
+
+WBR_TITLE: Final = Msg(
+    "jrp 週次レビュー {week} ({start}〜{end})",
+    "jrp weekly review {week} ({start} to {end})",
+    "jrp 周报 {week} ({start}〜{end})",
+)
+WBR_CONCLUSION: Final = Msg("0. 結論", "0. Summary", "0. 结论")
+WBR_WORST: Final = Msg(
+    "分解: 雑音を超えて最も下がった因子は {part} の {factor} (Δln {delta} ± {se})",
+    "Breakdown: the factor that fell most beyond noise is {factor} of {part} (Δln {delta} ± {se})",
+    "分解: 超出噪声、下降最多的因子是 {part} 的 {factor} (Δln {delta} ± {se})",
+)
+WBR_NO_WORST: Final = Msg(
+    "分解: 雑音を超えて下がった因子は無い",
+    "Breakdown: no factor fell beyond noise",
+    "分解: 没有超出噪声而下降的因子",
+)
+WBR_NO_BREAKDOWN: Final = Msg(
+    "分解: 比べられる成熟 cohort が 2 つそろわない",
+    "Breakdown: there are not two mature cohorts to compare",
+    "分解: 还没有两个可比较的成熟 cohort",
+)
+WBR_EXCEPTION_COUNT: Final = Msg(
+    "例外: {n} 件 (2. 例外)", "Exceptions: {n} (section 2)", "例外: {n} 条 (2. 例外)"
+)
+WBR_INSTRUMENT_SUMMARY: Final = Msg("計器: {counts}", "Instruments: {counts}", "仪表: {counts}")
+WBR_V0: Final = Msg(
+    "v0 は分解までを出す。来週の 1 手は自動では選ばない (4. と 8. も v0 では出さない)",
+    "v0 stops at the breakdown and does not pick next week's one change (sections 4 and 8 "
+    "are not in v0)",
+    "v0 只给出到分解为止，不自动选择下周的一手 (4. 与 8. 在 v0 中也不给出)",
+)
+WBR_OUTPUT: Final = Msg("1. 出力", "1. Output", "1. 产出")
+WBR_O1_ROW: Final = Msg(
+    "O1 本文で初めて引用された論文",
+    "O1 papers first cited in the prose",
+    "O1 正文中首次引用的论文",
+)
+WBR_O1_NOTE: Final = Msg(
+    "論文は key (arXiv id・DOI・GitHub slug・正規化 URL)で数え、2 ラインが引用しても 1 本。"
+    "ライン別は、その論文を初めての日に引用したライン。区間は Poisson 95% (Garwood)",
+    "Papers are counted by key (arXiv id, DOI, GitHub slug, normalized URL), once however "
+    "many lines cite them; a line's row counts the papers it cited on their first day. "
+    "Intervals: Poisson 95% (Garwood)",
+    "论文按 key (arXiv id・DOI・GitHub slug・规范化 URL)计数，两条线都引用也只算 1 篇。"
+    "各线一行计的是在首次引用当天引用该论文的线。区间为 Poisson 95% (Garwood)",
+)
+WBR_O2: Final = Msg(
+    "O2 著者の新出 key の先回り (graph と ADR のみ・上限寄り、直近 30 日): {value}",
+    "O2 the author's new keys jrp cited first (graph.jsonld and ADRs only, an upper bound, "
+    "last 30 days): {value}",
+    "O2 作者新出现的 key 中 jrp 先引用的 (仅 graph 与 ADR・偏上限，最近 30 天): {value}",
+)
+WBR_MEASURING: Final = Msg("測定中", "being measured", "测量中")
+WBR_O2_KN: Final = Msg(
+    "{k}/{n} (n < 20 なので率は出さない)",
+    "{k}/{n} (n < 20, so no rate)",
+    "{k}/{n} (n < 20，不给出比率)",
+)
+WBR_O2_RATE: Final = Msg(
+    "{rate} (Wilson {low}-{high}、{k}/{n})",
+    "{rate} (Wilson {low}-{high}, {k}/{n})",
+    "{rate} (Wilson {low}-{high}，{k}/{n})",
+)
+WBR_EXCEPTIONS: Final = Msg("2. 例外", "2. Exceptions", "2. 例外")
+WBR_EX_INSTRUMENT: Final = Msg(
+    "計器 {id}: {status} ({where})",
+    "Instrument {id}: {status} ({where})",
+    "仪表 {id}: {status} ({where})",
+)
+WBR_EX_QUESTION: Final = Msg(
+    "動かない問い {line} / {question}: 止まった段 {stage}",
+    "Question not moving {line} / {question}: stopped at {stage}",
+    "未推进的问题 {line} / {question}: 停在 {stage}",
+)
+WBR_EX_LINE: Final = Msg(
+    "O1 が 0 のライン: {line} (line-run {runs} 回)",
+    "Line with O1 at 0: {line} ({runs} line-runs)",
+    "O1 为 0 的线: {line} (line-run {runs} 次)",
+)
+WBR_BREAKDOWN: Final = Msg(
+    "3. 分解 (成熟 cohort {old} → {new}、初取得から 7 日)",
+    "3. Breakdown (mature cohorts {old} → {new}, 7 days from the first fetch)",
+    "3. 分解 (成熟 cohort {old} → {new}，自首次获取起 7 天)",
+)
+WBR_GROUP_ALL: Final = Msg("全ライン", "All lines", "全部线")
+WBR_GROUP_SLOT: Final = Msg(
+    "枠律速 (空き枠 ≤ 30%): {lines}",
+    "Slot-bound (free slots ≤ 30%): {lines}",
+    "受版面限制 (空余 ≤ 30%): {lines}",
+)
+WBR_GROUP_SUPPLY: Final = Msg("供給律速: {lines}", "Supply-bound: {lines}", "受供给限制: {lines}")
+WBR_GROUP_EMPTY: Final = Msg("該当するラインなし", "no line", "没有对应的线")
+WBR_HEAD_BREAKDOWN: Final = Msg(
+    "| パーツ | 因子 | {old} | {new} | Δln | ±SE |",
+    "| Part | Factor | {old} | {new} | Δln | ±SE |",
+    "| 部分 | 因子 | {old} | {new} | Δln | ±SE |",
+)
+WBR_SLOTS: Final = Msg(
+    "空き枠 / 枠 ({week}): {slots}",
+    "Free slots / slots ({week}): {slots}",
+    "空余版面 / 版面 ({week}): {slots}",
+)
+WBR_SE_NOTE: Final = Msg(
+    "SE は Poisson と二項の delta 法による暫定値 (同じ run・同じ問いの論文を独立とみなすので"
+    "小さめに出る)。太字は |Δln| > 2SE。N_ot x p_sel x p_ext x p_wri = O1_c",
+    "SE is a provisional delta-method value on Poisson counts and binomial shares (it treats "
+    "papers of one run and one question as independent, so it reads small). Bold is "
+    "|Δln| > 2SE. N_ot x p_sel x p_ext x p_wri = O1_c",
+    "SE 为基于 Poisson 与二项分布 delta 法的暂定值 (把同一 run・同一问题的论文视为独立，"
+    "因此偏小)。粗体为 |Δln| > 2SE。N_ot x p_sel x p_ext x p_wri = O1_c",
+)
+WBR_COHORT_NOTE: Final = Msg(
+    "cohort の単位はライン x 論文、初取得は StageRecord(fetch_*) に初めて現れた日。各段は前の段の"
+    "うち初取得から 7 日以内に届いたもの",
+    "A cohort counts (line, paper) pairs by the day a StageRecord(fetch_*) first returned "
+    "them; each stage counts the pairs of the stage before that reached it within 7 days "
+    "of that day",
+    "cohort 的单位是线 x 论文，首次获取为首次出现在 StageRecord(fetch_*) 中的日期。"
+    "每一段计的是前一段中自首次获取起 7 天内到达的",
+)
+PART_M: Final = Msg("M 計器", "M instruments", "M 仪表")
+PART_Q: Final = Msg("Q 問い", "Q questions", "Q 问题")
+PART_I: Final = Msg("I 入口", "I intake", "I 入口")
+PART_S: Final = Msg("S 選別", "S screening", "S 筛选")
+PART_X: Final = Msg("X 根拠化", "X evidence", "X 依据化")
+PART_W: Final = Msg("W 執筆", "W writing", "W 写作")
+PART_D: Final = Msg("D 配達と資源", "D delivery", "D 送达与资源")
+PART_OUT: Final = Msg("OUT 出力", "OUT output", "OUT 产出")
+FACTOR_N_NEW: Final = Msg("└ N_new 新規の論文", "└ N_new new papers", "└ N_new 新论文")
+FACTOR_N_OT: Final = Msg(
+    "N_ot 問いに合う新規の論文", "N_ot new papers on a question", "N_ot 切题的新论文"
+)
+FACTOR_P_SEL: Final = Msg("p_sel keep に届いた", "p_sel reached keep", "p_sel 到达 keep")
+FACTOR_P_EXT: Final = Msg("p_ext claim が載った", "p_ext a claim was posted", "p_ext 刊登了 claim")
+FACTOR_P_WRI: Final = Msg("p_wri [n] で引用された", "p_wri cited as [n]", "p_wri 以 [n] 引用")
+FACTOR_O1_C: Final = Msg(
+    "O1_c 7 日以内に初めて引用", "O1_c first cited within 7 days", "O1_c 7 天内首次引用"
+)
+WBR_FIX: Final = Msg("4. どこを直すか", "4. Where to fix", "4. 改哪里")
+WBR_NOT_IN_V0: Final = Msg("v0 では出さない", "Not in v0", "v0 不给出")
+WBR_QUESTIONS: Final = Msg(
+    "5. 問い (直近 14 日に動いた問い {k}/{n})",
+    "5. Questions ({k}/{n} moved in the last 14 days)",
+    "5. 问题 (最近 14 天推进的问题 {k}/{n})",
+)
+WBR_HEAD_QUESTIONS: Final = Msg(
+    "| ライン | 問い | 止まった段 | screening → keep → claim → 引用 (14 日) |",
+    "| Line | Question | Stopped at | screening → keep → claim → cited (14 days) |",
+    "| 线 | 问题 | 停在 | screening → keep → claim → 引用 (14 天) |",
+)
+WBR_ALL_MOVING: Final = Msg("動かない問いは無い", "Every open question moved", "所有问题都有推进")
+WBR_NO_QUESTIONS: Final = Msg(
+    "問い未設定: {lines}", "No open question: {lines}", "未设置问题: {lines}"
+)
+STAGE_SCREENING: Final = Msg(
+    "I 入口 (screening に届いた対が 0)",
+    "I intake (no pair reached screening)",
+    "I 入口 (没有进入 screening 的对)",
+)
+STAGE_KEEP: Final = Msg("S 選別 (keep 0)", "S screening (no keep)", "S 筛选 (keep 0)")
+STAGE_CLAIM: Final = Msg("X 根拠化 (claim 0)", "X evidence (no claim)", "X 依据化 (claim 0)")
+STAGE_CITE: Final = Msg("W 執筆 (引用 0)", "W writing (nothing cited)", "W 写作 (引用 0)")
+STAGE_DELIVERED: Final = Msg(
+    "既出のみ (引用したのは届けた論文だけ)",
+    "delivered before (it cited only papers delivered earlier)",
+    "仅已出现 (引用的只是已送达的论文)",
+)
+WBR_REPEATS: Final = Msg("6. 反復と新規性", "6. Repetition and novelty", "6. 重复与新颖性")
+WBR_REPEAT_SLOTS: Final = Msg(
+    "掲載枠のうち以前に掲載された論文: {value}",
+    "Note slots taken by a paper posted before: {value}",
+    "版面中以前刊登过的论文: {value}",
+)
+WBR_REPEAT_REVIEW: Final = Msg(
+    "Review のうち以前のノートに出ていた論文: {value}",
+    "Review entries an earlier note showed: {value}",
+    "Review 中以前的笔记出现过的论文: {value}",
+)
+WBR_REVIEW_UNMEASURED: Final = Msg(
+    "未計測 (この週の RunRecord に Review が無い)",
+    "not measured (no RunRecord of the week holds a Review)",
+    "未测量 (本周的 RunRecord 没有 Review)",
+)
+WBR_KEYWORD_NEW: Final = Msg(
+    "keyword の取得のうち以前に見ていないもの: {value}",
+    "Keyword fetch results not seen on an earlier day: {value}",
+    "keyword 获取中以前未见过的: {value}",
+)
+WBR_NOT_MEASURED: Final = Msg("未計測", "not measured", "未测量")
+WBR_DELIVERY: Final = Msg("7. 配達と資源", "7. Delivery and resources", "7. 送达与资源")
+WBR_LINE_RUNS: Final = Msg(
+    "line-run {n} (Report {reports} · RunRecord {records})",
+    "Line-runs {n} (Report {reports} · RunRecord {records})",
+    "line-run {n} (Report {reports} · RunRecord {records})",
+)
+WBR_DEGRADED: Final = Msg("DEGRADED の理由:", "DEGRADED reasons:", "DEGRADED 的原因:")
+WBR_MORE: Final = Msg("ほか {n} 件", "{n} more", "另有 {n} 条")
+WBR_PER_O1: Final = Msg(
+    "O1 1 本あたり: Jev 回答 {answers} · 書き手の呼び出し {writer} · Jev token 入力 {tokens_in}"
+    " / 出力 {tokens_out}",
+    "Per O1 paper: Jev answers {answers} · writer calls {writer} · Jev tokens in {tokens_in} "
+    "/ out {tokens_out}",
+    "每篇 O1: Jev 回答 {answers} · 写作模型调用 {writer} · Jev token 输入 {tokens_in}"
+    " / 输出 {tokens_out}",
+)
+WBR_LAST: Final = Msg("8. 前回の 1 手", "8. Last week's change", "8. 上次的一手")
+WBR_INSTRUMENTS: Final = Msg("9. 計器", "9. Instruments", "9. 仪表")
+WBR_INSTRUMENT_LINE: Final = Msg(
+    "{id} ({part}): {status}{why}", "{id} ({part}): {status}{why}", "{id} ({part}): {status}{why}"
+)
+WBR_TICK: Final = Msg("tick 全体", "the tick", "整个 tick")
+WBR_AUTHOR: Final = Msg(
+    "著者の信号: 今週の新しいチェック {ticks} · 今週初めて開かれた jrp ノート {opened} · "
+    "recommendation の正例 {positives}",
+    "The author's signal: new question-day ticks {ticks} · jrp notes first opened this week "
+    "{opened} · recommendation positives {positives}",
+    "作者的信号: 本周新的勾选 {ticks} · 本周首次打开的 jrp 笔记 {opened} · "
+    "recommendation 的正例 {positives}",
+)
+WBR_POSITIVES_FROZEN: Final = Msg(
+    "{n} 件 (14 日変化なし)", "{n} (unchanged for 14 days)", "{n} 条 (14 天未变)"
+)
+WBR_POSITIVES_ADDED: Final = Msg(
+    "{n} 件 (14 日で +{added})", "{n} (+{added} in 14 days)", "{n} 条 (14 天内 +{added})"
+)
+WBR_POSITIVES_UNKNOWN: Final = Msg(
+    "{n} 件 (初回のチェックの日が記録より前)",
+    "{n} (first ticked before that day was recorded)",
+    "{n} 条 (首次勾选早于开始记录)",
+)
