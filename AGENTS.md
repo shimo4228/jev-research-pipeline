@@ -71,7 +71,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run jrp run ...
 
 ## 週報を読む
 
-`uv run jrp wbr --week <YYYY-Www> --out <scratchpad>` で、その週の週報を何度でも作り直せる。store は
+本番では月曜の 05:00 の run の後に launchd の wrapper が `jrp wbr` を回し、朝のノートが vault に届いてから
+週報のノートを届ける（失敗は `jrp wbr FAILED` / `jrp wbr TIMED OUT` の通知になり、job の exit は run のまま。
+launchd/README.md）。`uv run jrp wbr --week <YYYY-Www> --out <scratchpad>` で、その週の週報を何度でも作り直せる。store は
 読むだけで、API も呼ばない。書くのはノート 1 本と `<JRP_STORE_DIR>/metrics/weekly.jsonl` への 1 行の
 追記だけ。試すときは `JRP_STORE_DIR` を store の写しに向け、追記も写しに入れる。読む順は 2.（例外）→
 9.（計器）→ 1.（出力）→ 3.（分解）。比べるのは数値で出ている数だけにする（registry が live と呼ばない数は、

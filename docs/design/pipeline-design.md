@@ -262,6 +262,19 @@ state (filter state in code), adversarial text (treat as data).
   > **注記（2026-10-20, plan quality-metrics）**: only the 05:00 run job is loaded. The
   > Mon 05:30 drift plist stays in the repo, stopped until a fixed replay probe exists
   > (decision 9).
+  > **注記（2026-10-20, plan quality-metrics）**: the weekly review has no job of its own:
+  > the 05:00 run job's wrapper (`scripts/launchd-jrp.sh`, and its packaged copy) runs
+  > `jrp wbr` on Monday (`date +%u` = 1; `JRP_WBR_DUE` overrides it for the tests) after
+  > the morning's notes are copied to the vault, and never on a morning whose run it killed.
+  > wbr sees the stage as its vault (`JRP_VAULT_DIR="$STAGE"`, python never opens the iCloud
+  > path) and runs under its own watchdog `JRP_WBR_TIMEOUT_S` (default 600 s; the store is
+  > ~196 MB and its read time is not measured); bash renews the run mark and copies back
+  > only `*_jrp_wbr.md` in a second copy (`send_back`, the same loop as the run's). A
+  > failure, a kill, an uncopied note or a timeout that is not a number is a
+  > `jrp wbr FAILED` / `jrp wbr TIMED OUT` notice that skips the review only; the job exits
+  > with the run's status. Kept in the wrapper rather than a Monday `StartCalendarInterval`
+  > so `jrp schedule install`'s plist and its tests stay as they are; a Monday whose run
+  > does not happen gets no review that week (made by hand with `jrp wbr --week`).
 - Same-day re-run carries the author's ticks over; harvester withdraws Labels for `[ ]`.
   > **注記（2026-10-20, plan quality-metrics）**: a re-harvested Label keeps its
   > `first_harvested_at` (the first harvest that saw the tick; `harvested_at` stays the

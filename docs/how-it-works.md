@@ -61,7 +61,8 @@ The headings follow the note's language.
 ## The weekly review
 
 `jrp wbr` writes one more note a week, `<Monday>_jrp_wbr.md` beside the daily ones, from the
-store alone: it calls no API and changes nothing in the store. It asks one question: which part
+store alone: it calls no API and changes nothing in the store. On macOS the launchd job makes it
+every Monday once the morning's notes are in the vault. It asks one question: which part
 of the pipeline, if you fixed it next, would bring you the most new evidence. Its outputs are
 O1, the papers your notes' prose cited for the first time that week (counted by paper, so an
 arXiv page and a Hugging Face page of one paper are one, with a 95% Poisson interval, over six

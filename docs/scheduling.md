@@ -24,8 +24,11 @@ The wrapper sources the env file, copies the vault's jrp notes and Obsidian's tw
 recently opened files (`.obsidian/workspace.json`, `workspace-mobile.json`; these only for the
 length of the run) to a local stage (macOS privacy guards a vault in iCloud Drive per
 executable), runs `jrp doctor` and then `jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default
-3600 s), copies back the notes the run wrote, and reports what python cannot (a hung run, a
-wrapper that stops before jrp starts) through the channels below. Its log is
+3600 s), copies back the notes the run wrote, on Monday then runs `jrp wbr` under its own
+watchdog (`JRP_WBR_TIMEOUT_S`, default 600 s) and copies back the weekly review's note, and
+reports what python cannot (a hung run or review, a review that failed, a wrapper that stops
+before jrp starts) through the channels below; a failed review never changes the job's exit
+status, which stays the run's. Its log is
 `~/Library/Logs/jrp-run.log`, where each line the wrapper writes starts with the local time. From
 the Obsidian lists the run keeps only which jrp notes were opened, by the day it first saw each,
 in `<JRP_STORE_DIR>/metrics/opened.jsonl`. Details: [launchd/README.md](../launchd/README.md).
@@ -33,7 +36,7 @@ in `<JRP_STORE_DIR>/metrics/opened.jsonl`. Details: [launchd/README.md](../launc
 `jrp schedule install` keeps a wrapper that is already there, so upgrading jrp does not change
 an installed job's wrapper. To bring it up to date, remove
 `~/.config/jrp/launchd/launchd-jrp.sh` and run `jrp schedule install` again; the plist that is
-there is kept as it is.
+there is kept as it is. A wrapper installed before the weekly review never runs `jrp wbr`.
 
 ## Linux (cron or systemd)
 
@@ -67,6 +70,12 @@ systemctl --user enable --now jrp.timer
 ```
 
 `EnvironmentFile` reads `KEY=value` lines; quote-free values are the safe form there.
+
+The weekly review is one more entry on Linux (the launchd wrapper runs it on Monday after the
+run): schedule `jrp wbr` for Monday once the run has had its hour, in cron
+`0 6 * * 1 set -a; . "$HOME/.config/jrp/env"; set +a; "$HOME/.local/bin/jrp" wbr >>"$HOME/.local/state/jrp-run.log" 2>&1`,
+or with systemd a second service and timer (`ExecStart=%h/.local/bin/jrp wbr`,
+`OnCalendar=Mon *-*-* 06:00`).
 
 `jrp run` itself begins and ends its output with a line that starts with the local time
 (`pipeline start`, `pipeline end · <seconds> s`), so these logs show when each run ran. Run

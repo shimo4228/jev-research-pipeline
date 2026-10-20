@@ -5,7 +5,7 @@ These two plists are the author's (this checkout, run through uv). For any other
 
 | plist | when | runs |
 |---|---|---|
-| `com.shimo4228.jrp.run.plist` | daily 05:00 | `jrp run` — harvest ticks, then the next lines in rotation |
+| `com.shimo4228.jrp.run.plist` | daily 05:00 | `jrp run` — harvest ticks, then the next lines in rotation; on Monday then `jrp wbr`, the weekly review |
 | `com.shimo4228.jrp.drift.plist` | Monday 05:30 — **stopped** | `jrp drift` — live replay of recorded Jev inputs |
 
 The Monday drift job is stopped until a fixed replay probe exists (author's decision,
@@ -72,8 +72,19 @@ the log, so the morning log shows whether the launchd job could reach the writer
 Code's lives in the macOS keychain, which a launchd job may not be allowed to read. A failing
 doctor sends `jrp doctor FAILED` with its `FAIL` lines; the run still goes ahead.
 
+On Monday (`date +%u` is 1) the same job then makes the weekly review. Once the morning's notes
+are in the vault, and only when the run was not killed, the wrapper runs `jrp wbr` on the stage
+(Python still never opens the iCloud vault) under its own limit, `JRP_WBR_TIMEOUT_S` (default
+600 s), and copies its note, `<Monday>_jrp_wbr.md`, to the vault in a second copy that takes
+nothing else. A review that exits non-zero or whose note cannot be copied sends `jrp wbr FAILED`,
+one past its limit is killed with its process group and sends `jrp wbr TIMED OUT`, and a
+`JRP_WBR_TIMEOUT_S` that is not a number sends `jrp wbr FAILED` and skips only the review. None
+of them stops the morning or changes the job's exit status, which stays the run's. A Monday
+whose run does not happen gets no review that week; `jrp wbr --week YYYY-Www` makes it by hand.
+
 Every line the wrapper writes to the log starts with the local time (`2026-10-21T05:00:02+0900`),
 on stdout or stderr as before, and `jrp run` sits between `start jrp run` and
-`end jrp run status <exit status> · <seconds> s`. In between, Python's own lines start and end
+`end jrp run status <exit status> · <seconds> s` (Monday's `jrp wbr` between `start jrp wbr` and
+`end jrp wbr status <exit status> · <seconds> s`). In between, Python's own lines start and end
 with `pipeline start` and `pipeline end · <seconds> s` at Python's own times: its output reaches
 the log in buffered chunks, so a time the wrapper put in front of it would be the flush's.

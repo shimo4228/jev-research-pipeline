@@ -51,6 +51,8 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_BIN` | no | the `jrp` the launchd wrapper starts (written by `jrp schedule install`); unset, the wrapper runs this checkout with uv |
 | `JRP_SLACK_NOTIFY` | no | `1` sends each `jrp run`'s result to Slack as one message: `jrp run` with the claims per line; `jrp run DEGRADED` with one reason line per line when a line finished but not as a healthy run does (a failed prose draft, the writer's login refused, a section the rubric could not check, Jev failures on 5% or more of the (source, question) pairs, a failed fetch other than a skip for an unset key or a rate limit on a source asked without its optional key, the cost cap, a note with no claim and no Review, prose that cited no claim on the line's last two runs); `jrp run FAILED` when the run raised |
 | `JRP_RUN_TIMEOUT_S` | no | wall-clock limit of a scheduled `jrp run` in `scripts/launchd-jrp.sh` (default 3600 s). Past it the run is killed with its process group, the notes it already wrote are still copied to the vault, and the wrapper notifies `jrp run TIMED OUT` |
+| `JRP_WBR_TIMEOUT_S` | no | wall-clock limit of Monday's `jrp wbr` in `scripts/launchd-jrp.sh` (default 600 s). Past it the review is killed with its process group and the wrapper notifies `jrp wbr TIMED OUT`; a value that is not a number of seconds notifies `jrp wbr FAILED` and skips only the review. Either way the morning's notes are already in the vault and the job exits with the run's status |
+| `JRP_WBR_DUE` | no (tests) | `1` or `0` decides whether the launchd wrapper runs the weekly review after this run; unset, it runs when `date +%u` is 1 (Monday) |
 | `JRP_DRIFT_LIVE` | no | `1` lets `jrp drift` call Jev live. It applies to a drift run by hand; the weekly launchd drift job is stopped ([launchd/README.md](../launchd/README.md)) |
 | `GITHUB_TOKEN` | no | raises GitHub search from 10 to 30 requests per minute (a fine-grained token with no permissions is enough) |
 | `SEMANTIC_SCHOLAR_API_KEY` | no | recommendation net; without it the shared keyless quota may return 429 for the day (expected, so it is an operations line and not a `DEGRADED` reason; with the key set, a 429 is a reason) |
@@ -144,4 +146,7 @@ files and writes two things: the note `<DIR>/<the Monday after the week>_jrp_wbr
 Monday, the week that just ended). It uses the same `JRP_STORE_DIR`, `JRP_QUESTIONS_DIR`,
 `JRP_DAILY_RESEARCH_CONFIG` and `JRP_NOTE_LANG` as a run, and calls no API, so it can be made
 again any number of times; each time appends another line to `weekly.jsonl`. What each number
-means is in [how-it-works.md](how-it-works.md#the-weekly-review).
+means is in [how-it-works.md](how-it-works.md#the-weekly-review). On macOS the launchd wrapper
+runs it every Monday after the morning's notes reach the vault, limited by `JRP_WBR_TIMEOUT_S`
+([launchd/README.md](../launchd/README.md)); on Linux it is a second cron or systemd entry
+([scheduling.md](scheduling.md#linux-cron-or-systemd)).
