@@ -16,6 +16,7 @@ from jev_research_pipeline.reduction.opened import (
     OPENED_FILE,
     first_seen,
     jrp_notes,
+    line_note,
     opened_notes,
     record_opened,
     recorded,
@@ -56,11 +57,27 @@ def test_only_jrp_notes_directly_in_daily_research_are_kept():
         "daily-research/2026-10-20_jrp_akc.pdf",
         "2026-10-20_jrp_akc.md",  # the vault root
         "Journal/2026-10-20 private.md",
+        "daily-research/2026-10-26_jrp_wbr.md",  # the weekly review's own note
         3,
         None,
         {"path": AKC},
     ]
     assert jrp_notes(entries) == {"2026-10-20_jrp_akc.md"}
+
+
+@pytest.mark.parametrize(
+    ("name", "kept"),
+    [
+        ("2026-10-20_jrp_akc.md", True),
+        ("2026-10-20_jrp_wbr-notes.md", True),  # a slug that starts like the reserved one
+        ("2026-10-26_jrp_wbr.md", False),
+        ("x_jrp_y_jrp_wbr.md", False),  # the slug is what follows the last _jrp_
+        ("2026-10-26_jrp_wbr.md.bak", False),
+        ("2026-10-20_akc.md", False),
+    ],
+)
+def test_a_line_note_is_a_jrp_note_of_an_unreserved_slug(name: str, kept: bool):
+    assert line_note(name) is kept
 
 
 def test_both_lists_are_read_and_nothing_else_of_obsidian(tmp_path: Path):

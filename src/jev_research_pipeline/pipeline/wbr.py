@@ -108,6 +108,7 @@ from jev_research_pipeline.model import (
 )
 from jev_research_pipeline.note_text import Lang, Msg, note_lang
 from jev_research_pipeline.questions import NoQuestions, open_questions
+from jev_research_pipeline.reduction.opened import line_note
 from jev_research_pipeline.reduction.used import keys_of_text
 from jev_research_pipeline.report.markdown import sanitize
 from jev_research_pipeline.store import GraphStore
@@ -733,7 +734,8 @@ class AuthorSignal:
     ticks: int
     """New question-day ticks: Labels on a QuestionLog first harvested in the week."""
     opened: int
-    """jrp notes first seen opened in the week (metrics/opened.jsonl)."""
+    """jrp line notes first seen opened in the week (metrics/opened.jsonl; line_note, so not
+    the weekly review's own)."""
     positives: int
     """The recommendation net's positives: papers of correct Labels on a source or claim."""
     added: int
@@ -1051,7 +1053,9 @@ def _author(lines: Iterable[_Line], snapshot: Snapshot, week: Week) -> AuthorSig
     recent = week.end - timedelta(days=QUESTION_DAYS)
     return AuthorSignal(
         ticks=ticks,
-        opened=sum(1 for day in snapshot.opened.values() if week.holds(day)),
+        opened=sum(
+            1 for note, day in snapshot.opened.items() if line_note(note) and week.holds(day)
+        ),
         positives=len(firsts),
         added=sum(1 for day in firsts.values() if day is not None and day > recent),
         unknown=sum(1 for day in firsts.values() if day is None),

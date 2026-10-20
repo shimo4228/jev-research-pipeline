@@ -10,8 +10,11 @@ exception, and is never a primary metric.
   the stage every morning, because python never opens the iCloud vault; run directly, the
   vault's own two files are read. No other file of `.obsidian` is read. A list iCloud has
   not downloaded to this Mac (dataless) is not copied that morning, so it is not read.
-- Only names of jrp notes (`daily-research/*_jrp_*.md`) are kept. Every other entry of
-  the list is dropped as it is read and never stored. The wrapper's copies, which hold
+- Only names of jrp line notes (`daily-research/*_jrp_<slug>.md`, line_note) are kept: the
+  weekly review's own note (`*_jrp_wbr.md`, a slug no line may take, config.RESERVED_SLUGS)
+  is not one. Every other entry of the list is dropped as it is read and never stored. The
+  registry's `opened` instrument and the weekly review's author signal count by the same
+  line_note, so a name recorded before it was kept out counts nowhere either. The wrapper's copies, which hold
   every entry, are in the stage only while `jrp run` runs: the wrapper removes them when
   the run returns (and when it is stopped by a signal), and removes any a killed wrapper
   left before it stages the next ones.
@@ -43,6 +46,7 @@ from typing import Final
 
 from pydantic import JsonValue
 
+from jev_research_pipeline.pipeline.config import RESERVED_SLUGS
 from jev_research_pipeline.report.vault import REPORT_DIR
 
 WORKSPACE_FILES: Final = ("workspace.json", "workspace-mobile.json")
@@ -50,17 +54,27 @@ WORKSPACE_FILES: Final = ("workspace.json", "workspace-mobile.json")
 OPENED_FILE: Final = Path("metrics", "opened.jsonl")
 """Under the store root."""
 _NOTE_GLOB: Final = "*_jrp_*.md"
+_MARK: Final = "_jrp_"
+
+
+def line_note(name: str) -> bool:
+    """A file name of a jrp line's note, `<date>_jrp_<slug>.md` (report.vault.note_path),
+    whose slug is not reserved: the weekly review's `<date>_jrp_wbr.md` is not one."""
+    if not fnmatchcase(name, _NOTE_GLOB):
+        return False
+    return name.rsplit(_MARK, 1)[1].removesuffix(".md") not in RESERVED_SLUGS
 
 
 def jrp_notes(entries: Iterable[JsonValue]) -> set[str]:
-    """The file names of the entries that are vault paths of jrp notes, directly in
-    daily-research/. Anything else (another folder, another file, a non-string) is dropped."""
+    """The file names of the entries that are vault paths of jrp line notes (line_note),
+    directly in daily-research/. Anything else (another folder, another file, the weekly
+    review's note, a non-string) is dropped."""
     names: set[str] = set()
     for entry in entries:
         if not isinstance(entry, str):
             continue
         path = PurePosixPath(entry)
-        if path.parent == PurePosixPath(REPORT_DIR) and fnmatchcase(path.name, _NOTE_GLOB):
+        if path.parent == PurePosixPath(REPORT_DIR) and line_note(path.name):
             names.add(path.name)
     return names
 

@@ -44,7 +44,7 @@ from jev_research_pipeline.model import (
     Unit,
 )
 from jev_research_pipeline.note_text import Msg
-from jev_research_pipeline.reduction.opened import OPENED_FILE, first_seen
+from jev_research_pipeline.reduction.opened import OPENED_FILE, first_seen, line_note
 from jev_research_pipeline.store import GraphStore
 from jev_research_pipeline.store.migrate import read_lifted
 
@@ -173,7 +173,8 @@ class Snapshot:
     pipeline: Mapping[str, GraphNodeType] = field(default_factory=dict[str, GraphNodeType])
     """store/pipeline.jsonld: RunRecords and Sightings."""
     opened: Mapping[str, date] = field(default_factory=dict[str, date])
-    """metrics/opened.jsonl: jrp note name → the first day it was seen opened."""
+    """metrics/opened.jsonl: jrp note name → the first day it was seen opened (as recorded:
+    the readers keep the line notes, reduction.opened.line_note)."""
     firehose: Mapping[str, int] = field(default_factory=dict[str, int])
     """Line slug → its firehose budget (pipeline.nets.for_line(...).budget("firehose")); a
     line not here has the default. 0 asks no firehose, 1 the arXiv listing only, 2 both."""
@@ -467,18 +468,22 @@ def _logs_by_report(nodes: Mapping[str, GraphNodeType]) -> dict[str, list[Questi
 
 
 def _writer_calls(snapshot: Snapshot) -> Iterator[Observation]:
-    """Per line-run: Operations.writer_calls, beside the prose sections that run wrote. A
-    section reused from the same day's earlier run keeps that run's logged_at and costs no
-    call, so it is not counted."""
+    """Per line-run a RunRecord names: Operations.writer_calls, beside the prose sections that
+    run wrote. A section reused from the same day's earlier run keeps that run's logged_at and
+    costs no call, so it is not counted. A line-run known from its Report only (started_at
+    None) is no cell: without its tick's start nothing tells a section it wrote from one it
+    reused, so its meter has nothing to agree with."""
     logs = {slug: _logs_by_report(nodes) for slug, nodes in snapshot.lines.items()}
     for run in line_runs(snapshot):
+        if run.started_at is None:
+            continue
         if run.report is None:
             yield Observation(run.slug, run.run_date, None)
             continue
         written = sum(
             1
             for log in logs[run.slug].get(run.report.id, [])
-            if log.text.strip() and (run.started_at is None or log.logged_at == run.started_at)
+            if log.text.strip() and log.logged_at == run.started_at
         )
         yield Observation(
             run.slug, run.run_date, run.report.operations.writer_calls, related=written
@@ -592,11 +597,13 @@ def _note_date(note: str) -> date | None:
 
 
 def _opened(snapshot: Snapshot) -> Iterator[Observation]:
-    """Per tick: jrp notes first seen opened that day (0 is allowed), with a note seen
-    before its own date (`YYYY-MM-DD_jrp_<slug>.md`) as a broken reading."""
-    seen = Counter(snapshot.opened.values())
+    """Per tick: jrp line notes (reduction.opened.line_note: the weekly review's own note is
+    not one) first seen opened that day (0 is allowed), with a note seen before its own date
+    (`YYYY-MM-DD_jrp_<slug>.md`) as a broken reading."""
+    opened = {note: day for note, day in snapshot.opened.items() if line_note(note)}
+    seen = Counter(opened.values())
     broken: dict[date, str] = {}
-    for note, day in sorted(snapshot.opened.items()):
+    for note, day in sorted(opened.items()):
         written = _note_date(note)
         if written is not None and day < written:
             broken.setdefault(day, f"{note} seen opened on {day}, before its own date")

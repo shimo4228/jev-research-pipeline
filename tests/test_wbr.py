@@ -585,6 +585,16 @@ def test_the_authors_signal(review: WeeklyReview):
     assert (a.ticks, a.opened, a.positives, a.added, a.unknown) == (1, 2, 1, 0, 0)
 
 
+def test_the_weekly_reviews_own_note_is_no_opened_note():
+    """Last week's review, recorded as opened in W45 before the reader kept it out, is not one
+    of the author's opened jrp notes."""
+    bare = inputs()
+    opened = {**bare.snapshot.opened, "2026-11-02_jrp_wbr.md": d(11, 4)}
+    got = weekly_review(replace(bare, snapshot=replace(bare.snapshot, opened=opened)), WEEK)
+    assert got.author.opened == 2
+    assert got.status["opened"] == "live"
+
+
 def test_the_instruments_are_shown_by_their_status(review: WeeklyReview):
     assert dict(review.status) == {
         "firehose.arxiv": "insufficient-n",

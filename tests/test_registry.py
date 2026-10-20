@@ -466,12 +466,29 @@ def test_a_same_day_rerun_that_reuses_its_sections_calls_no_writer():
 
 
 def test_a_store_from_before_run_records_is_read_from_its_reports():
+    """Every instrument reads the Reports, except writer_calls: a line-run with no RunRecord
+    is none of its cells, so it has too few readings rather than a reading."""
     snapshot = replace(healthy(), pipeline={})
     runs = line_runs(snapshot)
     assert [(r.run_date, r.started_at) for r in runs] == [(d, None) for d in DAYS]
     assert {s.id: s.status for s in statuses(snapshot, start=START, end=END)} == {
         i.id: HEALTHY.get(i.id, "live") for i in REGISTRY
-    }
+    } | {"writer_calls": "insufficient-n"}
+
+
+def test_a_line_run_without_its_run_record_is_no_writer_cell():
+    """Wednesday's RunRecord is gone and its Report says 0 writer calls beside a section with
+    prose (written, or reused from an earlier run: nothing tells which): no cell, so no
+    contradiction; the other days read as before."""
+    record = _run_record(WED)
+    pipeline = {k: v for k, v in healthy().pipeline.items() if k != record.id}
+    snapshot = _ops(replace(healthy(), pipeline=pipeline), WED, writer_calls=0)
+    got = _check(REGISTRY_BY_ID["writer_calls"], snapshot)
+    assert WED not in {c.observation.run_date for c in got.cells}
+    assert len(got.cells) == len(DAYS) - 1 and got.status == "live"
+    assert _check(REGISTRY_BY_ID["writer_calls"], _ops(healthy(), WED, writer_calls=0)).status == (
+        "contradiction"
+    )
 
 
 def test_a_line_the_snapshot_did_not_load_is_not_read():
@@ -582,6 +599,16 @@ def test_no_new_tick_and_no_opened_note_is_allowed():
         got = _check(REGISTRY_BY_ID[name], snapshot)
         assert {c.status for c in got.cells} == {"expected-zero"}, name
         assert got.status == "expected-zero", name
+
+
+def test_the_weekly_reviews_own_note_is_not_an_opened_jrp_note():
+    """A `*_jrp_wbr.md` recorded in opened.jsonl (before the reader kept it out) is neither
+    counted nor checked against its date."""
+    review = "2026-11-02_jrp_wbr.md"
+    snapshot = replace(healthy(), opened={**healthy().opened, review: WED})
+    got = _check(REGISTRY_BY_ID["opened"], snapshot)
+    assert got == _check(REGISTRY_BY_ID["opened"], healthy())
+    assert got.status == "live"
 
 
 def test_a_listed_name_without_a_date_is_counted_and_checks_nothing():
