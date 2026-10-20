@@ -23,6 +23,7 @@
 <header>
   <h1>jrp の品質計測をパーツ別に入れる</h1>
   <doc-changes new="11" changed="32" deleted="1"></doc-changes>
+  <doc-note tone="ok"><strong>実装済み（2026-10-20）</strong> 著者の指示（「Planして実装まで進めといて」）で、Respond を待たずに既定の選択（このセッション / 段ごと / 本文の [n] / 「取得（run 内の重複除去・上限の後）」）で実装した。claim 1〜4 は 554bf25 で main に入れ、claim 5 は週報の v0 として続けて入れた。各段は full verify、code review と security review、指摘の修正と反証、scratch の store での試走を通した。残り: 監視 judge の ANTHROPIC_API_KEY（著者が env に足すまで「未測定（key なし）」）、push（著者が diff を読んでから）、要求台帳・replay harness・「1 手」の自動選択・jev-1.14.0（この plan の外）。</doc-note>
   <details class="thread"><summary>Why · 3 件</summary>
     <doc-quote via="prompt" from="著者" at="2026-10-19">jrp（~/MyAI_Lab/jev-research-pipeline）の品質を、パーツごとの指標で改善できる状態にしたい。</doc-quote>
     <doc-quote via="prompt" from="著者" at="2026-10-20">O1・O2 と 8 パーツの方向で進めて。</doc-quote>
@@ -59,13 +60,13 @@
 
   <doc-claim>
     <p>f・topic・TTD の 3 行と、その計算が消える。</p>
-    <doc-code src="src/jev_research_pipeline/pipeline/meters.py" lines="113-136" hl="125-132">
+    <doc-code ref="fa67ed5" src="src/jev_research_pipeline/pipeline/meters.py" lines="113-136" hl="125-132">
       <doc-pin line="128" tone="risk" title="topic は構造的に 0">OpenAlex 由来の source しか topic を持たない。</doc-pin>
       <doc-pin line="131" tone="risk" title="TTD は壊れている">両端の時刻が毎朝上書きされる。</doc-pin>
     </doc-code>
     <doc-claim at="src/jev_research_pipeline/pipeline/run.py:1152">
       <p><b>run.py:1152</b> · _discovery_lines()</p>
-      <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1152-1187" hl="1163-1177">
+      <doc-code ref="fa67ed5" src="src/jev_research_pipeline/pipeline/run.py" lines="1152-1187" hl="1163-1177">
         <doc-pin line="1163" tone="info" title="f のためだけの計算">reports・cumulative・running を消す。</doc-pin>
       </doc-code>
     </doc-claim>
@@ -73,19 +74,19 @@
 
   <doc-claim>
     <p>rule 候補と gold 一致は、計算ごと消える。</p>
-    <doc-code src="src/jev_research_pipeline/pipeline/run.py" lines="1233-1260" hl="1241-1242,1251-1253,1260">
+    <doc-code ref="fa67ed5" src="src/jev_research_pipeline/pipeline/run.py" lines="1233-1260" hl="1241-1242,1251-1253,1260">
       <doc-pin line="1260" tone="risk" title="死んだ計器">12 KB 枠を食い、Review を押し出した。</doc-pin>
       <doc-pin line="1252" tone="warn" title="負例 0 の一致率">軸の pass 率と同じになる。</doc-pin>
     </doc-code>
     <doc-claim at="src/jev_research_pipeline/quality.py:77">
       <p><b>quality.py:77</b> · agreement() と trusted_axes()</p>
-      <doc-code src="src/jev_research_pipeline/quality.py" lines="77-118" collapsed></doc-code>
+      <doc-code ref="fa67ed5" src="src/jev_research_pipeline/quality.py" lines="77-118" collapsed></doc-code>
     </doc-claim>
   </doc-claim>
 
   <doc-claim>
     <p>残す行は、中身に合う名前に変わる。</p>
-    <doc-calls title="改名" caption="日本語の接頭辞は Msg にし、ja・en・zh を揃える。">
+    <doc-calls ref="fa67ed5" title="改名" caption="日本語の接頭辞は Msg にし、ja・en・zh を揃える。">
 <script type="text/plain">
 ~ LineRun._operations()                          @ src/jev_research_pipeline/pipeline/run.py:1215
 ~   "claude_calls: 0" → t.WRITER_CALLS           @ src/jev_research_pipeline/pipeline/run.py:1241
@@ -143,13 +144,13 @@ part.put(kept)   # 前の Label が None なら None のまま（旧いチェッ
     </doc-code>
     <doc-claim at="src/jev_research_pipeline/pipeline/runner.py:97">
       <p><b>runner.py:97</b> · harvest_line()</p>
-      <doc-code src="src/jev_research_pipeline/pipeline/runner.py" lines="97-132" hl="125"></doc-code>
+      <doc-code ref="fa67ed5" src="src/jev_research_pipeline/pipeline/runner.py" lines="97-132" hl="125"></doc-code>
     </doc-claim>
   </doc-claim>
 
   <doc-claim>
     <p>Jev の応答の usage を、ラインごとに足す。</p>
-    <doc-code src="src/jev_research_pipeline/jev/core.py" lines="550-589" hl="578">
+    <doc-code ref="fa67ed5" src="src/jev_research_pipeline/jev/core.py" lines="550-589" hl="578">
       <doc-pin line="578" tone="info" title="ここで usage を足す">model_mismatch と bad_answer の判定より前。</doc-pin>
     </doc-code>
   </doc-claim>
@@ -177,7 +178,7 @@ if self.fetch_failures:            # keyless の想定内 429 はここに入ら
 
   <doc-claim>
     <p>key の無い 429 は、運用欄の 1 行にとどまる。</p>
-    <doc-calls title="想定内の 429" caption="任意の key が未設定の adapter だけが対象。">
+    <doc-calls ref="fa67ed5" title="想定内の 429" caption="任意の key が未設定の adapter だけが対象。">
 <script type="text/plain">
 ~ _send(request, env)                            @ src/jev_research_pipeline/pipeline/nets.py:479
 ~   _record_failure(…, keyless=…)                @ src/jev_research_pipeline/pipeline/nets.py:381
@@ -201,14 +202,14 @@ jrp run
 
   <doc-claim>
     <p>ラッパーの行は、すべて時刻で始まる。</p>
-    <doc-code src="scripts/launchd-jrp.sh" lines="160-194" hl="164-168,176-178">
+    <doc-code ref="fa67ed5" src="scripts/launchd-jrp.sh" lines="160-194" hl="164-168,176-178">
       <doc-pin line="165" tone="info" title="前後に start と end">status と所要を 1 行で出す。</doc-pin>
     </doc-code>
   </doc-claim>
 
   <doc-claim>
     <p>開いた jrp ノートの名前と初めての日だけを残す。</p>
-    <doc-calls title="開いたか" caption="python は iCloud に触らない。写すのは bash。">
+    <doc-calls ref="fa67ed5" title="開いたか" caption="python は iCloud に触らない。写すのは bash。">
 <script type="text/plain">
 ~ launchd-jrp.sh run                             @ scripts/launchd-jrp.sh:144
 +   cp -p .obsidian/workspace*.json → stage      @ scripts/launchd-jrp.sh:146
@@ -256,7 +257,7 @@ jrp run
 
   <doc-claim>
     <p>jrp wbr は、store を読むだけで週報を作る。</p>
-    <doc-calls title="週報" caption="書くのは週報のノートと metrics/weekly.jsonl だけ。">
+    <doc-calls ref="fa67ed5" title="週報" caption="書くのは週報のノートと metrics/weekly.jsonl だけ。">
 <script type="text/plain">
 ~ parser()                                       @ src/jev_research_pipeline/cli.py:88
 +   sub.add_parser("wbr")                        @ src/jev_research_pipeline/cli.py:137
@@ -306,7 +307,7 @@ INSTRUMENTS = (
 
   <doc-claim>
     <p>監視用 judge は、Claude API で週 $5 まで回る。</p>
-    <doc-calls title="監視用 judge" caption="key が無い週は「未測定（key なし）」と出すだけ。">
+    <doc-calls ref="fa67ed5" title="監視用 judge" caption="key が無い週は「未測定（key なし）」と出すだけ。">
 <script type="text/plain">
 + **monitor_judge**(sample, env, ledger)         @ src/jev_research_pipeline/pipeline/monitor.py:1
     prose_auth(env, parse_model("anthropic:claude-opus-5-5"))   @ src/jev_research_pipeline/generation/client.py:119
