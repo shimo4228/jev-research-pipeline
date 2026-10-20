@@ -78,7 +78,7 @@ from jev_research_pipeline.jev import (
     source_trust,
 )
 from jev_research_pipeline.jev.context import LineContext
-from jev_research_pipeline.jev.core import BATCH_SUBJECT, JEV_MODEL, batches, output_of
+from jev_research_pipeline.jev.core import BATCH_SUBJECT, JEV_MODEL, batches, judged_of
 from jev_research_pipeline.model import (
     AdapterKind,
     Claim,
@@ -219,8 +219,9 @@ class StoredJev(JevClient):
     ) -> Judged[OutputT] | JevFailure:
         jid = Judgment.id_for(ask.function, subjects, JEV_MODEL, input_sha256(state), ask.sha256)
         hit = self.known.get(jid)
-        if isinstance(hit, Judgment):
-            return Judged(output=output_of(ask.output, hit), judgment=hit)
+        # The id pins ask.sha256, so a stored hit is always this ask's (never None).
+        if isinstance(hit, Judgment) and (replayed := judged_of(ask, hit)) is not None:
+            return replayed
         pending = self._in_flight.get(jid)
         if pending is not None:
             joined: Judged[OutputT] | JevFailure = await asyncio.shield(pending)
@@ -253,8 +254,11 @@ class StoredJev(JevClient):
                     ask.function, subjects, JEV_MODEL, input_sha256(state), bundle
                 )
                 hit = self.known.get(jid)
-                if isinstance(hit, Judgment):
-                    found[i] = Judged(output=output_of(ask.output, hit), judgment=hit)
+                if (
+                    isinstance(hit, Judgment)
+                    and (replayed := judged_of(ask, hit, subject=subject)) is not None
+                ):
+                    found[i] = replayed
                     break
         missing = [item for i, item in enumerate(items) if i not in found]
         asked = iter(await super().judge_batch(ask, missing, subject=subject, now=now))

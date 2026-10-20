@@ -406,6 +406,18 @@ raw distributions. Known trade-off: Noul true/false criteria collapse into one
 `Field(description)`. Review-when: pydantic-ai's typesafe model loses distribution access
 or Score support.
 
+> **注記（2026-10-20, plan quality-metrics）**: code outside a run re-applies today's rules
+> to the store through `jev.core.judged_of(ask, judgment)`. It rebuilds the Judged a request
+> returned, and returns None for a Judgment whose bundle hash is neither the ask's nor its
+> batched form's, so the answers of an earlier version or wording are never read under
+> today's questions. The weekly review counts verdicts from Judgments, not Decisions: a
+> Decision's identity leaves out the state and the model, so judging a pair again
+> overwrites it, while every Judgment stays. `tests/test_recompute_parity.py` pins that the
+> screening rule recomputed this way gives the stored Decision's outcome and score, that a
+> recomputed keep is always an accept (not the converse: a weighted score in [0.6, 0.7) at
+> certainty < 0.5 is accepted yet routed to Review), and that the prefilter's passing
+> questions come back as the run saw them.
+
 ### Evaluation and self-improvement: deferred to operation (author decision 2026-09-23)
 
 Pilot first. The label/fit design (decision 5-7, the reduction forms, fill rate as the

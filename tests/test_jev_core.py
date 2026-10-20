@@ -20,10 +20,18 @@ from jev_research_pipeline.jev import (
     JevState,
     Judged,
     decide,
+    judged_of,
 )
-from jev_research_pipeline.jev.core import output_of
-from jev_research_pipeline.model import ChoiceAnswer, NoulAnswer, ScoreAnswer, Threshold
+from jev_research_pipeline.jev.core import certainty, output_of, position
+from jev_research_pipeline.model import (
+    ChoiceAnswer,
+    Judgment,
+    NoulAnswer,
+    ScoreAnswer,
+    Threshold,
+)
 from jev_research_pipeline.model.nodes import Probability
+from jev_research_pipeline.store import input_sha256
 
 from . import builders as b
 from .conftest import ClientFactory
@@ -190,6 +198,47 @@ async def test_a_stored_judgment_replays_to_the_same_output(cassette: ClientFact
     result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
     assert isinstance(result, Judged)
     assert output_of(Answers, result.judgment) == result.output
+
+
+def _stored(bundle_sha256: str) -> Judgment:
+    """A Judgment of ASK's three questions as the store keeps it, under `bundle_sha256`."""
+    return Judgment.new(
+        function="relevance_triage",
+        subjects=(b.source().id,),
+        model=JEV_MODEL,
+        state_sha256=input_sha256(STATE),
+        bundle_sha256=bundle_sha256,
+        answers=(
+            NoulAnswer(key="checkable", p_yes=0.9),
+            ScoreAnswer(
+                key="depth", levels=("vague", "specific"), probabilities=(0.4, 0.6), score=0.6
+            ),
+            ChoiceAnswer(key="kind", options=("empirical", "normative"), probabilities=(0.3, 0.7)),
+        ),
+        judged_at=b.T0,
+    )
+
+
+@pytest.mark.parametrize("batched", [False, True], ids=["alone", "batched"])
+def test_judged_of_reads_a_stored_judgment_back_as_its_judged(batched: bool):
+    asked = ASK.batched("source") if batched else ASK
+    judgment = _stored(asked.sha256)
+    judged = judged_of(ASK, judgment)
+    assert judged is not None
+    assert judged.judgment is judgment
+    assert judged.output == Answers(checkable=0.9, depth=Depth.specific, kind="normative")
+    # The rules read the stored distributions, not the rounded level the output holds.
+    assert position(judged, "depth") == pytest.approx(0.6)
+    assert certainty(judged) == pytest.approx(0.6)  # min(0.8, 0.6, 0.7)
+
+
+def test_judged_of_refuses_a_judgment_another_ask_asked():
+    """The store keeps the judgments of earlier versions and wordings; read through today's
+    output model, one would answer questions it was never asked."""
+    for other in (_reworded(), replace(ASK, version="v2"), ASK.batched("claim")):
+        assert judged_of(ASK, _stored(other.sha256)) is None
+    # A batch over another subject is this ask's only when the caller names that subject.
+    assert judged_of(ASK, _stored(ASK.batched("claim").sha256), subject="claim") is not None
 
 
 async def test_same_state_same_judgment_id(cassette: ClientFactory):

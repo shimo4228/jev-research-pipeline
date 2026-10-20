@@ -22,7 +22,7 @@ import functools
 import json
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Annotated, Any, Final, Literal, TypeAliasType, cast, get_args, get_origin
@@ -333,7 +333,8 @@ def _field_value(raw_annotation: object, answer: Answer) -> object:
 
 def output_of[OutputT: BaseModel](output: type[OutputT], judgment: Judgment) -> OutputT:
     """Rebuild a filled output model from a stored Judgment (the stage cache replays
-    judgments; the answers are what was stored, so nothing is asked twice)."""
+    judgments; the answers are what was stored, so nothing is asked twice). It trusts the
+    caller that `judgment` answered these questions; judged_of() checks that first."""
     fields = output.model_fields
     return output.model_validate(
         {
@@ -341,6 +342,40 @@ def output_of[OutputT: BaseModel](output: type[OutputT], judgment: Judgment) -> 
             for name, field in fields.items()
         }
     )
+
+
+@functools.cache
+def _forms(ask: Ask[Any], subject: str) -> Mapping[str, Ask[Any]]:
+    """The two forms `ask` is sent in — alone, and batched over `subject` — by wording hash.
+    Cached because a hash renders the JSON schema (about 3 ms), and a reader of the store
+    looks up every stored judgment."""
+    batched = ask.batched(subject)
+    return {ask.sha256: ask, batched.sha256: batched}
+
+
+def _form_of[OutputT: BaseModel](
+    ask: Ask[OutputT], bundle_sha256: str, *, subject: str
+) -> Ask[OutputT] | None:
+    """The form of `ask` whose wording hash is `bundle_sha256`, or None when neither form
+    has it (another version or wording of the function, or another function)."""
+    return _forms(ask, subject).get(bundle_sha256)
+
+
+def judged_of[OutputT: BaseModel](
+    ask: Ask[OutputT], judgment: Judgment, *, subject: str = BATCH_SUBJECT
+) -> Judged[OutputT] | None:
+    """A stored Judgment read back as the Judged its request returned: the filled output
+    model the rules read, over the stored distributions that certainty() and position()
+    read. This is how code outside a run (the weekly review) re-applies today's rules to
+    the store.
+
+    None unless `ask` asked it, alone or batched over `subject`: the store keeps the
+    judgments of every earlier version and wording of a function (question_screening v1
+    and v2, a prefilter asked over another number of questions), and reading one of those
+    through today's output model would answer questions it was never asked."""
+    if _form_of(ask, judgment.bundle_sha256, subject=subject) is None:
+        return None
+    return Judged(output=output_of(ask.output, judgment), judgment=judgment)
 
 
 class RequestPacer:
@@ -745,10 +780,10 @@ def decide[OutputT: BaseModel](
     """Policy = the asking ask's policy unless a variant policy is named (e.g. a fallback
     rule), and the identity includes its sha256. The result must come from this ask's
     wording, asked alone or batched over sources (anything else is a wiring error)."""
-    if result.bundle_sha256 != ask.sha256:
-        ask = ask.batched(BATCH_SUBJECT)
-        if result.bundle_sha256 != ask.sha256:
-            raise ValueError(f"result was produced by another ask than {ask.policy}")
+    asked = _form_of(ask, result.bundle_sha256, subject=BATCH_SUBJECT)
+    if asked is None:
+        raise ValueError(f"result was produced by another ask than {ask.policy}")
+    ask = asked
     if isinstance(result, JevFailure):
         judgments: tuple[str, ...] = ()
         outcome: Literal["accept", "reject", "unjudged"] = "unjudged"

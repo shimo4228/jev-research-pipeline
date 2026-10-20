@@ -23,6 +23,7 @@ from .core import (
     JevState,
     Judged,
     decide,
+    judged_of,
 )
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "LineContext",
     "claim_detection",
     "decide",
+    "judged_of",
     "novelty",
     "question_movement",
     "question_prefilter",
