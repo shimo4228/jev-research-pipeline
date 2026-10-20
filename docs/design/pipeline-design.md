@@ -440,9 +440,11 @@ the rate is not near zero; if it is, fix the matching first.
 > the ticks and never as a primary metric (author decision 2026-10-20). Before each `jrp run`
 > the launchd wrapper copies the vault's `.obsidian/workspace.json` and
 > `workspace-mobile.json`, and nothing else of `.obsidian`, into the stage (python still never
-> opens the iCloud vault; run directly, python reads the vault's own two files).
+> opens the iCloud vault; run directly, python reads the vault's own two files). The copies
+> hold every file name on the lists, so they are in the stage only while `jrp run` runs: the
+> wrapper removes them when the run returns.
 > `reduction/opened.py` keeps from their `lastOpenFiles` only the names of jrp notes
-> (`daily-research/*_jrp_*.md`), drops every other file name, and appends each name seen for
+> (`daily-research/*_jrp_*.md`), stores no other file name, and appends each name seen for
 > the first time to `<store>/metrics/opened.jsonl` as
 > `{"note": <file name>, "first_seen": <day>}`. `metrics/` is not a partition, so migrate
 > never touches it. The list is short and recent and the copy is
@@ -503,14 +505,16 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   (measured). Plan for a key or treat the net as best-effort with a hard give-up.
   > **注記（2026-10-20, plan quality-metrics）**: the give-up stays (the source is quiet for
   > the day and the note says so), but a rate limit on a source asked without its optional
-  > key (`Adapter.key_env`: Semantic Scholar, OpenAlex, GitHub) no longer marks the run
-  > DEGRADED: it goes to `NetOutcome.expected_limits`, not `failures`. 3 of the 4 DEGRADED
-  > runs among the 18 up to 2026-10-20 were this keyless S2 429 (`jrp-run.log`). With the
-  > key set, a 429 is a failure again. A source with no key to set (HF papers, the
-  > firehose's arXiv RSS and HF daily) keeps its 429 as a failure. The same change added
-  > two quiet reasons for a line with an open question: an empty note (no claim and no
-  > Review) and prose that cited no claim on the line's last two Reports (the distinct `[n]`
-  > of each QuestionLog).
+  > key (`Adapter.key_env`: Semantic Scholar, OpenAlex, GitHub, HF daily's `HF_TOKEN`) no
+  > longer marks the run DEGRADED: it goes to `NetOutcome.expected_limits`, not `failures`.
+  > A rate limit is the status kind at the head of the fetch-failure detail
+  > (`adapters.http_status_kind`), not a "rate_limit" anywhere in the server's message.
+  > 3 of the 4 DEGRADED runs among the 18 up to 2026-10-20 were this keyless S2 429
+  > (`jrp-run.log`). With the key set, a 429 is a failure again. A source with no key to
+  > set (HF papers search, the firehose's arXiv RSS) keeps its 429 as a failure. The same
+  > change added two quiet reasons for a line with an open question: an empty note (no
+  > claim and no Review) and prose that cited no claim on the line's last two Reports (the
+  > distinct `[n]` of each QuestionLog).
 - OpenAlex: `mailto=` no longer buys a polite pool; keyless = 1,000 credits = $0.10/day,
   with a key 10,000 = $1/day (measured 2026-09-26; our default cap 400 keyless, 4,000 keyed),
   a filtered list is 1 credit, a `search=` is 10, singleton lookups are free, reset at

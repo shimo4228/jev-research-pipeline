@@ -21,14 +21,14 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.jrp.run.plist
 ```
 
 The wrapper sources the env file, copies the vault's jrp notes and Obsidian's two lists of
-recently opened files (`.obsidian/workspace.json`, `workspace-mobile.json`) to a local stage
-(macOS privacy guards a vault in iCloud Drive per executable), runs `jrp doctor` and then
-`jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default 3600 s), copies back the notes the run
-wrote, and reports what python cannot (a hung run, a wrapper that stops before jrp starts)
-through the channels below. Its log is `~/Library/Logs/jrp-run.log`, where each line the wrapper
-writes starts with the local time. From the Obsidian lists the run keeps only which jrp notes
-were opened, by the day it first saw each, in `<JRP_STORE_DIR>/metrics/opened.jsonl`. Details:
-[launchd/README.md](../launchd/README.md).
+recently opened files (`.obsidian/workspace.json`, `workspace-mobile.json`; these only for the
+length of the run) to a local stage (macOS privacy guards a vault in iCloud Drive per
+executable), runs `jrp doctor` and then `jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default
+3600 s), copies back the notes the run wrote, and reports what python cannot (a hung run, a
+wrapper that stops before jrp starts) through the channels below. Its log is
+`~/Library/Logs/jrp-run.log`, where each line the wrapper writes starts with the local time. From
+the Obsidian lists the run keeps only which jrp notes were opened, by the day it first saw each,
+in `<JRP_STORE_DIR>/metrics/opened.jsonl`. Details: [launchd/README.md](../launchd/README.md).
 
 `jrp schedule install` keeps a wrapper that is already there, so upgrading jrp does not change
 an installed job's wrapper. To bring it up to date, remove

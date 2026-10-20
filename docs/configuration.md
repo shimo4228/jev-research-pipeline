@@ -55,7 +55,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `GITHUB_TOKEN` | no | raises GitHub search from 10 to 30 requests per minute (a fine-grained token with no permissions is enough) |
 | `SEMANTIC_SCHOLAR_API_KEY` | no | recommendation net; without it the shared keyless quota may return 429 for the day (expected, so it is an operations line and not a `DEGRADED` reason; with the key set, a 429 is a reason) |
 | `OPENALEX_API_KEY` | no | raises OpenAlex's daily budget from 1,000 credits ($0.10) to 10,000 ($1), and the default `openalex_daily_credits` cap from 400 to 4,000. The citation and exploration nets and the `arxiv:` keyword search all spend it |
-| `HF_TOKEN` | no | raises the Hugging Face daily papers rate limit |
+| `HF_TOKEN` | no | raises the Hugging Face daily papers rate limit; without it a 429 from the shared keyless limit is expected (an operations line, not a `DEGRADED` reason; with the token set, a 429 is a reason). HF papers search in the keyword net sends no token |
 | `TAVILY_API_KEY` | no | web-search source inside the keyword net; unset, that source is skipped and the note says so |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | enables OpenTelemetry export; see [observability.md](observability.md) |
 | `JRP_CASSETTE_RECORD` | no (tests) | `1` records live HTTP responses into `tests/cassettes/live/` (gitignored); needs keys |

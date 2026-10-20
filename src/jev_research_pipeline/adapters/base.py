@@ -31,6 +31,9 @@ from jev_research_pipeline.model.nodes import NonEmptyText
 from jev_research_pipeline.query_text import clean_query
 
 type FailureReason = Literal["missing_key", "invalid_query", "http_status", "transport", "parse"]
+type StatusKind = Literal["rate_limit", "forbidden", "not_acceptable", "error"]
+"""Why a status failed, as http_status_detail writes it at the head of the detail."""
+STATUS_KINDS: Final[tuple[StatusKind, ...]] = ("rate_limit", "forbidden", "not_acceptable", "error")
 
 USER_AGENT: Final = (
     "jev-research-pipeline/0.1 (+https://github.com/shimo4228/jev-research-pipeline; "
@@ -53,6 +56,7 @@ def http_status_detail(response: httpx2.Response) -> str:
     documented and is only quoted."""
     status = response.status_code
     headers = response.headers
+    kind: StatusKind
     if status == 403 and (
         headers.get("retry-after") or headers.get("x-ratelimit-remaining") == "0"
     ):
@@ -74,6 +78,17 @@ def http_status_detail(response: httpx2.Response) -> str:
     reset = headers.get("x-ratelimit-reset") or headers.get("retry-after")
     suffix = f" (reset {reset})" if kind == "rate_limit" and reset else ""
     return f"{status} {kind}: {' '.join(message.split())}{suffix}".rstrip()
+
+
+def http_status_kind(detail: str) -> StatusKind | None:
+    """The kind at the head of an http_status_detail (`<status> <kind>: …`), or None for a
+    detail of another shape. The server's message after the colon is never read: a message
+    that says "rate_limit" does not make the status a rate limit."""
+    head, colon, _ = detail.partition(":")
+    status, _, word = head.partition(" ")
+    if not colon or not status.isdigit():
+        return None
+    return next((kind for kind in STATUS_KINDS if kind == word), None)
 
 
 class RawDraft(TypedDict):
@@ -180,9 +195,9 @@ class Adapter:
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
     key_env: str | None = None
-    """Env var of the source's optional key (Semantic Scholar, OpenAlex, GitHub): set, the
-    request carries it; unset, it goes to the source's shared keyless pool, whose rate
-    limit is expected (nets._record_failure). None = the source has no key to set."""
+    """Env var of the source's optional key (Semantic Scholar, OpenAlex, GitHub, HF daily):
+    set, the request carries it; unset, it goes to the source's shared keyless pool, whose
+    rate limit is expected (nets._record_failure). None = the source has no key to set."""
 
     def keyless(self, env: Mapping[str, str]) -> bool:
         """Whether this request goes out without the source's optional key."""

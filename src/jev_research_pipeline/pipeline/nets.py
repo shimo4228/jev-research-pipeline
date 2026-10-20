@@ -32,10 +32,12 @@ or exploration list costs 1 credit, an arXiv keyword search 10.
 A failed request is an operations line and, for the run's health (pipeline.health), one
 entry of NetOutcome.failures — except two that are expected: a skip for an unset required
 key, and a rate limit on a source asked without its optional key (Adapter.key_env:
-Semantic Scholar, OpenAlex, GitHub), which goes to NetOutcome.expected_limits. Both still
-write their operations lines, and a rate limit quiets its source for the day either way. A
-source with no key to set (HF papers, the firehose's arXiv RSS and HF daily) has no
-keyless pool to blame: its 429 stays a failure.
+Semantic Scholar, OpenAlex, GitHub, HF daily's HF_TOKEN), which goes to
+NetOutcome.expected_limits. A rate limit there is the kind http_status_detail put at the
+head of the detail (adapters.http_status_kind), never a "rate_limit" in the server's own
+message. Both still write their operations lines, and a rate limit quiets its source for
+the day either way. A source with no key to set (HF papers search, the firehose's arXiv
+RSS) has no keyless pool to blame: its 429 stays a failure.
 """
 
 import asyncio
@@ -58,6 +60,7 @@ from jev_research_pipeline.adapters import (
     FetchOutcome,
     collect,
     firehose,
+    http_status_kind,
     openalex,
     semantic_scholar,
 )
@@ -402,7 +405,8 @@ def _record_failure(
 ) -> None:
     """A failed request is a line in the operations section, never the end of the run.
     `keyless`: the request went out without the source's optional key (Adapter.keyless), so
-    a rate limit on it is the shared pool's expected answer, not a failure."""
+    a rate limit on it — the status kind, not the server's message — is the shared pool's
+    expected answer, not a failure."""
     outcome.notes.append(
         t.FETCH_FAILED(
             outcome.lang,
@@ -412,7 +416,8 @@ def _record_failure(
         )
     )
     entry = f"{_source_key(request)} {failure.reason}"
-    if keyless and failure.reason == "http_status" and "rate_limit" in failure.detail:
+    limited = failure.reason == "http_status" and http_status_kind(failure.detail) == "rate_limit"
+    if keyless and limited:
         outcome.expected_limits.append(entry)
     elif failure.reason != "missing_key":
         outcome.failures.append(entry)

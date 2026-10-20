@@ -38,6 +38,11 @@ if [[ -n "${{EXPECT_WORKSPACE:-}}" ]]; then  # Obsidian's list, read from the st
   [[ "$(cat "$JRP_VAULT_DIR/.obsidian/workspace.json")" == "$EXPECT_WORKSPACE" ]] ||
     {{ echo "workspace not staged"; exit 7; }}
 fi
+if [[ -n "${{STAGE_SNAPSHOT:-}}" ]]; then  # what the stage's .obsidian holds during the run
+  rm -rf "$STAGE_SNAPSHOT"
+  mkdir -p "$STAGE_SNAPSHOT"
+  if [[ -d "$JRP_VAULT_DIR/.obsidian" ]]; then cp -Rp "$JRP_VAULT_DIR/.obsidian/." "$STAGE_SNAPSHOT/"; fi
+fi
 grep -q "[x]" "$notes/2026-09-23_jrp_akc.md"
 echo "rewritten" > "$notes/2026-09-24_jrp_akc.md"
 echo "new" > "$notes/2026-09-24_jrp_aap.md"
@@ -103,6 +108,7 @@ def test_other_commands_do_not_stage(tmp_path: Path):
 HUNG_UV = f"""#!/usr/bin/env bash
 {DOCTOR}
 echo "partial" > "$JRP_VAULT_DIR/daily-research/2026-09-24_jrp_akc.md"
+ls "$JRP_VAULT_DIR/.obsidian" > "$HUNG_PID.staged" 2>/dev/null
 sleep 30 &
 echo $! > "$HUNG_PID"
 wait
@@ -367,37 +373,170 @@ def _obsidian(tmp_path: Path) -> Path:
     return obsidian
 
 
+def _snapshot(path: Path) -> dict[str, tuple[bytes, float]]:
+    return {p.name: (p.read_bytes(), p.stat().st_mtime) for p in path.iterdir()}
+
+
 def test_the_two_workspace_lists_and_nothing_else_reach_the_stage(tmp_path: Path):
     env, _, _ = _setup(tmp_path)
     notified = _with_notify(tmp_path, env)
     obsidian = _obsidian(tmp_path)
-    before = {p.name: (p.read_bytes(), p.stat().st_mtime) for p in obsidian.iterdir()}
+    before = _snapshot(obsidian)
     env["EXPECT_WORKSPACE"] = '{"lastOpenFiles": ["desktop"]}'  # the fake reads the stage
+    env["STAGE_SNAPSHOT"] = str(tmp_path / "snapshot")
     out = subprocess.run(
         ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
     )
-    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
-    assert sorted(p.name for p in staged.iterdir()) == ["workspace-mobile.json", "workspace.json"]
+    during = _snapshot(tmp_path / "snapshot")  # the stage's .obsidian while the run ran
+    assert sorted(during) == ["workspace-mobile.json", "workspace.json"]
     for name in ("workspace.json", "workspace-mobile.json"):
-        assert (staged / name).read_bytes() == before[name][0]
-        assert (staged / name).stat().st_mtime == before[name][1]  # cp -p
-    assert {p.name: (p.read_bytes(), p.stat().st_mtime) for p in obsidian.iterdir()} == before
+        assert during[name] == before[name]  # cp -p: the bytes and the mtime
+    assert _snapshot(obsidian) == before
     assert _messages(notified) == [] and out.stderr == ""
 
 
-def test_a_list_the_vault_no_longer_has_leaves_the_stage(tmp_path: Path):
+def test_the_copies_leave_the_stage_once_the_run_returns(tmp_path: Path):
+    """The lists name every recently opened file, jrp's or not; python keeps only jrp note
+    names, so the copies holding the rest stay in the stage only while the run reads them."""
     env, _, _ = _setup(tmp_path)
     obsidian = _obsidian(tmp_path)
     staged = tmp_path / "store" / "vault-stage" / ".obsidian"
     subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
-    (obsidian / "workspace-mobile.json").unlink()
+    assert list(staged.iterdir()) == []
+    assert sorted(p.name for p in obsidian.iterdir()) == [
+        "app.json",
+        "workspace 2.json",
+        "workspace-mobile.json",
+        "workspace.json",
+    ]
+
+
+def test_a_killed_run_leaves_no_copy_in_the_stage(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    _obsidian(tmp_path)
+    env |= {"JRP_RUN_TIMEOUT_S": "1", "HUNG_PID": str(tmp_path / "hung.pid")}
+    out = subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=False)
+    assert out.returncode == 124
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    assert (tmp_path / "hung.pid.staged").read_text().split() == [
+        "workspace-mobile.json",
+        "workspace.json",
+    ]
+    assert list(staged.iterdir()) == []
+
+
+def test_a_termed_wrapper_leaves_no_copy_in_the_stage(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    _obsidian(tmp_path)
+    env |= {"JRP_RUN_TIMEOUT_S": "600", "HUNG_PID": str(tmp_path / "hung.pid")}
+    wrapper = subprocess.Popen(
+        ["bash", str(SCRIPT), "run"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    pid_file = tmp_path / "hung.pid"
+    deadline = time.monotonic() + 10
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    assert sorted(p.name for p in staged.iterdir()) == ["workspace-mobile.json", "workspace.json"]
+    wrapper.terminate()
+    assert wrapper.wait(timeout=10) == 143
+    assert list(staged.iterdir()) == []
+
+
+def test_a_copy_a_killed_wrapper_left_is_not_read_again(tmp_path: Path):
+    """A KILL runs no trap: the copies it left go before the next run stages the vault's."""
+    env, _, _ = _setup(tmp_path)
+    obsidian = _obsidian(tmp_path)
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    snapshot = tmp_path / "snapshot"
+    env["STAGE_SNAPSHOT"] = str(snapshot)
     subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
-    assert [p.name for p in staged.iterdir()] == ["workspace.json"]
+    assert sorted(p.name for p in snapshot.iterdir()) == ["workspace-mobile.json", "workspace.json"]
+
+    (obsidian / "workspace-mobile.json").unlink()
+    (staged / "workspace-mobile.json").write_text('{"lastOpenFiles": ["left by a KILL"]}')
+    subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    assert [p.name for p in snapshot.iterdir()] == ["workspace.json"]
+
     for p in obsidian.iterdir():
         p.unlink()
-    obsidian.rmdir()  # a vault without .obsidian: yesterday's copies go too
+    obsidian.rmdir()  # a vault without .obsidian: the left copies go too
+    (staged / "workspace.json").write_text('{"lastOpenFiles": ["left by a KILL"]}')
     subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    assert list(snapshot.iterdir()) == []
     assert list(staged.iterdir()) == []
+
+
+@pytest.mark.parametrize("stage", ["vault", "link", "obsidian_link"])
+def test_a_stage_that_is_the_vault_stops_before_obsidian_is_touched(tmp_path: Path, stage: str):
+    """The vault's workspace lists are never removed: the stage's copies are, so a stage
+    that resolves to the vault (pwd -P) is refused before anything is removed or copied."""
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    obsidian = _obsidian(tmp_path)
+    before = _snapshot(obsidian)
+    if stage == "vault":
+        env["JRP_VAULT_STAGE"] = str(vault.parent)
+    elif stage == "link":
+        (tmp_path / "link").symlink_to(vault.parent)
+        env["JRP_VAULT_STAGE"] = str(tmp_path / "link")
+    else:  # a stage of its own whose .obsidian is the vault's
+        (tmp_path / "stage").mkdir()
+        (tmp_path / "stage" / ".obsidian").symlink_to(obsidian)
+        env["JRP_VAULT_STAGE"] = str(tmp_path / "stage")
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 1
+    assert _snapshot(obsidian) == before
+    assert "args:" not in out.stdout  # jrp never started
+    assert (vault / "2026-09-24_jrp_akc.md").read_text() == "old\n"
+    ((title, body),) = _messages(notified)
+    assert title == "jrp run FAILED" and "is the vault" in body
+
+
+# stat stand-in: the file named in $DATALESS reports iCloud's dataless flag, the rest asks
+# the real stat (macOS: `stat -f %Sf` prints the file's flags, "-" for none).
+FAKE_STAT = """#!/usr/bin/env bash
+for a in "$@"; do last=$a; done
+if [[ "$1" == "-f" && "$2" == "%Sf" && "$last" == */"$DATALESS" ]]; then
+  echo "$FLAGS"
+  exit 0
+fi
+exec /usr/bin/stat "$@"
+"""
+
+
+@pytest.mark.parametrize("flags", ["dataless", "compressed,dataless"])
+def test_a_list_still_in_icloud_is_not_staged_and_is_one_log_line(tmp_path: Path, flags: str):
+    """Reading a dataless file makes iCloud download it first: the morning run does not
+    wait on that, it goes without the list."""
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    obsidian = _obsidian(tmp_path)
+    before = _snapshot(obsidian)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "stat").write_text(FAKE_STAT)
+    (bin_dir / "stat").chmod(0o755)
+    env |= {
+        "PATH": f"{bin_dir}:{env['PATH']}",
+        "DATALESS": "workspace-mobile.json",
+        "FLAGS": flags,
+        "STAGE_SNAPSHOT": str(tmp_path / "snapshot"),
+    }
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert [p.name for p in (tmp_path / "snapshot").iterdir()] == ["workspace.json"]
+    (text,) = [t for _, t in _timed(out.stderr)]
+    assert len(out.stderr.splitlines()) == 1
+    assert text.startswith(".obsidian/workspace-mobile.json not staged: ") and "iCloud" in text
+    assert _messages(notified) == []
+    assert _snapshot(obsidian) == before
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the run did run
 
 
 def test_a_vault_without_obsidian_is_not_a_failure(tmp_path: Path):

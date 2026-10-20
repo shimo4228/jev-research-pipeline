@@ -16,7 +16,11 @@
 # note the run did not touch is not copied back (an edit made during the run survives).
 # Obsidian's two lists of recently opened files (.obsidian/workspace.json, desktop, and
 # workspace-mobile.json) are staged the same way, nothing else of .obsidian: python records
-# from them which jrp notes were opened (reduction/opened.py). They never go back.
+# from them which jrp notes were opened (reduction/opened.py). They never go back, and they
+# are in the stage only while `jrp run` runs: they name every recently opened file, jrp's or
+# not, so they are removed when the run returns (or the wrapper is TERMed). A stage that
+# resolves to the vault is refused before anything is removed, and a list iCloud has not
+# downloaded (dataless) is not copied: reading it would wait for the download.
 #
 # What python cannot report, this script does (the log always; Slack / Notification Center
 # as pipeline/notify.py sends them, JRP_SLACK_NOTIFY / JRP_SLACK_WEBHOOK_URL / JRP_NOTIFY_MACOS): a run past
@@ -46,6 +50,7 @@ DOCTOR_OUT=""
 DOCTOR_TIMEOUT_S=120  # the doctor answers in seconds; a keychain prompt nobody sees never does
 TIMED_OUT=0
 WORKSPACES=(workspace.json workspace-mobile.json)  # Obsidian's recently opened files
+WS_STAGED=0  # 1 once the stage is known not to be the vault: on_exit removes the copies
 
 say() {  # say <text>: one log line after the local time (cli.LOG_TIME_FORMAT); >&2 for stderr
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"
@@ -72,6 +77,18 @@ die() {  # die <why>: stop before jrp starts; on_exit notifies with the reason
   WHY="$1"
   say "$1" >&2
   exit 1
+}
+
+same_dir() {  # same_dir <a> <b>: both are directories and resolve to one (pwd -P)
+  [[ -d "$1" && -d "$2" ]] || return 1
+  [[ "$(CDPATH='' cd -- "$1" && pwd -P)" == "$(CDPATH='' cd -- "$2" && pwd -P)" ]]
+}
+
+unstage_workspaces() {  # remove the stage's copies of Obsidian's lists; a failure is a log line
+  local ws
+  for ws in "${WORKSPACES[@]}"; do
+    quietly ".obsidian/${ws} copy left in the stage" rm -f "$STAGE/.obsidian/$ws"
+  done
 }
 
 # limited <seconds> <cmd...>: cmd as a job of its own process group (job control on for it),
@@ -120,6 +137,7 @@ trap on_term TERM
 # shellcheck disable=SC2329  # called by the EXIT trap
 on_exit() {
   local status=$?
+  if ((WS_STAGED)); then unstage_workspaces; fi
   if [[ -n "$MARK" ]]; then rm -f "$MARK"; fi
   if [[ -n "$DOCTOR_OUT" ]]; then rm -f "$DOCTOR_OUT"; fi
   if ((status != 0 && STARTED == 0)); then
@@ -156,24 +174,37 @@ VAULT="${JRP_VAULT_DIR:-}"
 [[ -n "${JRP_VAULT_STAGE:-}${JRP_STORE_DIR:-}" ]] || die "JRP_STORE_DIR is not set"
 STAGE="${JRP_VAULT_STAGE:-${JRP_STORE_DIR}/vault-stage}"
 mkdir -p "$STAGE/$NOTES" "$VAULT/$NOTES" || die "cannot create ${STAGE}/${NOTES} or ${VAULT}/${NOTES}"
+# The stage's copies of Obsidian's lists are removed before staging and after the run; in the
+# vault that would delete Obsidian's own lists. A stage that resolves to the vault, or whose
+# .obsidian is the vault's, is refused before anything is staged or removed.
+if same_dir "$STAGE" "$VAULT"; then die "the stage is the vault: ${STAGE} (JRP_VAULT_STAGE)"; fi
+if same_dir "$STAGE/.obsidian" "$VAULT/.obsidian"; then
+  die "the stage's .obsidian is the vault's: ${STAGE}/.obsidian"
+fi
 
 # vault -> stage: every jrp note, so the harvest sees the author's ticks
 rsync -a --include='*_jrp_*.md' --exclude='*' "$VAULT/$NOTES/" "$STAGE/$NOTES/" ||
   die "cannot stage the vault's notes (rsync)"
 
 # vault -> stage: Obsidian's lists of recently opened files, those two names only (not app
-# settings, not iCloud's "workspace 2.json" conflict copies). The stage's old copies go
-# first, so a list the vault no longer has is not read again. No .obsidian: nothing to do.
-# Nothing here is worth a notice or a stop: a failure is one log line. (/usr/bin/rsync is
-# openrsync, without --ignore-missing-args, so each file is tested and copied on its own.)
-for ws in "${WORKSPACES[@]}"; do
-  quietly "stale .obsidian/${ws} left in the stage" rm -f "$STAGE/.obsidian/$ws"
-done
+# settings, not iCloud's "workspace 2.json" conflict copies). Copies a killed wrapper left
+# go first (a KILL runs no trap), so a list the vault no longer has is not read again. No
+# .obsidian: nothing to do. A list iCloud has not downloaded to this Mac (`stat -f %Sf`
+# says dataless) is not copied: cp would wait for the download, and the morning run does
+# not wait on iCloud. Nothing here is worth a notice or a stop: a failure is one log line.
+# (/usr/bin/rsync is openrsync, without --ignore-missing-args, so each file is tested and
+# copied on its own.)
+WS_STAGED=1
+unstage_workspaces
 if [[ -d "$VAULT/.obsidian" ]]; then
   quietly ".obsidian not staged" mkdir -p "$STAGE/.obsidian"
   for ws in "${WORKSPACES[@]}"; do
-    if [[ -f "$VAULT/.obsidian/$ws" && -d "$STAGE/.obsidian" ]]; then
-      quietly ".obsidian/${ws} not staged" cp -p "$VAULT/.obsidian/$ws" "$STAGE/.obsidian/$ws"
+    src="$VAULT/.obsidian/$ws"
+    [[ -f "$src" && -d "$STAGE/.obsidian" ]] || continue
+    if [[ "$(stat -f %Sf "$src" 2>/dev/null || true)" == *dataless* ]]; then
+      say ".obsidian/${ws} not staged: still in iCloud, not downloaded to this Mac (dataless)" >&2
+    else
+      quietly ".obsidian/${ws} not staged" cp -p "$src" "$STAGE/.obsidian/$ws"
     fi
   done
 fi
@@ -203,6 +234,9 @@ status=$?
 timed_out=$TIMED_OUT
 set -e
 say "end jrp run status ${status} · $((SECONDS - run_from)) s"
+# The run is done with Obsidian's lists: their copies leave the stage (a TERM: on_exit).
+unstage_workspaces
+WS_STAGED=0
 
 # stage -> vault: only the notes this run wrote (newer than the mark) — a killed run's too
 # A copy that fails does not stop the others, and is said: python already reported the run

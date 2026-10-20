@@ -43,11 +43,17 @@ during the run is harvested the next morning. Nothing in the vault is deleted.
 
 It also copies Obsidian's two lists of recently opened files, `.obsidian/workspace.json` and
 `.obsidian/workspace-mobile.json` (nothing else of `.obsidian`: not the app settings, not iCloud's
-`workspace 2.json` conflict copies), into the stage's `.obsidian/`, after removing the stage's
-copies from the day before. The run keeps from them only the names of jrp notes, each with the day
-it was first seen, in `<JRP_STORE_DIR>/metrics/opened.jsonl` (`reduction/opened.py`); every other
-file name is dropped. These copies never go back to the vault. A vault without `.obsidian` is
-skipped quietly, and a copy that fails is one line in the log, never a message or a stop.
+`workspace 2.json` conflict copies), into the stage's `.obsidian/`. The run keeps from them only
+the names of jrp notes, each with the day it was first seen, in
+`<JRP_STORE_DIR>/metrics/opened.jsonl` (`reduction/opened.py`). The copies hold every file name on
+the lists, so they are in the stage only while `jrp run` runs: the wrapper removes them when the
+run returns, is killed by the timeout or gets a TERM, and before it stages new ones it removes any
+that a killed wrapper (SIGKILL) left. These copies never go back to the vault. A stage that
+resolves to the vault (`pwd -P`), or whose `.obsidian` is the vault's, stops the wrapper before it
+removes or copies anything (`jrp run FAILED`). A list that iCloud has not downloaded to this Mac
+(dataless) is not copied that morning, because the copy would wait for the download. A vault
+without `.obsidian` is skipped quietly. A copy that fails, or a list left in iCloud, is one line in
+the log, never a message or a stop.
 
 The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
 through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going after

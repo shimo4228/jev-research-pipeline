@@ -28,6 +28,8 @@ from .test_e2e import env as env  # the fixture, re-exported
 
 AKC = "daily-research/2026-10-20_jrp_akc.md"
 EDGE = "daily-research/2026-10-19_jrp_edge.md"
+DEEP = b'{"lastOpenFiles": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
+"""Nested past what json.loads can recurse into: it raises RecursionError, not ValueError."""
 
 
 def _workspace(vault: Path, *files: str, name: str = "workspace.json") -> Path:
@@ -78,7 +80,9 @@ def test_both_lists_are_read_and_nothing_else_of_obsidian(tmp_path: Path):
         b'{"main": {}}',
         b'{"lastOpenFiles": "daily-research/2026-10-20_jrp_akc.md"}',
         b'{"lastOpenFiles": null}',
+        DEEP,
     ],
+    ids=["not_json", "not_utf8", "array", "string", "no_list", "list_is_str", "null", "deep"],
 )
 def test_a_list_jrp_cannot_read_is_no_name_not_an_error(tmp_path: Path, raw: bytes):
     path = tmp_path / ".obsidian" / "workspace.json"
@@ -130,6 +134,20 @@ def test_a_line_cut_short_neither_blocks_nor_swallows_the_next_one(tmp_path: Pat
     assert json.loads(lines[4]) == {"note": "2026-10-20_jrp_akc.md", "first_seen": "2026-10-20"}
 
 
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
+def test_a_name_with_a_line_separator_in_it_is_recorded_once(tmp_path: Path, separator: str):
+    """json.dumps(ensure_ascii=False) writes these raw, and str.splitlines() would cut the
+    row there: the name would never read back as recorded and be appended every run."""
+    vault, store = tmp_path / "vault", tmp_path / "store"
+    odd = f"daily-research/2026-10-20_jrp_a{separator}b.md"
+    _workspace(vault, odd)
+    assert record_opened(vault, store, date(2026, 10, 20)) == 1
+    assert record_opened(vault, store, date(2026, 10, 21)) == 0
+    text = (store / OPENED_FILE).read_text("utf-8")
+    assert recorded(text) == {f"2026-10-20_jrp_a{separator}b.md"}
+    assert len(text.split("\n")) == 2  # one row and the empty tail
+
+
 def test_metrics_is_not_a_partition_so_migrate_never_touches_it(tmp_path: Path):
     vault, store = tmp_path / "vault", tmp_path / "store"
     GraphStore(store).line("akc").put([b.source()])
@@ -161,6 +179,20 @@ async def test_a_run_records_the_opened_notes_from_the_vault_dir(env: dict[str, 
     (outcome,) = await run_pipeline(env, now=b.T0, http=_client(), pacing=False)
     store = Path(env["JRP_STORE_DIR"])
     assert _rows(store) == [{"note": "2026-10-20_jrp_akc.md", "first_seen": "2026-09-22"}]
+    assert "opened skip" not in outcome.note.read_text(encoding="utf-8")
+
+
+async def test_a_list_nested_too_deep_neither_stops_the_run_nor_hides_the_other(
+    env: dict[str, str],
+):
+    vault = Path(env["JRP_VAULT_DIR"])
+    (vault / ".obsidian").mkdir(parents=True)
+    (vault / ".obsidian" / "workspace.json").write_bytes(DEEP)
+    _workspace(vault, EDGE, name="workspace-mobile.json")
+    (outcome,) = await run_pipeline(env, now=b.T0, http=_client(), pacing=False)
+    assert outcome.report.claims  # the run itself went on
+    store = Path(env["JRP_STORE_DIR"])
+    assert _rows(store) == [{"note": "2026-10-19_jrp_edge.md", "first_seen": "2026-09-22"}]
     assert "opened skip" not in outcome.note.read_text(encoding="utf-8")
 
 

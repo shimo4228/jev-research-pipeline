@@ -8,9 +8,13 @@ exception, and is never a primary metric.
   `.obsidian/workspace.json` (desktop) and `.obsidian/workspace-mobile.json` (mobile).
   Under launchd the wrapper (scripts/launchd-jrp.sh) copies exactly those two files into
   the stage every morning, because python never opens the iCloud vault; run directly, the
-  vault's own two files are read. No other file of `.obsidian` is read.
+  vault's own two files are read. No other file of `.obsidian` is read. A list iCloud has
+  not downloaded to this Mac (dataless) is not copied that morning, so it is not read.
 - Only names of jrp notes (`daily-research/*_jrp_*.md`) are kept. Every other entry of
-  the list is dropped as it is read and never stored.
+  the list is dropped as it is read and never stored. The wrapper's copies, which hold
+  every entry, are in the stage only while `jrp run` runs: the wrapper removes them when
+  the run returns (and when it is stopped by a signal), and removes any a killed wrapper
+  left before it stages the next ones.
 - A name seen for the first time is appended to `<store>/metrics/opened.jsonl` as
   `{"note": "<file name>", "first_seen": "<YYYY-MM-DD>"}`; a name already there is never
   written again. A line of that file that cannot be read does not count as recorded, so
@@ -19,9 +23,13 @@ exception, and is never a primary metric.
 - The list is short and recent: a note opened and pushed out between two runs is never
   seen, and the copy is taken at the run's start, so `first_seen` is at best the morning
   after the note was opened.
-- Obsidian's file format is not a public spec. A file that is not JSON, or has no list of
-  names, yields no name rather than an error. A file that cannot be opened (OSError) is
-  an error: the caller turns it into one line of the note.
+- Obsidian's file format is not a public spec. A file that is not JSON (nested deeper
+  than json.loads can recurse into included), or has no list of names, yields no name
+  rather than an error. A file that cannot be opened (OSError) is an error: the caller
+  turns it into one line of the note.
+- opened.jsonl is split into rows at LF (U+000A) only. A note name may hold U+2028, U+2029 or
+  U+0085, which json.dumps(ensure_ascii=False) writes raw and str.splitlines() would cut
+  a row at.
 - `metrics/` is not a partition: store.migrate (`partition_files`) never reads or rewrites
   it.
 """
@@ -60,7 +68,7 @@ def jrp_notes(entries: Iterable[JsonValue]) -> set[str]:
 def _listed(raw: bytes) -> set[str]:
     try:
         doc: JsonValue = json.loads(raw)
-    except ValueError:  # not JSON, or not UTF-8
+    except (ValueError, RecursionError):  # not JSON, not UTF-8, or nested past the stack
         return set()
     if not isinstance(doc, dict):
         return set()
@@ -79,12 +87,14 @@ def opened_notes(vault: Path) -> set[str]:
 
 
 def recorded(text: str) -> set[str]:
-    """The names opened.jsonl already holds; a line that cannot be read holds none."""
+    """The names opened.jsonl already holds; a line that cannot be read holds none. Rows
+    are split at LF only (record_opened writes them so), never at the other line breaks
+    str.splitlines() knows."""
     names: set[str] = set()
-    for line in text.splitlines():
+    for line in text.split("\n"):
         try:
             row: JsonValue = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         if isinstance(row, dict) and isinstance(note := row.get("note"), str):
             names.add(note)

@@ -2,7 +2,7 @@
 
 Keyword search is exploitation and converges (packet "Discovery"). The firehose is the
 opposite end: every new listing in a few fixed categories, screened per question by Jev.
-No key, no query — the "query" is the code-built category token or the date.
+No required key and no query — the "query" is the code-built category token or the date.
 
 - arXiv new listings: `https://rss.arxiv.org/rss/<cat>+<cat>` (search-first 2026-09-23;
   the feed carries the full abstract and an `arxiv:announce_type` of new / cross /
@@ -11,7 +11,9 @@ No key, no query — the "query" is the code-built category token or the date.
   Empty on weekends (skipDays) — that is the feed working, not a failure.
 - Hugging Face daily papers: `https://huggingface.co/api/daily_papers?date=&limit=`
   (live-verified keyless JSON, undocumented — the field set is pinned by a golden test;
-  `paper.summary` is the abstract and the url is built from `paper.id`).
+  `paper.summary` is the abstract and the url is built from `paper.id`). HF_TOKEN, when
+  set, goes with the request and raises the rate limit (Adapter.key_env); unset, the
+  request is in the shared keyless limit.
 """
 
 import re
@@ -29,6 +31,8 @@ ARXIV_RSS: Final = "https://rss.arxiv.org/rss/"
 DEFAULT_CATEGORIES: Final = ("cs.AI", "cs.CL", "cs.LG", "cs.HC")
 HF_DAILY: Final = "https://huggingface.co/api/daily_papers"
 HF_LIMIT: Final = 50
+HF_TOKEN_ENV: Final = "HF_TOKEN"
+"""HF daily's optional key (docs/configuration.md)."""
 _ANNOUNCE_RE: Final = re.compile(r"^arXiv:\S+\s+Announce Type:\s*(\S+)\s*", re.I)
 _TODAY: Final = ("new", "cross")
 _ARXIV_NS: Final = {"arxiv": "http://arxiv.org/schemas/atom"}
@@ -74,7 +78,7 @@ def hf_date(now: datetime) -> str:
 def hf_request(query: str, env: Mapping[str, str]) -> httpx2.Request:
     params = {"date": query, "limit": str(HF_LIMIT)}
     headers = dict(HEADERS)
-    if token := env.get("HF_TOKEN"):
+    if token := env.get(HF_TOKEN_ENV):
         headers["Authorization"] = f"Bearer {token}"  # keyless works; a token raises the limit
     return httpx2.Request("GET", HF_DAILY, params=params, headers=headers)
 
@@ -125,4 +129,5 @@ def hf_adapter() -> Adapter:
         min_interval_s=1.0,
         net="firehose",
         query_kind="token",
+        key_env=HF_TOKEN_ENV,
     )

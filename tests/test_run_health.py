@@ -25,6 +25,7 @@ from jev_research_pipeline.adapters import (
     openalex,
     semantic_scholar,
 )
+from jev_research_pipeline.adapters.base import http_status_detail, http_status_kind
 from jev_research_pipeline.generation import GenerationMeter, write_prose
 from jev_research_pipeline.generation.claude_code import (
     ClaudeAuthError,
@@ -284,13 +285,76 @@ async def test_a_spent_keyless_github_search_is_expected_too(
 
 
 @pytest.mark.parametrize(
+    ("env", "failures", "expected"),
+    [
+        ({}, [], ["firehose/hf_papers http_status"]),
+        ({firehose.HF_TOKEN_ENV: "t"}, ["firehose/hf_papers http_status"], []),
+    ],
+)
+async def test_a_keyless_hf_daily_rate_limit_is_expected_and_a_keyed_one_fails(
+    tmp_path: Path, env: dict[str, str], failures: list[str], expected: list[str]
+):
+    # HF daily sends HF_TOKEN when it is set (firehose.hf_request), so unset it is the
+    # shared keyless limit, like Semantic Scholar's
+    request = nets.NetRequest("firehose", firehose.hf_adapter(), "2026-09-21")
+    out = await _fetched(tmp_path, request, _limited(), env)
+    assert out.failures == failures
+    assert out.expected_limits == expected
+    assert out.rate_limited == ["firehose/hf_papers"]
+
+
+def test_the_key_hf_daily_names_is_the_key_it_sends():
+    assert firehose.hf_adapter().key_env == firehose.HF_TOKEN_ENV
+    sent = firehose.hf_request("2026-09-21", {firehose.HF_TOKEN_ENV: "t"})
+    assert sent.headers["Authorization"] == "Bearer t"
+    assert "Authorization" not in firehose.hf_request("2026-09-21", {}).headers
+
+
+async def test_a_keyless_failure_that_only_mentions_rate_limit_still_fails(tmp_path: Path):
+    """Expected means the kind http_status_detail gave the status, not any "rate_limit" in
+    the server's own message."""
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(500, json={"message": "upstream rate_limit store unreachable"})
+
+    out = await _fetched(tmp_path, _s2(), handler, {})
+    assert out.failures == ["recommendation/semantic_scholar http_status"]
+    assert out.expected_limits == []
+    health = LineHealth(fetch_failures=tuple(out.failures))
+    assert health.reasons() == ["fetch failed: recommendation/semantic_scholar http_status"]
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "message", "kind"),
+    [
+        (429, {}, "Too Many Requests", "rate_limit"),
+        (403, {"x-ratelimit-remaining": "0"}, "API rate limit exceeded", "rate_limit"),
+        (403, {}, "rate_limit: you are not allowed", "forbidden"),
+        (500, {}, "rate_limit", "error"),
+        (406, {}, "", "not_acceptable"),
+    ],
+)
+def test_the_status_kind_is_read_from_the_head_of_the_detail(
+    status: int, headers: dict[str, str], message: str, kind: str
+):
+    response = httpx2.Response(status, json={"message": message}, headers=headers)
+    assert http_status_kind(http_status_detail(response)) == kind
+
+
+@pytest.mark.parametrize(
+    "detail", ["", "rate_limit", "Too Many Requests: rate_limit", "429rate_limit: x", "ReadTimeout"]
+)
+def test_a_detail_without_a_status_head_has_no_kind(detail: str):
+    assert http_status_kind(detail) is None
+
+
+@pytest.mark.parametrize(
     "request_",
     [
         nets.NetRequest("keyword", hf_papers.adapter(), "agent memory"),
-        nets.NetRequest("firehose", firehose.hf_adapter(), "2026-09-21"),
         nets.NetRequest("firehose", firehose.arxiv_adapter(), "cs.AI+cs.CL"),
     ],
-    ids=["hf_papers", "hf_daily", "arxiv_rss"],
+    ids=["hf_papers", "arxiv_rss"],
 )
 async def test_a_rate_limit_on_a_source_with_no_key_is_a_failure(
     tmp_path: Path, request_: nets.NetRequest
@@ -324,12 +388,14 @@ def test_only_an_optional_key_makes_a_request_keyless():
         )
     )
     assert github.adapter().key_env == github.TOKEN_ENV
-    # no key to set (HF, the arXiv RSS), or a required one (Tavily: unset is a skip)
+    assert firehose.hf_adapter().keyless({})
+    assert not firehose.hf_adapter().keyless({firehose.HF_TOKEN_ENV: "t"})
+    # no key to set (HF papers search, the arXiv RSS), or a required one (Tavily: unset is
+    # a skip)
     assert not any(
         a.keyless({})
         for a in (
             hf_papers.adapter(),
-            firehose.hf_adapter(),
             firehose.arxiv_adapter(),
             web_search.adapter(),
         )

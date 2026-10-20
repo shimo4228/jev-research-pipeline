@@ -35,6 +35,7 @@ from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models.typesafe import TypeSafeModel, TypeSafeModelSettings
 from pydantic_ai.providers.typesafe import TypeSafeProvider
 from pydantic_ai.tools import GenerateToolJsonSchema
+from pydantic_ai.usage import RunUsage
 
 from jev_research_pipeline.model import (
     SUBJECT_KINDS,
@@ -405,7 +406,8 @@ def _size_refusal(e: ModelHTTPError) -> bool:
 class JevClient:
     """The only door to Jev. `questions_asked` meters every question sent (operations
     section: Jev question count), including those whose request failed. `input_tokens` /
-    `output_tokens` meter the usage of every request that came back with a response."""
+    `output_tokens` meter the usage of every response that came back, whatever became of
+    the request."""
 
     def __init__(self, http_client: httpx2.AsyncClient, *, api_key: str) -> None:
         self._model = TypeSafeModel(
@@ -417,9 +419,10 @@ class JevClient:
         """Requests sent a second time after a transient failure (operations section)."""
         self.input_tokens = 0
         self.output_tokens = 0
-        """Usage of each response, counted before the response is checked (a wrong model or
-        a bad answer was still served). A request that raised has no response and adds
-        nothing; the SDK's own retries inside one request are not visible here."""
+        """Usage of each response, whether or not it is then refused: a wrong model, a bad
+        answer and an output that failed validation (pydantic-ai re-asks once, then raises)
+        were served all the same. A request answered with an error status or no response
+        adds nothing; the SDK's own retries inside one request are not visible here."""
         self.pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)
 
     async def aclose(self) -> None:
@@ -563,8 +566,13 @@ class JevClient:
             instructions=instructions,
             model_settings=self._settings,
         )
+        # Filled as the run goes, so a run that raises after a response (an output that
+        # failed validation) is metered too; counted once, in `finally`.
+        usage = RunUsage()
         try:
-            run = await agent.run(json.dumps(state, ensure_ascii=False, sort_keys=True))
+            run = await agent.run(
+                json.dumps(state, ensure_ascii=False, sort_keys=True), usage=usage
+            )
         except ModelHTTPError as e:
             transient = e.status_code in (408, 429) or e.status_code >= 500
             return _Refused(
@@ -581,13 +589,13 @@ class JevClient:
                 "timeout" if isinstance(e.__cause__, TimeoutError) else "connection"
             )
             return _Refused(reason=reason, detail=str(e), splittable=False, transient=True)
+        finally:
+            # Every response of this agent run, before the model and answer checks below
+            # (pydantic-ai's TypeSafe model reads a missing SDK count as 0); one ask is one
+            # response unless pydantic-ai re-asked after an output that failed validation.
+            self.input_tokens += usage.input_tokens
+            self.output_tokens += usage.output_tokens
         response: ModelResponse = run.response
-        # Before the model and answer checks: those responses were served all the same.
-        # The run's usage sums every response of this agent run (pydantic-ai's TypeSafe
-        # model reads a missing SDK count as 0); one ask is one response unless pydantic-ai
-        # re-asked after an output that failed validation.
-        self.input_tokens += run.usage.input_tokens
-        self.output_tokens += run.usage.output_tokens
         if response.model_name != JEV_MODEL:
             return _Refused(
                 reason="model_mismatch",

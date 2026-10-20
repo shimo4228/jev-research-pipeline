@@ -7,6 +7,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx2
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import UseEnumMemberDocstrings
@@ -227,6 +228,45 @@ async def test_malformed_distribution_is_a_failure(cassette: ClientFactory):
     assert result.reason == "bad_answer"
     # Refused after it came back (the stored Judgment would not validate): usage counts.
     assert (jev.input_tokens, jev.output_tokens) == (100, 5)
+
+
+def _served(*answers: dict[str, Any]) -> tuple[httpx2.AsyncClient, list[int]]:
+    """A live (not cassette) Jev whose n-th response answers like fake_jev(answers[n]), and
+    the list of requests it served. pydantic-ai re-asks after an output that fails
+    validation, so these tests are about how many responses came back."""
+    served: list[int] = []
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        served.append(len(served))
+        return await fake_jev(answers[min(len(served), len(answers)) - 1])(request)
+
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), served
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [{"kind": {"other": 1.0}}, {"checkable": 1.5}],
+    ids=["unknown_choice", "probability_above_1"],
+)
+async def test_an_answer_that_fails_output_validation_still_meters_its_responses(
+    answer: dict[str, Any],
+):
+    client, served = _served(answer)
+    jev = JevClient(client, api_key="live-fake")
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
+    assert isinstance(result, JevFailure) and result.reason == "bad_answer"
+    # the answer and pydantic-ai's re-ask both came back with usage: both count
+    assert len(served) == 2
+    assert (jev.input_tokens, jev.output_tokens) == (200, 10)
+
+
+async def test_a_reask_that_succeeds_is_metered_once():
+    client, served = _served({"kind": {"other": 1.0}}, {})
+    jev = JevClient(client, api_key="live-fake")
+    result = await jev.judge(ASK, (b.source().id,), STATE, now=b.T0)
+    assert isinstance(result, Judged)
+    assert len(served) == 2
+    assert (jev.input_tokens, jev.output_tokens) == (200, 10)  # not 400 / 20
 
 
 def _failure(sha: str) -> JevFailure:
