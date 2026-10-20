@@ -51,8 +51,8 @@ run returns, is killed by the timeout or gets a TERM, and before it stages new o
 that a killed wrapper (SIGKILL) left. These copies never go back to the vault. A stage that
 is the vault's directory, or whose `.obsidian` is the vault's, stops the wrapper before it
 removes or copies anything (`jrp run FAILED`). The test is the inode (`-ef`), not the path, so a
-symlink, a name that differs only in case (`…/Vault` on case-insensitive APFS) and a firmlink
-(`/System/Volumes/Data/Users/…`) are all caught. A list that iCloud has not downloaded to this Mac
+symlink, a name that differs only in case (`…/Vault` on case-insensitive APFS) and the same folder
+reached through the Data volume's firmlink are all caught. A list that iCloud has not downloaded to this Mac
 (dataless) is not copied that morning, because the copy would wait for the download. A vault
 without `.obsidian` is skipped quietly. A copy that fails, or a list left in iCloud, is one line in
 the log, never a message or a stop.
