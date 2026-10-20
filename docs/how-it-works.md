@@ -58,6 +58,29 @@ Ticks are read back on the next run: `[x]` means yes (worth reading, correct), `
 Obsidian the folded lists show as ordinary quote blocks ([scheduling.md](scheduling.md#reading-the-notes-outside-obsidian)).
 The headings follow the note's language.
 
+## The weekly review
+
+`jrp wbr` writes one more note a week, `<Monday>_jrp_wbr.md` beside the daily ones, from the
+store alone: it calls no API and changes nothing in the store. It asks one question: which part
+of the pipeline, if you fixed it next, would bring you the most new evidence. Its outputs are
+O1, the papers your notes' prose cited for the first time that week (counted by paper, so an
+arXiv page and a Hugging Face page of one paper are one, with a 95% Poisson interval, over six
+weeks and per line), and O2, the papers that first appeared in your own `graph.jsonld` and ADRs
+in the last 30 days that jrp had cited before you wrote them down (an upper bound, since you
+read jrp first; only a count until 20 such papers exist). Below them, the review breaks O1 down
+for the two latest weeks of first fetches that have had seven days to run through the pipeline:
+the new papers on a question, the share that screening kept, the share whose sentence reached a
+note, and the share the prose cited, which multiply to that week's O1. It shows each factor's
+change in log points with a provisional error, for all lines and split into lines whose notes
+are full and lines short of supply. It lists the open questions that did not move in 14 days
+with the stage where they stopped, how much of each note repeats earlier ones, the week's runs
+and DEGRADED reasons, Jev answers, writer calls and Jev tokens per O1 paper, and your own
+signals: new ticks, notes first opened, and whether the recommendation net's positives have
+changed. A number is shown only when the instrument registry calls it alive; otherwise its
+status word stands in its place (expected zero, declared degenerate, missing, contradiction,
+and so on). This first version stops at the breakdown: it does not pick the change for next
+week. Each review also appends its numbers as one line to `<store>/metrics/weekly.jsonl`.
+
 ## The question file
 
 One file per line at `~/.config/jrp/questions/<slug>.md` (or wherever `JRP_QUESTIONS_DIR` points).

@@ -116,6 +116,10 @@ categories: over its history the `ans` line (meditation, Buddhist psychology) pa
 prefilter with 0 of 1,070 arXiv listing items and 0 of 96 HF daily papers, each of them
 screened against every open question.
 
+A track's slug names its notes (`<date>_jrp_<slug>.md`), so `wbr` is reserved for the weekly
+review's note: a config with `[tracks.wbr]` does not load, `jrp doctor` fails its config check
+and `jrp run` stops.
+
 Every line that is not `daily = true` takes its turn in the rotation; a line with `daily = true`
 runs on every tick beside it. A line may point at a repository with a `[[tracks.<slug>.repos]]`
 entry: if that directory holds a `graph.jsonld` (a JSON-LD file; the `name` and `alternateName` of
@@ -127,4 +131,17 @@ vocabulary is read from it. Otherwise the line's `name` is the only vocabulary.
 Every command inspects the store first. Additive changes are rewritten in place and noted in the
 operations block. Incompatible changes stop before reading or writing anything, naming the file:
 `jrp migrate --dry-run` shows the plan and `jrp migrate` applies it, moving incompatible files to
-`<store>/retired/<date>/` rather than deleting them.
+`<store>/retired/<date>/` rather than deleting them. `jrp wbr` only reads the store: it reads an
+additive file as if migrated, in memory, and leaves the file as it is; an incompatible file stops
+it with the same one line and exit 2.
+
+## The weekly review
+
+`uv run jrp wbr [--week YYYY-Www] [--out DIR]` reads the store, `config.toml` and the question
+files and writes two things: the note `<DIR>/<the Monday after the week>_jrp_wbr.md` (default
+`DIR` = `<JRP_VAULT_DIR>/daily-research`, beside the daily notes) and one line appended to
+`<JRP_STORE_DIR>/metrics/weekly.jsonl`. `--week` defaults to the last complete ISO week (on a
+Monday, the week that just ended). It uses the same `JRP_STORE_DIR`, `JRP_QUESTIONS_DIR`,
+`JRP_DAILY_RESEARCH_CONFIG` and `JRP_NOTE_LANG` as a run, and calls no API, so it can be made
+again any number of times; each time appends another line to `weekly.jsonl`. What each number
+means is in [how-it-works.md](how-it-works.md#the-weekly-review).

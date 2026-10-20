@@ -168,6 +168,31 @@ state (filter state in code), adversarial text (treat as data).
    > (`Label.first_harvested_at`) and opened notes may be 0. `tests/test_registry.py`
    > injects one fault per instrument and fails when an instrument in the registry has none.
 
+   > **注記（2026-10-20, plan quality-metrics）**: the primary metric is no longer the fill
+   > rate. The outputs are O1 (papers the prose first cited in a week, counted by paper key:
+   > arXiv id, else DOI, else GitHub owner/repo, else the normalized URL of SourceItem.url,
+   > by reduction.used's rules; a QuestionLog's [n] is claims[n-1] of that question-day,
+   > never Report.claims) and O2 (Sightings of the last 30 days, not baseline or unsure, with
+   > an arXiv / DOI / GitHub key, that jrp first cited before their first_seen; k/n below
+   > n = 20). The fill rate is demoted to an author signal: the weekly review counts the new
+   > question-day ticks of the week (Label.first_harvested_at) beside the notes first opened
+   > and whether the recommendation net's positives changed in 14 days. Both outputs and
+   > every other number are computed by `jrp wbr` (`pipeline/wbr.py`, v0), which reads the
+   > store, questions/ and config.toml and writes only `<out>/<Monday after>_jrp_wbr.md`
+   > (default the vault's daily-research/) and one row of `<store>/metrics/weekly.jsonl`.
+   > The parts are the eight of the 2026-10-20 direction (M Q I S X W D OUT). The breakdown
+   > uses the two latest mature cohorts ((line, paper) pairs by the ISO week a
+   > StageRecord(fetch_*) first returned them, mature 7 days after the week): N_ot (text
+   > above the screening floor and the stored prefilter Judgment passing some question)
+   > × p_sel (a stored screening Judgment routes keep, re-applied through judged_of) × p_ext
+   > (a claim on a QuestionLog) × p_wri ([n]-cited) = O1_c, each within 7 days of the first
+   > fetch, with Δln and a provisional delta-method SE, for all lines and split by the review
+   > week's free slots (≤ 30% free = slot-bound; slots = claims_per_question(k) × k at the
+   > run's k open questions). A number the registry does not call live prints its status
+   > word. v0 stops at the breakdown: "where to fix" and "last week's change" are headings
+   > only, and no change is picked automatically. The track slug `wbr` is reserved
+   > (`config.RESERVED_SLUGS`): its notes' glob would harvest the review.
+
 ### Failure policy, testing
 
 8. Jev timeout/error → item to an "unjudged" section (no fail-open into the body).
@@ -307,6 +332,10 @@ Nets, in code-fixed order, all keyless:
    > discovery block keeps the sources and the accepted-claim share per net. Nothing in a
    > note says whether the search is narrowing; the planned weekly review is to look at
    > repetition and novelty.
+   > **注記（2026-10-20, plan quality-metrics）**: the weekly review (`jrp wbr`) shows it as
+   > three shares of the week: note slots taken by a paper posted on an earlier day, Review
+   > entries an earlier note showed (from RunRecords, so only weeks that have them), and
+   > keyword fetch results no fetch returned on an earlier day.
    > **注記（2026-10-20, plan quality-metrics）**: the per-net sources line reads "取得 (run
    > 内の重複除去・上限の後): …". It counts what each net returned this run after the run's
    > own dedupe and the firehose cap; `adapters/collect.py` returns sources already in the
@@ -315,6 +344,12 @@ Nets, in code-fixed order, all keyless:
    > every line of the tick and the lines fetch side by side, so N is the tick's running
    > total when this line's fetch ended, not this line's spend.
 Never measure recall against human citation lists; vendor recall claims are unreliable.
+> **注記（2026-10-20, plan quality-metrics）**: one conditional exception, as a monitor only:
+> the weekly review's O2 is a relative recall against the author's own documents (the keys
+> that first appear in the track repos' graph.jsonld and ADRs, the used scan's places, author
+> decision 2026-10-20), read as an upper bound because the author reads jrp before writing.
+> Nothing wires it into a gate, a threshold or fit; it is k/n until 20 keys, and the review
+> decides on the keys it missed rather than on the rate.
 Review-when: OpenAlex credit pricing or S2 keyless pool changes; an ablation separating
 query generation from snowballing is published.
 
@@ -615,6 +650,10 @@ before it. Built, design unchanged (questions, nets, report format as above):
   subset, shared terms unchanged, every node valid) is rewritten in place; anything else
   stops with one line naming the file. `jrp migrate [--dry-run]` rewrites additive files
   and moves incompatible ones to `<store>/retired/<date>/`.
+  > **注記（2026-10-20, plan quality-metrics）**: `jrp wbr` is the one command that never
+  > migrates: it reads an additive file under today's CONTEXT in memory and leaves it as it
+  > is (`store.migrate.read_lifted`), and an incompatible one stops it with the same one
+  > line and exit 2. The scheduled run migrates first anyway.
 - **Packet discrepancy**: Jev is priced per input token ($0.042/Mtok, output free —
   docs.typesafe.ai models, as-of 2026-09-23), but the cost meter multiplies
   `JRP_JEV_USD_PER_QUESTION` by the question count. Batching changes tokens per question

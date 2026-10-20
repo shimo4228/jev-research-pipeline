@@ -77,6 +77,7 @@ jrp init --lang ja              # ~/.config/jrp/ に env、config.toml、questio
 set -a; source ~/.config/jrp/env; set +a
 jrp doctor                      # 実行に要るものを、実行せずにすべて確かめる
 jrp try --line agent-memory     # 最初のテーマを使い捨てのフォルダに 1 回だけ回し、ノートの置き場所を出す
+jrp wbr                         # 直前の 1 週間の週報を、store だけから作ってノートの隣に置く
 ```
 
 `jrp try` は vault に何も書きません。macOS で毎朝走らせるときは、`jrp schedule install --hour 5` が launchd（macOS の定期実行の仕組み）の設定を書き、読み込み方を表示します。Linux の cron と systemd、Slack やデスクトップへの通知は [docs/scheduling.md](docs/scheduling.md)（英語）に、すべての設定は [docs/configuration.md](docs/configuration.md)（英語）にあります。

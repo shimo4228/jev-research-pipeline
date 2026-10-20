@@ -69,6 +69,16 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run jrp run ...
 
 実 vault / 実 store に書く run になる場合は下の「触ってはいけないもの」に従う。
 
+## 週報を読む
+
+`uv run jrp wbr --week <YYYY-Www> --out <scratchpad>` で、その週の週報を何度でも作り直せる。store は
+読むだけで、API も呼ばない。書くのはノート 1 本と `<JRP_STORE_DIR>/metrics/weekly.jsonl` への 1 行の
+追記だけ。試すときは `JRP_STORE_DIR` を store の写しに向け、追記も写しに入れる。読む順は 2.（例外）→
+9.（計器）→ 1.（出力）→ 3.（分解）。比べるのは数値で出ている数だけにする（registry が live と呼ばない数は、
+数値の代わりに状態の語で出る）。止まった問いの段が I 入口ならクエリを skill `jrp-question` で差し替え
+（agent だけで進む）、S 選別か X 根拠化なら問いの文言と `not:` の見直しを著者に渡す。v0 は分解までを出し、
+来週の 1 手は選ばない。数の定義の正本は `src/jev_research_pipeline/pipeline/wbr.py` の docstring。
+
 ## 触ってはいけないもの
 
 - `~/MyAI_Lab/daily-research/config.toml` は旧 pipeline と共有で gitignore（git で戻せない）。

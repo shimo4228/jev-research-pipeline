@@ -120,6 +120,7 @@ writer with `JRP_PROSE_MODEL` (for the default writer, run `jrp codex login` onc
 set -a; source ~/.config/jrp/env; set +a
 jrp doctor                      # every check a run needs, without running one
 jrp try --line agent-memory     # one run of the starter topic into a throwaway folder; prints the note's path
+jrp wbr                         # the weekly review of the last full week, from the store alone, beside the notes
 ```
 
 `jrp try` writes nothing to your vault. To run every morning on macOS, `jrp schedule install --hour 5`
