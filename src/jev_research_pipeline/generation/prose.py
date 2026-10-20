@@ -121,6 +121,12 @@ def check_citations(text: str, n_claims: int) -> tuple[str, tuple[int, ...]]:
     return cleaned.strip(), tuple(invalid)
 
 
+def citations(text: str) -> frozenset[int]:
+    """The claim numbers a section's prose cites, each once — the [n] check_citations
+    kept, so every one names a claim of that section."""
+    return frozenset(int(n) for n in _CITATION_RE.findall(text))
+
+
 def is_inference(paragraph: str) -> bool:
     return paragraph.lstrip().startswith(tuple(INFERENCE_MARKS.values()))
 

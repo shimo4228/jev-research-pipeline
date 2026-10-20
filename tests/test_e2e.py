@@ -2,7 +2,7 @@
 edited in the note becomes a Label on the next run's harvest."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -122,6 +122,11 @@ async def test_one_line_end_to_end(cassette: ClientFactory, env: dict[str, str])
     assert isinstance(part.get(outcome.report.id), Report)
     assert any("web_search: key 未設定" in ln for ln in outcome.operations)
     assert outcome.health.reasons() == []  # an unset key is a skip, not a degradation
+    # The note's quiet counts: the prose cites its claims, and the line's first run has no
+    # earlier Report to compare with.
+    health = outcome.health
+    assert health.has_questions and health.claims == len(outcome.report.claims) > 0
+    assert health.cited > 0 and health.previous_cited is None
 
     # The author ticks the first claim ⭕; the next run's harvest turns it into a Label.
     note.write_text(
@@ -181,6 +186,21 @@ async def test_same_day_rerun_asks_jev_nothing_new(cassette: ClientFactory, env:
     assert second.report.operations.jev_input_tokens == 0
     assert second.report.operations.jev_output_tokens == 0
     assert second.report.operations.writer_calls == 0
+    # The re-run's prose is the reused QuestionLog, so it cites what the first did, and the
+    # first run's own Report (today's) is not "the previous run".
+    assert second.health.cited == first.health.cited > 0
+    assert second.health.previous_cited is None
+
+
+async def test_the_next_run_counts_what_the_last_one_cited(env: dict[str, str]):
+    """The line's next run reads the last Report's QuestionLogs for its citations. No
+    cassette: the fake world answers directly."""
+    http = httpx2.AsyncClient(transport=httpx2.MockTransport(fake_world()))
+    (first,) = await run_pipeline(env, now=b.T0, http=http, pacing=False, only=["akc"])
+    later = b.T0 + timedelta(days=1)
+    (second,) = await run_pipeline(env, now=later, http=http, pacing=False, only=["akc"])
+    assert first.health.cited > 0
+    assert second.health.previous_cited == first.health.cited
 
 
 async def test_default_prose_model_is_gpt6_luna_on_the_codex_subscription(
@@ -220,7 +240,12 @@ async def test_cost_cap_zero_gives_partial_report(cassette: ClientFactory, env: 
     assert outcome.report.claims == ()
     assert outcome.report.rendering == "template"
     assert outcome.health.cost_capped
-    assert outcome.health.reasons() == ["cost cap reached (partial note)"]
+    # Capped before anything was screened, the note has nothing to read: it is empty, and
+    # the cap says why.
+    assert outcome.health.reasons() == [
+        "empty note (no claim, no review)",
+        "cost cap reached (partial note)",
+    ]
 
 
 async def test_note_date_follows_the_local_timezone(cassette: ClientFactory, env: dict[str, str]):

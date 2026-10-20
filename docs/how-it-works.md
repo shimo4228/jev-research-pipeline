@@ -186,8 +186,11 @@ Code CLI, whose own system prompt may not be in the recorded counts.
   section. `jrp fit` proposes a refit once at least 10 ticked claims include both `[x]` and `[-]`, and
   never applies it.
 - **Alerts.** A degraded morning (a draft that failed or could not be checked, the writer's login
-  failed, a source failed, too many unjudged pairs) says so in its notification; a section the Jev
-  check rejected falls back without one. On macOS the launchd job also stops a run that hangs after an
+  failed, a source failed, too many unjudged pairs, a note with no claim and no Review, prose that
+  cited nothing on the line's last two runs) says so in its notification; a section the Jev check
+  rejected falls back without one. A rate limit on a source asked without its optional key
+  (Semantic Scholar, OpenAlex, GitHub) is what the free pools are expected to answer, so it is an
+  operations line, not an alert. On macOS the launchd job also stops a run that hangs after an
   hour and runs `jrp doctor` before every run.
 
 ## Why judgment, not generation

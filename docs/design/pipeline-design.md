@@ -469,6 +469,16 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   undocumented; only `date` and `limit` verified, so the field set needs a golden test.
 - Semantic Scholar keyless is a globally shared pool: a single cold request answered 429
   (measured). Plan for a key or treat the net as best-effort with a hard give-up.
+  > **注記（2026-10-20, plan quality-metrics）**: the give-up stays (the source is quiet for
+  > the day and the note says so), but a rate limit on a source asked without its optional
+  > key (`Adapter.key_env`: Semantic Scholar, OpenAlex, GitHub) no longer marks the run
+  > DEGRADED: it goes to `NetOutcome.expected_limits`, not `failures`. 3 of the 4 DEGRADED
+  > runs among the 18 up to 2026-10-20 were this keyless S2 429 (`jrp-run.log`). With the
+  > key set, a 429 is a failure again. A source with no key to set (HF papers, the
+  > firehose's arXiv RSS and HF daily) keeps its 429 as a failure. The same change added
+  > two quiet reasons for a line with an open question: an empty note (no claim and no
+  > Review) and prose that cited no claim on the line's last two Reports (the distinct `[n]`
+  > of each QuestionLog).
 - OpenAlex: `mailto=` no longer buys a polite pool; keyless = 1,000 credits = $0.10/day,
   with a key 10,000 = $1/day (measured 2026-09-26; our default cap 400 keyless, 4,000 keyed),
   a filtered list is 1 credit, a `search=` is 10, singleton lookups are free, reset at

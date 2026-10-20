@@ -28,7 +28,7 @@ import httpx2
 from pydantic import BaseModel, Field
 
 from .base import Adapter, RawDraft, iso_date, one_line
-from .openalex import WORKS, headers
+from .openalex import API_KEY_ENV, WORKS, headers
 
 SOURCE: Final = "S4306400194"
 """arXiv as an OpenAlex source."""
@@ -131,6 +131,7 @@ def adapter(today: date) -> Adapter:
         parse=parse,
         min_interval_s=MIN_INTERVAL_S,
         credit_cost=SEARCH_CREDITS,
+        key_env=API_KEY_ENV,
     )
 
 
@@ -142,4 +143,5 @@ def paper_adapter() -> Adapter:
         parse=paper_parse,
         min_interval_s=MIN_INTERVAL_S,
         query_kind="token",
+        key_env=API_KEY_ENV,
     )

@@ -1,24 +1,38 @@
 """A degraded run is said out loud: the summary notification of a run that finished but
 whose prose failed, whose writer was refused, whose Jev screen failed on a real share of
-pairs, whose adapters failed or whose cost cap stopped a line says DEGRADED, one reason
-line per line, in one Slack message (pipeline.health, pipeline.runner.run_summary)."""
+pairs, whose adapters failed, whose cost cap stopped a line, whose note has nothing to read
+or whose prose cited nothing twice in a row says DEGRADED, one reason line per line, in one
+Slack message (pipeline.health, pipeline.runner.run_summary). A keyless pool's rate limit is
+expected and is not a reason (pipeline.nets)."""
 
 import functools
-from datetime import date
+from collections.abc import Callable, Coroutine
+from datetime import date, timedelta
 from pathlib import Path
 
+import httpx2
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.providers.openai_codex import CredentialsRefreshError
 
+from jev_research_pipeline.adapters import (
+    arxiv,
+    firehose,
+    github,
+    hf_papers,
+    openalex,
+    semantic_scholar,
+)
 from jev_research_pipeline.generation import GenerationMeter, write_prose
 from jev_research_pipeline.generation.claude_code import (
     ClaudeAuthError,
     ClaudeCodeError,
     parse_result,
 )
+from jev_research_pipeline.model import QuestionLog, Report
+from jev_research_pipeline.pipeline import nets, run
 from jev_research_pipeline.pipeline.health import UNJUDGED_SHARE, LineHealth
 from jev_research_pipeline.pipeline.notify import NOTIFY_ENV, notify
 from jev_research_pipeline.pipeline.run import LineOutcome
@@ -168,10 +182,7 @@ def test_the_cli_sends_one_degraded_message(monkeypatch: pytest.MonkeyPatch, tmp
 
 
 async def test_an_adapter_skipped_for_an_unset_key_is_not_a_fetch_failure(tmp_path: Path):
-    import httpx2
-
     from jev_research_pipeline.adapters import web_search
-    from jev_research_pipeline.pipeline import nets
     from jev_research_pipeline.store import GraphStore
 
     async def unreachable(request: httpx2.Request) -> httpx2.Response:
@@ -187,3 +198,234 @@ async def test_an_adapter_skipped_for_an_unset_key_is_not_a_fetch_failure(tmp_pa
         config=nets.NetConfig(),
     )
     assert out.failures == []
+
+
+# --- a keyless pool's rate limit is expected; a source with no key has no such excuse ----
+
+
+type Handler = Callable[[httpx2.Request], Coroutine[None, None, httpx2.Response]]
+
+
+def _limited(status: int = 429, headers: dict[str, str] | None = None) -> Handler:
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(status, json={"message": "Too Many Requests"}, headers=headers)
+
+    return handler
+
+
+async def _fetched(
+    tmp_path: Path, request: nets.NetRequest, handler: Handler, env: dict[str, str]
+) -> nets.NetOutcome:
+    from dataclasses import replace
+
+    from jev_research_pipeline.store import GraphStore
+
+    request = replace(request, adapter=replace(request.adapter, min_interval_s=0.0))
+    return await nets.fetch_nets(
+        [request],
+        httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+        GraphStore(tmp_path).line("akc"),
+        b.line(),
+        now=b.T0,
+        env=env,
+        config=nets.NetConfig(),
+    )
+
+
+def _s2() -> nets.NetRequest:
+    return nets.NetRequest(
+        "recommendation", semantic_scholar.adapter(), semantic_scholar.token(["A"], [])
+    )
+
+
+@pytest.mark.parametrize(
+    ("env", "failures", "expected"),
+    [
+        ({}, [], ["recommendation/semantic_scholar http_status"]),
+        (
+            {semantic_scholar.API_KEY_ENV: "k"},
+            ["recommendation/semantic_scholar http_status"],
+            [],
+        ),
+    ],
+)
+async def test_a_keyless_rate_limit_is_expected_and_a_keyed_one_fails(
+    tmp_path: Path, env: dict[str, str], failures: list[str], expected: list[str]
+):
+    out = await _fetched(tmp_path, _s2(), _limited(), env)
+    assert out.failures == failures
+    assert out.expected_limits == expected
+    # keyed or keyless, the operations block says so and the source is done for the day
+    assert out.rate_limited == ["recommendation/semantic_scholar"]
+    assert "recommendation/semantic_scholar: rate limit のため本日は打ち切り" in out.notes
+    health = LineHealth(fetch_failures=tuple(out.failures))
+    assert health.reasons() == (
+        ["fetch failed: recommendation/semantic_scholar http_status"] if failures else []
+    )
+
+
+@pytest.mark.parametrize(
+    ("env", "failures", "expected"),
+    [
+        ({}, [], ["keyword/github http_status"]),
+        ({github.TOKEN_ENV: "t"}, ["keyword/github http_status"], []),
+    ],
+)
+async def test_a_spent_keyless_github_search_is_expected_too(
+    tmp_path: Path, env: dict[str, str], failures: list[str], expected: list[str]
+):
+    # GitHub says a spent search budget with a 403 and x-ratelimit-remaining: 0
+    spent = _limited(403, {"x-ratelimit-remaining": "0"})
+    out = await _fetched(
+        tmp_path, nets.NetRequest("keyword", github.adapter(), "agent memory"), spent, env
+    )
+    assert out.failures == failures
+    assert out.expected_limits == expected
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        nets.NetRequest("keyword", hf_papers.adapter(), "agent memory"),
+        nets.NetRequest("firehose", firehose.hf_adapter(), "2026-09-21"),
+        nets.NetRequest("firehose", firehose.arxiv_adapter(), "cs.AI+cs.CL"),
+    ],
+    ids=["hf_papers", "hf_daily", "arxiv_rss"],
+)
+async def test_a_rate_limit_on_a_source_with_no_key_is_a_failure(
+    tmp_path: Path, request_: nets.NetRequest
+):
+    out = await _fetched(tmp_path, request_, _limited(), {})
+    source = f"{request_.net}/{request_.adapter.kind}"
+    assert out.failures == [f"{source} http_status"]
+    assert out.expected_limits == []
+    assert out.rate_limited == [source]  # quiet for the day, as before
+
+
+async def test_a_keyless_source_that_errs_otherwise_still_fails(tmp_path: Path):
+    request = nets.NetRequest("citation", openalex.citation_adapter(), openalex.cites_token("W1"))
+    out = await _fetched(tmp_path, request, _limited(500), {})
+    assert out.failures == ["citation/openalex http_status"]
+    assert out.expected_limits == [] and out.rate_limited == []
+
+
+def test_only_an_optional_key_makes_a_request_keyless():
+    from jev_research_pipeline.adapters import web_search
+
+    assert semantic_scholar.adapter().keyless({})
+    assert not semantic_scholar.adapter().keyless({semantic_scholar.API_KEY_ENV: "k"})
+    assert all(
+        a.keyless({}) and a.key_env == openalex.API_KEY_ENV
+        for a in (
+            openalex.citation_adapter(),
+            openalex.exploration_adapter(),
+            arxiv.adapter(b.T0.date()),
+            arxiv.paper_adapter(),
+        )
+    )
+    assert github.adapter().key_env == github.TOKEN_ENV
+    # no key to set (HF, the arXiv RSS), or a required one (Tavily: unset is a skip)
+    assert not any(
+        a.keyless({})
+        for a in (
+            hf_papers.adapter(),
+            firehose.hf_adapter(),
+            firehose.arxiv_adapter(),
+            web_search.adapter(),
+        )
+    )
+
+
+# --- a quiet note: nothing to read, or nothing cited twice in a row -----------------------
+
+
+def test_review_without_a_citation_sounds_on_the_second_run_only():
+    # the ans line: Review every run, the prose cites nothing
+    first = LineHealth(has_questions=True, claims=0, review=6, cited=0, previous_cited=4)
+    assert first.reasons() == []
+    assert LineHealth(has_questions=True, review=6, cited=0, previous_cited=None).reasons() == []
+    second = LineHealth(has_questions=True, claims=0, review=6, cited=0, previous_cited=0)
+    assert second.reasons() == ["no citation 2 runs in a row"]
+
+
+def test_claims_on_the_template_are_not_citations():
+    # a template day lists its claims, but its prose cites none of them
+    health = LineHealth(has_questions=True, claims=5, review=0, cited=0, previous_cited=0)
+    assert health.reasons() == ["no citation 2 runs in a row"]
+
+
+def test_a_note_with_no_claim_and_no_review_sounds_at_once():
+    health = LineHealth(has_questions=True, claims=0, review=0, cited=0, previous_cited=None)
+    assert health.reasons() == ["empty note (no claim, no review)"]
+    assert LineHealth(has_questions=True, claims=1, review=0, cited=1).reasons() == []
+    assert LineHealth(has_questions=True, claims=0, review=1).reasons() == []
+
+
+def test_a_line_with_no_question_is_never_quiet():
+    assert LineHealth(claims=0, review=0, cited=0, previous_cited=0).reasons() == []
+
+
+def test_the_quiet_reasons_come_after_the_judging_and_before_the_fetch():
+    health = LineHealth(
+        failed_pairs=10,
+        pairs=100,
+        fetch_failures=("citation/openalex http_status",),
+        has_questions=True,
+        previous_cited=0,
+    )
+    assert health.reasons() == [
+        "unjudged 10/100 pairs (10%)",
+        "empty note (no claim, no review)",
+        "no citation 2 runs in a row",
+        "fetch failed: citation/openalex http_status",
+    ]
+
+
+def _log(question: str, report: str, run_date: date, text: str) -> QuestionLog:
+    return QuestionLog.new(
+        question=question,
+        report=report,
+        run_date=run_date,
+        movement="new_evidence_same_answer",
+        text=text,
+        logged_at=b.T0,
+    )
+
+
+def test_citations_are_counted_once_per_question_and_summed():
+    report = b.report().id
+    q1, q2 = b.question().id, b.question(version=2).id
+    logs = [
+        _log(q1, report, b.T0.date(), "A [1] and B [2], again A [1]. Not a cite: [x]."),
+        _log(q2, report, b.T0.date(), "Its own first claim [1]."),  # another question's [1]
+        _log(q1, report, b.T0.date(), ""),  # a template section
+    ]
+    assert run.cited(logs) == 3
+    assert run.cited([]) == 0
+
+
+def test_the_previous_count_is_the_latest_earlier_report():
+    q = b.question().id
+    day = b.T0.date()
+
+    def report_on(d: date) -> Report:
+        return b.report().model_copy(update={"id": Report.id_for(b.LINE_IRI, d), "run_date": d})
+
+    older, last, today = (report_on(day - timedelta(days=n)) for n in (5, 2, 0))
+    nodes = {
+        n.id: n
+        for n in (
+            older,
+            last,
+            today,
+            _log(q, older.id, older.run_date, "[1] [2] [3]"),
+            _log(q, last.id, last.run_date, "only [2]"),
+            _log(q, today.id, today.run_date, "today's [1] [2] are not the previous run"),
+        )
+    }
+    assert run.cited_previous(nodes, b.LINE_IRI, b.T0) == 1
+    # a Report with no QuestionLog (no section that day) cites 0; none at all is None
+    del nodes[_log(q, last.id, last.run_date, "").id]
+    assert run.cited_previous(nodes, b.LINE_IRI, b.T0) == 0
+    assert run.cited_previous({today.id: today}, b.LINE_IRI, b.T0) is None
+    assert run.cited_previous(nodes, "https://example.org/other-line", b.T0) is None

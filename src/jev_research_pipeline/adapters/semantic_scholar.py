@@ -8,8 +8,9 @@ per-user recommender from collapsing onto one theme.
 Keyless is documented as allowed but the unauthenticated pool is shared globally: a
 single cold request answered 429 when measured (2026-09-23). This adapter therefore
 treats a 429 as a policy signal and gives up for the day rather than retrying — the net's
-share of the report simply drops, and the operations section says why. Set
-SEMANTIC_SCHOLAR_API_KEY to get a budget of your own.
+share of the report simply drops, and the operations section says why. Asked keyless,
+that 429 is expected and does not mark the run DEGRADED (Adapter.key_env); with the key,
+it does. Set SEMANTIC_SCHOLAR_API_KEY to get a budget of your own.
 
 The `query` is a code-built token: `<positive id>,…|<negative id>,…`.
 """
@@ -103,4 +104,5 @@ def adapter() -> Adapter:
         min_interval_s=1.0,  # keyed limit on /recommendations is 1 rps; keyless is stricter
         net="recommendation",
         query_kind="token",
+        key_env=API_KEY_ENV,
     )

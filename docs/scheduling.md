@@ -62,7 +62,12 @@ systemctl --user enable --now jrp.timer
 ## Notifications
 
 Each `jrp run` sends one message (the claims per line, or `DEGRADED` / `FAILED` with the
-reason) to every channel the env names; none is required.
+reason) to every channel the env names; none is required. `DEGRADED` covers a line that
+finished but not as a healthy run does: a failed or unchecked draft, a failed fetch, the cost
+cap, a note with no claim and no Review, or prose that cited nothing on the line's last two
+runs (the full list is under `JRP_SLACK_NOTIFY` in [configuration.md](configuration.md)). A
+rate limit on a source asked without its optional key is expected and stays an operations
+line in the note.
 
 | variable | channel |
 |---|---|

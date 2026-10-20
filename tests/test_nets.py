@@ -256,6 +256,10 @@ async def test_a_rate_limited_net_goes_quiet_for_the_day(cassette: ClientFactory
     outcome = await _fetch(cassette, limited, requests, tmp_path)
     assert outcome.sources == []
     assert any("rate limit" in line for line in outcome.notes)
+    # asked without SEMANTIC_SCHOLAR_API_KEY: the keyless pool's 429 is expected, so the
+    # run's health does not see a failure (once: the second request is held back)
+    assert outcome.failures == []
+    assert outcome.expected_limits == ["recommendation/semantic_scholar http_status"]
 
 
 async def test_the_openalex_credit_cap_stops_the_citation_net(
@@ -341,6 +345,9 @@ async def test_a_rate_limited_lookup_quiets_the_citation_net(
     outcome = await _fetch(cassette, _openalex_api, requests, tmp_path)
     assert outcome.sources == []  # the second paper is not asked for once OpenAlex said 429
     assert "citation/openalex: rate limit のため本日は打ち切り" in outcome.notes
+    # the DOI lookup went out keyless too: its 429 is expected, not a failure
+    assert outcome.failures == []
+    assert outcome.expected_limits == ["citation/openalex http_status"]
 
 
 async def _openalex_everything(request: httpx2.Request) -> httpx2.Response:

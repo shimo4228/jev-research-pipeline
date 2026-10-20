@@ -66,4 +66,10 @@ def parse(body: str) -> list[RawDraft]:
 
 
 def adapter() -> Adapter:
-    return Adapter(kind="github", build_request=build_request, parse=parse, min_interval_s=6.0)
+    return Adapter(
+        kind="github",
+        build_request=build_request,
+        parse=parse,
+        min_interval_s=6.0,
+        key_env=TOKEN_ENV,
+    )

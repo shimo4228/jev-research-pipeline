@@ -32,7 +32,7 @@ import asyncio
 import re
 import time
 import unicodedata
-from collections.abc import Awaitable, Callable, Collection, Generator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -57,6 +57,7 @@ from jev_research_pipeline.adapters import (
 from jev_research_pipeline.generation import GenerationMeter, ProseResult, Rendering, Writer
 from jev_research_pipeline.generation.prose import (
     SOURCE_EXCERPT_CHARS,
+    citations,
     prose_thinking,
     prose_timeout_s,
 )
@@ -1400,10 +1401,12 @@ class LineRun:
             report=report,
             note=write_note(self.vault, slug, self.now.date(), text),
             operations=lines,
-            health=self._health(),
+            health=self._health(claims=len(report.claims), review=len(review), logs=logs),
         )
 
-    def _health(self) -> LineHealth:
+    def _health(self, *, claims: int, review: int, logs: Sequence[QuestionLog]) -> LineHealth:
+        """`review` is what the note kept after it was fitted; `logs` are today's
+        QuestionLogs (a reused one included), which the note's prose is."""
         failed = [d for d in self.st.drafts if d.prose is None]
         return LineHealth(
             drafts=len(self.st.drafts),
@@ -1414,6 +1417,11 @@ class LineRun:
             failed_pairs=self.st.failed_pairs,
             pairs=self.st.pairs,
             cost_capped=self.st.partial,
+            has_questions=bool(self.questions),
+            claims=claims,
+            review=review,
+            cited=cited(logs),
+            previous_cited=cited_previous(self.known, self.ctx.line.id, self.now),
         )
 
 
@@ -1554,19 +1562,41 @@ def _with_evidence(questions: list[Question], accepted: list[_Accepted]) -> list
     return out
 
 
-def fill_rate_previous(
+def _previous_report(
     nodes: Mapping[str, GraphNodeType], line: str, now: AwareDatetime
-) -> float | None:
-    """Primary metric (decision 7), now counted over question-days: ticked question-days
-    of the line's latest earlier report."""
+) -> Report | None:
+    """The line's latest Report from before today (a same-day re-run's own is not it)."""
     reports = [
         n
         for n in nodes.values()
         if isinstance(n, Report) and n.line == line and n.run_date < now.date()
     ]
-    if not reports:
+    return max(reports, key=lambda r: r.run_date) if reports else None
+
+
+def cited(logs: Iterable[QuestionLog]) -> int:
+    """Claims a day's prose cites (LineHealth.cited): each question numbers its own claims
+    from 1, so the distinct [n] are counted per QuestionLog and summed."""
+    return sum(len(citations(log.text)) for log in logs)
+
+
+def cited_previous(nodes: Mapping[str, GraphNodeType], line: str, now: AwareDatetime) -> int | None:
+    """`cited` of the line's latest earlier Report (LineHealth.previous_cited); None when
+    there is none. A Report with no QuestionLog (a day with no section) cites 0."""
+    last = _previous_report(nodes, line, now)
+    if last is None:
         return None
-    last = max(reports, key=lambda r: r.run_date)
+    return cited(n for n in nodes.values() if isinstance(n, QuestionLog) and n.report == last.id)
+
+
+def fill_rate_previous(
+    nodes: Mapping[str, GraphNodeType], line: str, now: AwareDatetime
+) -> float | None:
+    """Primary metric (decision 7), now counted over question-days: ticked question-days
+    of the line's latest earlier report."""
+    last = _previous_report(nodes, line, now)
+    if last is None:
+        return None
     days = [n.id for n in nodes.values() if isinstance(n, QuestionLog) and n.report == last.id]
     if not days:
         return None

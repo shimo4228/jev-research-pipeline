@@ -15,7 +15,8 @@ chooses where to search; it only screens what comes back.
   prefilter rejects ~97% of arXiv items).
 - recommendation: Semantic Scholar, positives = the author's `[x]` ticks and the papers
   behind accepted claims, negatives = `[-]` ticks plus seeded random negatives (Scholar Inbox's recipe
-  against collapse). Best-effort: the keyless pool answers 429 and the net goes quiet.
+  against collapse). Best-effort: the keyless pool answers 429 and the net goes quiet;
+  that 429 is expected, not a failure (see below).
 - citation: OpenAlex forward citations of papers this line already accepted.
 - keyword: each question's authored queries (`arxiv:` / `github:` / `hf:` / `web:` lines).
   `arxiv:` goes to OpenAlex search restricted to the arXiv source (adapters.arxiv): arXiv's
@@ -27,6 +28,14 @@ Budgets are request counts, not result counts: a net that is cheap to ask is ask
 often. The OpenAlex credit cap is a daily budget (keyless: 1,000 credits, $0.10; with a
 key 10,000 and $1; reset at midnight UTC), counted from the response headers — a citation
 or exploration list costs 1 credit, an arXiv keyword search 10.
+
+A failed request is an operations line and, for the run's health (pipeline.health), one
+entry of NetOutcome.failures — except two that are expected: a skip for an unset required
+key, and a rate limit on a source asked without its optional key (Adapter.key_env:
+Semantic Scholar, OpenAlex, GitHub), which goes to NetOutcome.expected_limits. Both still
+write their operations lines, and a rate limit quiets its source for the day either way. A
+source with no key to set (HF papers, the firehose's arXiv RSS and HF daily) has no
+keyless pool to blame: its 429 stays a failure.
 """
 
 import asyncio
@@ -336,7 +345,12 @@ class NetOutcome:
     openalex_credits: int = 0
     failures: list[str] = field(default_factory=list[str])
     """`<net>/<adapter> <reason>` per failed request, for the run's health (pipeline.health);
-    an adapter skipped for an unset key is intended and not listed."""
+    an adapter skipped for an unset key is intended and not listed, nor is a keyless rate
+    limit (expected_limits)."""
+    expected_limits: list[str] = field(default_factory=list[str])
+    """`<net>/<adapter> <reason>` per rate limit on a source asked without its optional key
+    (Adapter.key_env): its shared keyless pool answering 429 is expected, so it is kept
+    apart from `failures` and the run's health does not count it."""
     rate_limited: list[str] = field(default_factory=list[str])
     """`<net>/<adapter>` of every source a rate limit stopped for the day (the empty-day
     sentence names them)."""
@@ -379,9 +393,16 @@ def _source_key(request: NetRequest) -> str:
 
 
 def _record_failure(
-    request: NetRequest, failure: FetchFailure, budget: DayBudget, outcome: NetOutcome
+    request: NetRequest,
+    failure: FetchFailure,
+    budget: DayBudget,
+    outcome: NetOutcome,
+    *,
+    keyless: bool,
 ) -> None:
-    """A failed request is a line in the operations section, never the end of the run."""
+    """A failed request is a line in the operations section, never the end of the run.
+    `keyless`: the request went out without the source's optional key (Adapter.keyless), so
+    a rate limit on it is the shared pool's expected answer, not a failure."""
     outcome.notes.append(
         t.FETCH_FAILED(
             outcome.lang,
@@ -390,8 +411,11 @@ def _record_failure(
             detail=failure.detail,
         )
     )
-    if failure.reason != "missing_key":
-        outcome.failures.append(f"{_source_key(request)} {failure.reason}")
+    entry = f"{_source_key(request)} {failure.reason}"
+    if keyless and failure.reason == "http_status" and "rate_limit" in failure.detail:
+        outcome.expected_limits.append(entry)
+    elif failure.reason != "missing_key":
+        outcome.failures.append(entry)
     if "rate_limit" in failure.detail:
         # A shared pool answering 429 is a policy signal, not a transient error: that
         # source is done for the day in this net, for every line. The net's other sources
@@ -420,7 +444,7 @@ async def _sendable(
         return request
     found = await openalex.resolve_work(client, work, env=env)
     if isinstance(found, FetchFailure):
-        _record_failure(request, found, budget, outcome)
+        _record_failure(request, found, budget, outcome, keyless=request.adapter.keyless(env))
         return None
     if found is None:
         outcome.notes.append(
@@ -498,7 +522,7 @@ async def _send(
         return None
     out = await collect(request.adapter, client, partition, line, request.query, now=now, env=env)
     if out.failure is not None:
-        _record_failure(request, out.failure, budget, outcome)
+        _record_failure(request, out.failure, budget, outcome, keyless=request.adapter.keyless(env))
         return None
     budget.spent += out.credits  # 0 when cached: collect() sent nothing
     return request, out

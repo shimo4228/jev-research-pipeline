@@ -179,6 +179,14 @@ class Adapter:
     query_kind: Literal["keyword", "token"] = "keyword"
     """A keyword query is a search string and must be searchable text; a token query is a
     code-built parameter (a category list, a paper id, a topic id) and is passed through."""
+    key_env: str | None = None
+    """Env var of the source's optional key (Semantic Scholar, OpenAlex, GitHub): set, the
+    request carries it; unset, it goes to the source's shared keyless pool, whose rate
+    limit is expected (nets._record_failure). None = the source has no key to set."""
+
+    def keyless(self, env: Mapping[str, str]) -> bool:
+        """Whether this request goes out without the source's optional key."""
+        return self.key_env is not None and not env.get(self.key_env)
 
     async def _paced(self, client: httpx2.AsyncClient, request: httpx2.Request) -> httpx2.Response:
         """The gap is kept per source (`kind`), not per Adapter object: the run builds a

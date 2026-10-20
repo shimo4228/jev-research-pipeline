@@ -7,7 +7,15 @@ from zoneinfo import ZoneInfo
 import httpx2
 import pytest
 
-from jev_research_pipeline.adapters import Adapter, arxiv, canary, firehose, github, hf_papers
+from jev_research_pipeline.adapters import (
+    Adapter,
+    arxiv,
+    canary,
+    firehose,
+    github,
+    hf_papers,
+    openalex,
+)
 from jev_research_pipeline.pipeline import nets
 
 TODAY = date(2026, 9, 22)
@@ -243,7 +251,18 @@ async def test_the_arxiv_listing_never_has_two_requests_in_flight():
     assert peak == 1
 
 
-async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("env", "failures", "expected"),
+    [
+        # keyless, OpenAlex's shared pool answering 429 is expected: not a failure
+        ({}, [], ["keyword/arxiv http_status"]),
+        # with the key, the 429 is the pool refusing our own budget: a real failure
+        ({openalex.API_KEY_ENV: "k"}, ["keyword/arxiv http_status"], []),
+    ],
+)
+async def test_a_rate_limited_source_silences_only_itself(
+    tmp_path: Path, env: dict[str, str], failures: list[str], expected: list[str]
+):
     from jev_research_pipeline.store import GraphStore
 
     from . import builders as b
@@ -267,14 +286,16 @@ async def test_a_rate_limited_source_silences_only_itself(tmp_path: Path):
         GraphStore(tmp_path).line("akc"),
         b.line(),
         now=b.T0,
-        env={},
+        env=env,
         config=nets.NetConfig(),
     )
+    # keyed or not, the source is quiet for the day and the note says so
     assert "keyword/arxiv: rate limit のため本日は打ち切り" in out.notes
     # the second arXiv query is not sent at all (one failure line, not two)
     assert sum("fetch 失敗" in n for n in out.notes) == 1
     assert not any("keyword/github" in n for n in out.notes)  # GitHub still ran
-    assert out.failures == ["keyword/arxiv http_status"]  # the run's health sees it once
+    assert out.failures == failures  # the run's health sees a real one once
+    assert out.expected_limits == expected
 
 
 def replace_interval(adapter: Adapter) -> Adapter:

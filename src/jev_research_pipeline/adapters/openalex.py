@@ -193,6 +193,7 @@ def citation_adapter() -> Adapter:
         net="citation",
         query_kind="token",
         credit_cost=FILTER_CREDITS,
+        key_env=API_KEY_ENV,
     )
 
 
@@ -205,4 +206,5 @@ def exploration_adapter() -> Adapter:
         net="exploration",
         query_kind="token",
         credit_cost=FILTER_CREDITS,
+        key_env=API_KEY_ENV,
     )
