@@ -496,21 +496,33 @@ def ranked(items: Sequence[SourceItem], query: str) -> list[SourceItem] | None:
     return [items[i] for i in order]
 
 
+def firehose_cut(fresh: list[SourceItem], room: int, query: str) -> tuple[list[SourceItem], bool]:
+    """What the firehose keeps of `fresh` in `room` slots, and whether it was ranked: all
+    of it when it fits, else the best `room` by relevance to `query` (ranked), else the
+    first `room` in feed order. The one cut the run and the intake eval (evals.intake) share."""
+    if len(fresh) <= room:
+        return fresh, False
+    by_relevance = ranked(fresh, query) if room else None
+    if by_relevance is not None:
+        return by_relevance[:room], True
+    return fresh[:room], False
+
+
 def _capped(
     fresh: list[SourceItem], cap: int, outcome: NetOutcome, *, query: str = ""
 ) -> list[SourceItem]:
     """The firehose's share of a line-run (NetConfig.firehose_max). What overflows is cut
     by relevance to `query` when there is one (ranked), in feed order when not."""
     room = max(cap - outcome.per_net.get("firehose", 0), 0)
-    if len(fresh) <= room:
+    kept, by_relevance = firehose_cut(fresh, room, query)
+    if len(kept) == len(fresh):
         return fresh
     dropped = len(fresh) - room
-    by_relevance = ranked(fresh, query) if room else None
-    if by_relevance is not None:
+    if by_relevance:
         outcome.notes.append(t.FIREHOSE_RANKED(outcome.lang, room=room, dropped=dropped))
-        return by_relevance[:room]
-    outcome.notes.append(t.FIREHOSE_CAP(outcome.lang, cap=cap, dropped=dropped))
-    return fresh[:room]
+    else:
+        outcome.notes.append(t.FIREHOSE_CAP(outcome.lang, cap=cap, dropped=dropped))
+    return kept
 
 
 async def _send(

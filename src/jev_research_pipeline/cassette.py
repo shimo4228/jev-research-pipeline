@@ -7,7 +7,9 @@ one typed transport covers every external call (vcrpy is untyped and patches glo
 Invariants:
 - Replay is the default and never touches the network: a request with no recorded
   response raises CassetteMiss (a test fails loudly instead of going live).
-- Recording happens only when a human sets JRP_CASSETTE_RECORD=1 (cassette_client).
+- Recording happens only when a human sets JRP_CASSETTE_RECORD=1 (cassette_client), or
+  when a human freezes an eval set (FreezeTransport, evals.freeze: it records only the
+  requests the cassette does not hold yet, so each is sent once).
 - Key = "<METHOD> <URL with sorted query minus secret params> body:<16 hex of the
   JSON-canonical body's sha256>" — readable in diffs, collision-safe within one file.
   Headers are never part of the key and never stored, so API keys in Authorization /
@@ -109,32 +111,58 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
         self.record = record
         self._upstream = upstream
 
+    async def _recorded(self, request: httpx2.Request, key: str) -> Entry:
+        """Send `request` upstream and keep its response under `key` (no header is kept)."""
+        if self._upstream is None:
+            raise CassetteMiss(f"no upstream to send {key} to ({self.cassette.path})")
+        live = await self._upstream.handle_async_request(request)
+        await live.aread()
+        entry = Entry(
+            status=live.status_code,
+            content_type=live.headers.get("content-type", ""),
+            body=live.text,
+        )
+        if request.content:
+            entry["request_body"] = request.content.decode("utf-8", errors="replace")
+        await live.aclose()
+        self.cassette.put(key, entry)
+        self.cassette.save()
+        return entry
+
+    def _entry(self, key: str) -> Entry | None:
+        """The response this transport answers `key` with without sending: None = send it."""
+        found = self.cassette.get(key)
+        if found is None and not self.record:
+            raise CassetteMiss(f"no recorded response for {key} in {self.cassette.path}")
+        return None if self.record else found
+
     @override
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         await request.aread()
         key = request_key(request)
-        if self.record and self._upstream is not None:
-            live = await self._upstream.handle_async_request(request)
-            await live.aread()
-            entry = Entry(
-                status=live.status_code,
-                content_type=live.headers.get("content-type", ""),
-                body=live.text,
-            )
-            if request.content:
-                entry["request_body"] = request.content.decode("utf-8", errors="replace")
-            await live.aclose()
-            self.cassette.put(key, entry)
-            self.cassette.save()
-        else:
-            found = self.cassette.get(key)
-            if found is None:
-                raise CassetteMiss(f"no recorded response for {key} in {self.cassette.path}")
-            entry = found
+        found = self._entry(key)
+        entry = found if found is not None else await self._recorded(request, key)
         headers = {"content-type": entry["content_type"]} if entry["content_type"] else {}
         return httpx2.Response(
             entry["status"], headers=headers, text=entry["body"], request=request
         )
+
+
+class FreezeTransport(CassetteTransport):
+    """Replay what the cassette holds; send and record only what it does not. A frozen set
+    is fetched once (evals.freeze): a second freeze of the same requests sends nothing.
+    `sent` counts the requests that went upstream."""
+
+    def __init__(self, cassette: Cassette, *, upstream: httpx2.AsyncBaseTransport) -> None:
+        super().__init__(cassette, record=True, upstream=upstream)
+        self.sent = 0
+
+    @override
+    def _entry(self, key: str) -> Entry | None:
+        found = self.cassette.get(key)
+        if found is None:
+            self.sent += 1
+        return found
 
 
 def cassette_client(path: Path, *, timeout: float = DEFAULT_TIMEOUT) -> httpx2.AsyncClient:
