@@ -75,6 +75,7 @@ from jev_research_pipeline.pipeline.wbr import (
     Week,
     WeeklyReview,
     Written,
+    merge,
     note_name,
     paper_key,
     poisson_interval,
@@ -85,6 +86,7 @@ from jev_research_pipeline.pipeline.wbr import (
     wilson,
     write_weekly_review,
 )
+from jev_research_pipeline.pipeline.wbr import row as weekly_row
 from jev_research_pipeline.questions import parse_questions
 from jev_research_pipeline.reduction.opened import OPENED_FILE
 from jev_research_pipeline.reduction.used import is_jrp_name, keys_of_text, scan_documents
@@ -611,17 +613,103 @@ def test_the_instruments_are_shown_by_their_status(review: WeeklyReview):
     assert review.exceptions() == 4  # three questions that did not move, edge's O1 of 0
 
 
-def test_a_failing_instrument_is_an_exception_and_hides_the_numbers_it_measures():
+def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_factors():
     """With akc's firehose on, no akc run left an arXiv listing: missing, in the week and in
-    both cohorts' windows, so the intake factors print the word instead of a number."""
+    both cohorts' windows, so the intake factors keep their numbers and name akc."""
     got = weekly_review(inputs(firehose={"akc": 2, "edge": 0, "ans": 0}), WEEK)
     assert got.status["firehose.arxiv"] == "missing"
-    assert [g.intake for g in got.gates] == ["missing", "missing"]
+    assert [g.intake for g in got.gates] == [(("akc", "missing"),)] * 2
     text = render(got, "ja")
     assert "- 計器 firehose.arxiv: 欠落 (akc 2026-11-03)" in text
-    assert "| I 入口 | N_ot 問いに合う新規の論文 | 欠落 | 欠落 | — | — |" in text
+    assert "| I 入口 | N_ot 問いに合う新規の論文 ※akc は欠落 | 4 | 6 | +0.41 | 0.65 |" in text
     assert "| X 根拠化 | p_ext claim が載った | 0.67 (2/3) | 0.75 (3/4) | +0.12 | 0.50 |" in text
     assert "firehose.arxiv (I 入口): 欠落 — akc 2026-11-03" in text
+    en = render(got, "en")
+    assert "| I intake | N_ot new papers on a question (incl. akc: missing) | 4 | 6 |" in en
+
+
+def _template(day: date) -> Report:
+    """A note of ans with no claim and no prose, its Jev meter reading."""
+    return Line("ans").day(day, [], writer=0, tokens=500)
+
+
+def with_a_broken_line() -> Inputs:
+    """The scenario, and ans with two notes in a row that cite nothing and post no claim
+    (11-03 and 11-05): o1 and claims_posted read unexplained-zero on ans alone."""
+    bare = inputs()
+    ans = _ids([_template(d(11, 3)), _template(d(11, 5))])
+    lines = {**bare.snapshot.lines, "ans": ans}
+    return replace(bare, snapshot=replace(bare.snapshot, lines=lines))
+
+
+def test_one_broken_line_hides_its_own_cell_and_is_named_beside_the_sums():
+    got = weekly_review(with_a_broken_line(), WEEK)
+    last = got.o1[-1]
+    assert (last.status, last.total) == ("unexplained-zero", 2)
+    assert dict(last.lines) == {
+        "akc": (2, "live"),
+        "edge": (0, "live"),
+        "ans": (0, "unexplained-zero"),
+    }
+    assert last.caveat == (("ans", "unexplained-zero"),)
+    assert got.gates[1].output == (("ans", "unexplained-zero"),)  # W44's window reaches 11-08
+    assert got.gates[0].output == ()
+    assert got.caveats == {
+        "claims_posted": (("ans", "unexplained-zero"),),
+        "writer_calls": (),
+        "jev_tokens": (),
+    }
+    text = render(got, "ja")
+    assert (
+        "| O1 本文で初めて引用された論文 | データ不足 | データ不足 | データ不足 | 1 (0.0-5.6) "
+        "| 4 (1.1-10.2) | 2 (0.2-7.2) ※ans は未説明の 0 |"
+    ) in text
+    assert "| └ akc | データ不足 | データ不足 | データ不足 | 1 | 4 | 2 |" in text
+    assert (
+        "| └ ans | データ不足 | データ不足 | データ不足 | データ不足 | データ不足 | 未説明の 0 |"
+        in text
+    )
+    everyone = text.split("**全ライン**")[1].split("**枠律速")[0]
+    assert (
+        "| W 執筆 | p_wri [n] で引用された ※ans は未説明の 0 | 0.50 (1/2) | 1.00 (3/3) |"
+        in everyone
+    )
+    assert "| OUT 出力 | O1_c 7 日以内に初めて引用 ※ans は未説明の 0 | 1 | 3 |" in everyone
+    assert "| I 入口 | N_ot 問いに合う新規の論文 | 4 | 6 | +0.41 | 0.65 |" in everyone
+    supply = text.split("**供給律速: akc, edge**")[1]
+    assert "※" not in supply.split("- 空き枠")[0]  # ans is in neither split group
+    assert "- 掲載枠のうち以前に掲載された論文: 2/4 (50%) ※ans は未説明の 0" in text
+    assert (
+        "- O1 1 本あたり: Jev 回答 10.5 · 書き手の呼び出し 1.5 · Jev token 入力 3,500.0"
+        " / 出力 175.0 ※ans の o1 は未説明の 0"
+    ) in text
+    assert "- 計器 o1: 未説明の 0 (ans 2026-11-05)" in text
+    en = render(got, "en")
+    assert "| 2 (0.2-7.2) (incl. ans: unexplained zero) |" in en
+    assert en.count("(incl. o1 of ans: unexplained zero)") == 1
+    assert "(incl. ans: unexplained zero)" in render(got, "en").split("## 6.")[1]
+    zh = render(got, "zh")
+    assert "| 2 (0.2-7.2) ※ans 为未解释的 0 |" in zh
+    weekly = weekly_row(got, generated_at=NOW)
+    assert weekly["gates"] == [
+        {"intake": {}, "output": {}},
+        {"intake": {}, "output": {"ans": "unexplained-zero"}},
+    ]
+    assert weekly["caveats"] == {
+        "claims_posted": {"ans": "unexplained-zero"},
+        "writer_calls": {},
+        "jev_tokens": {},
+    }
+
+
+def test_a_sum_names_each_line_in_doubt_with_its_worst_status():
+    caveat = merge(
+        (("edge", "unexplained-zero"),),
+        (("ans", "declared-degenerate"), ("edge", "contradiction")),
+        lines=("akc", "edge", "ans"),
+    )
+    assert caveat == (("edge", "contradiction"), ("ans", "declared-degenerate"))
+    assert merge((("ans", "missing"),), lines=("akc", "edge")) == ()
 
 
 # ------------------------------------------------------------------------------ the note
@@ -903,9 +991,14 @@ def test_o2_gets_a_rate_from_20_keys_on(review: WeeklyReview):
     assert "last 30 days): 0.20 (Wilson 0.09-0.39, 5/25)" in text
 
 
-def test_a_meter_that_is_not_live_prints_its_word_per_o1(review: WeeklyReview):
+def test_a_meter_in_doubt_on_one_line_is_named_beside_the_per_o1_numbers(review: WeeklyReview):
+    caveats = {**review.caveats, "writer_calls": (("edge", "contradiction"),)}
     broken = replace(review, status={**review.status, "writer_calls": "contradiction"})
-    assert "書き手の呼び出し 矛盾" in render(broken, "ja")
+    text = render(replace(broken, caveats=caveats), "ja")
+    assert (
+        "書き手の呼び出し 1.5 · Jev token 入力 3,000.0 / 出力 150.0 ※edge の writer_calls は矛盾"
+        in (text)
+    )
     unmetered = replace(review, delivery=replace(review.delivery, tokens_in=None))
     assert "Jev token 入力 未計測 / 出力 150.0" in render(unmetered, "ja")
 

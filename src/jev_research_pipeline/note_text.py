@@ -361,13 +361,20 @@ DECLARED_USED_VAULT: Final = Msg(
 )
 
 # --- Weekly review (pipeline.wbr): the note `<date>_jrp_wbr.md` ------------------------------
-# A number whose instrument is not live is shown as its STATUS_* word instead.
+# A line's number whose instrument is not live is shown as its STATUS_* word instead.
 
 WBR_TITLE: Final = Msg(
     "jrp 週次レビュー {week} ({start}〜{end})",
     "jrp weekly review {week} ({start} to {end})",
     "jrp 周报 {week} ({start}〜{end})",
 )
+# A number summed over lines stays a number; the lines whose instrument is in doubt follow it.
+WBR_CAVEAT: Final = Msg("※{items}", "(incl. {items})", "※{items}")
+WBR_CAVEAT_LINE: Final = Msg("{line} は{status}", "{line}: {status}", "{line} 为{status}")
+WBR_CAVEAT_LINE_OF: Final = Msg(
+    "{line} の {id} は{status}", "{id} of {line}: {status}", "{line} 的 {id} 为{status}"
+)
+WBR_CAVEAT_JOIN: Final = Msg("、", "; ", "，")
 WBR_CONCLUSION: Final = Msg("0. 結論", "0. Summary", "0. 结论")
 WBR_WORST: Final = Msg(
     "分解: 雑音を超えて最も下がった因子は {part} の {factor} (Δln {delta} ± {se})",

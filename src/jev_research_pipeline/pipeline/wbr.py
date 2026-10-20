@@ -26,14 +26,19 @@ are jrp's own) goes through printable, which replaces the keys and the mark, the
 (report.markdown.sanitize), then cuts.
 
 Every number is read as of the week's last day: nodes dated later are left out. Numbers
-are compared only where the instrument registry (pipeline.registry) calls them alive:
-- a number an instrument reads directly is printed only when its status over the week is
-  live or expected-zero, else the status word: O1 (o1, per line over that line's runs), the
-  slots of section 6 (claims_posted), writer calls and Jev tokens per O1 (writer_calls,
-  jev_tokens), new ticks (label.first_harvest), opened notes (opened);
-- a cohort's intake factors (N_new, N_ot, p_sel) print the word of a failing firehose
-  instrument, and its output factors (p_wri, O1_c) of a failing o1, over the cohort's week
-  and its 7 days after.
+are compared only where the instrument registry (pipeline.registry) calls them alive, and an
+instrument's status hides only the cell of the line it is about:
+- a number of one line, or of the whole tick, prints its status word in place of the number
+  unless that status is live or expected-zero (USABLE): a line's O1 (o1 over that line's
+  runs), new ticks (label.first_harvest), opened notes (opened);
+- a number summed over lines prints as a number, followed by the lines in doubt (Caveat:
+  each line whose own status is a failure or a declared 0, NOTED, with its status word):
+  O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1 resources of
+  section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake factors
+  (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output factors
+  (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after. One
+  broken line never hides the other lines' sum; only a sum that no line has readings for
+  (insufficient-n) prints the status word.
 Exceptions (section 2): the instruments whose status over the week is a failure
 (registry.FAILURES: contradiction, missing, unexplained-zero, stuck; a declared, expected or
 too-few reading is listed in section 9, not here), the open questions that did not move, and
@@ -152,10 +157,16 @@ Z95: Final = 1.959963984540054
 PAPER_PREFIXES: Final = ("arxiv:", "doi:", "gh:", "url:")
 """The paper key's precedence (O2 counts the first three only)."""
 USABLE: Final[frozenset[Status]] = frozenset({"live", "expected-zero"})
-"""A number the review prints as a number; any other status prints its word."""
+"""A line's number the review prints as a number; any other status prints its word."""
+NOTED: Final[tuple[Status, ...]] = (*FAILURES, "declared-degenerate")
+"""The statuses by which a sum over lines names a line (Caveat), most severe first. A line
+with too few readings (in v0: none, it did not run) adds nothing to the sum and is not named."""
 INTAKE: Final = ("firehose.arxiv", "firehose.hf")
-"""The instruments under N_ot: a failing fetch hides the intake factors of a cohort."""
+"""The instruments under N_ot: a failing fetch names its line beside a cohort's intake
+factors."""
 OUTPUT: Final = ("o1",)
+CAVEATED: Final = ("claims_posted", "writer_calls", "jev_tokens")
+"""The per-line instruments under a sum of the review week besides O1 (WeeklyReview.caveats)."""
 
 PRINTABLE_CHARS: Final = 160
 """The most characters of one outside string the note prints (printable)."""
@@ -179,6 +190,8 @@ _HALF: Final = re.compile(r"(?:\\+|&[#\w]*)$")
 """What a cut can leave half-written at the end: an escape's backslash, an entity before
 its `;`."""
 
+type Caveat = tuple[tuple[str, Status], ...]
+"""The lines in doubt of a sum over lines, each with its status (NOTED), in config order."""
 type FactorName = Literal["N_new", "N_ot", "p_sel", "p_ext", "p_wri", "O1_c"]
 type GroupKind = Literal["all", "slot", "supply"]
 type Stage = Literal["screening", "keep", "claim", "cite", "delivered"]
@@ -551,10 +564,27 @@ class _Registry:
             self._cache[key] = status(instrument, snapshot, start=start, end=end)
         return self._cache[key]
 
-    def failing(self, idents: Sequence[str], start: date, end: date) -> Status | None:
-        """The most severe failure among the instruments over [start, end], if any."""
-        found = {self.of(i, start, end) for i in idents}
-        return next((s for s in FAILURES if s in found), None)
+    def caveat(self, idents: Sequence[str], start: date, end: date, lines: Sequence[str]) -> Caveat:
+        """Each of `lines` whose own status over [start, end], under any of the instruments,
+        is NOTED, with the most severe such status."""
+        out: list[tuple[str, Status]] = []
+        for line in lines:
+            found = {self.of(i, start, end, line) for i in idents}
+            noted: list[Status] = [st for st in NOTED if st in found]
+            if noted:
+                out.append((line, noted[0]))
+        return tuple(out)
+
+
+def merge(*caveats: Caveat, lines: Sequence[str]) -> Caveat:
+    """Each of `lines` (in that order) that any caveat names, with the most severe status they
+    give it."""
+    worst: dict[str, Status] = {}
+    for caveat in caveats:
+        for line, st in caveat:
+            if line not in worst or NOTED.index(st) < NOTED.index(worst[line]):
+                worst[line] = st
+    return tuple((line, worst[line]) for line in lines if line in worst)
 
 
 # ------------------------------------------------------------------------------ results
@@ -569,6 +599,11 @@ class O1Week:
     """o1's status over the week (all lines)."""
     lines: Mapping[str, tuple[int, Status]]
     """Line slug → (its O1, o1's status over its own line-runs)."""
+
+    @property
+    def caveat(self) -> Caveat:
+        """The lines in doubt the total includes (NOTED)."""
+        return tuple((slug, st) for slug, (_, st) in self.lines.items() if st in NOTED)
 
 
 @dataclass(frozen=True)
@@ -622,15 +657,15 @@ _GATED: Final[Mapping[FactorName, Literal["intake", "output"]]] = {
 
 @dataclass(frozen=True)
 class Gate:
-    """Why a cohort's factors are not shown: the worst failing intake (firehose) and output
-    (o1) instrument over the cohort's window, None when they are usable."""
+    """The lines in doubt beside a cohort's factors: those whose intake (firehose) or output
+    (o1) instruments are NOTED over the cohort's window."""
 
-    intake: Status | None = None
-    output: Status | None = None
+    intake: Caveat = ()
+    output: Caveat = ()
 
-    def of(self, name: FactorName) -> Status | None:
+    def of(self, name: FactorName) -> Caveat:
         which = _GATED.get(name)
-        return None if which is None else (self.intake if which == "intake" else self.output)
+        return () if which is None else (self.intake if which == "intake" else self.output)
 
 
 @dataclass(frozen=True)
@@ -649,12 +684,12 @@ class Row:
     name: FactorName
     old: Measure
     new: Measure
-    hidden: Status | None
-    """The status word shown in place of the values (a failing instrument), or None."""
+    caveat: Caveat = ()
+    """The group's lines in doubt beside the values (the two cohorts' gates)."""
 
     @property
     def shift(self) -> tuple[float, float] | None:
-        return None if self.hidden is not None else shift(self.old, self.new)
+        return shift(self.old, self.new)
 
     @property
     def beyond_noise(self) -> bool:
@@ -765,6 +800,8 @@ class WeeklyReview:
     author: AuthorSignal
     status: Mapping[str, Status]
     """Instrument id → its status over the week (the instruments, by id)."""
+    caveats: Mapping[str, Caveat]
+    """CAVEATED instrument id → its lines in doubt over the week."""
     monitor: MonitorResult | None = None
     """The monitoring judge's answers (pipeline.monitor). weekly_review is pure and leaves it
     None, and the note then has no monitor lines; write_weekly_review always sets it."""
@@ -777,7 +814,7 @@ class WeeklyReview:
                 name=name,
                 old=group.old.measure(name),
                 new=group.new.measure(name),
-                hidden=old_gate.of(name) or new_gate.of(name),
+                caveat=merge(old_gate.of(name), new_gate.of(name), lines=group.lines),
             )
             for part, name in FACTORS
         )
@@ -1088,11 +1125,11 @@ def _groups(
     return tuple(out)
 
 
-def _gate(registry: _Registry, cohort: Week) -> Gate:
+def _gate(registry: _Registry, cohort: Week, slugs: Sequence[str]) -> Gate:
     end = cohort.end + timedelta(days=COHORT_DAYS)
     return Gate(
-        intake=registry.failing(INTAKE, cohort.start, end),
-        output=registry.failing(OUTPUT, cohort.start, end),
+        intake=registry.caveat(INTAKE, cohort.start, end, slugs),
+        output=registry.caveat(OUTPUT, cohort.start, end, slugs),
     )
 
 
@@ -1127,7 +1164,7 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         o1=tuple(_o1(first_week.shifted(i), firsts, slugs, registry) for i in range(WEEKS_SHOWN)),
         o2=_o2(snapshot, firsts, as_of),
         cohorts=(older, newer),
-        gates=(_gate(registry, older), _gate(registry, newer)),
+        gates=(_gate(registry, older, slugs), _gate(registry, newer, slugs)),
         groups=_groups(indexed, (older, newer), slots),
         slots=tuple(s for s in slots if s.capacity),
         questions=tuple(
@@ -1145,6 +1182,7 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         instruments=instruments,
         author=_author(indexed, snapshot, week),
         status={i.id: i.status for i in instruments},
+        caveats={i: registry.caveat((i,), week.start, week.end, slugs) for i in CAVEATED},
     )
 
 
@@ -1248,8 +1286,35 @@ DASH: Final = "—"
 
 
 def _shown(text: str, status: Status, lang: Lang) -> str:
-    """The number, or the status word when its instrument is not usable."""
+    """A line's (or the tick's) number, or the status word when its instrument is not usable."""
     return text if status in USABLE else STATUS_WORDS[status](lang)
+
+
+def _caveat_text(caveats: Sequence[tuple[str | None, Caveat]], lang: Lang) -> str:
+    """The lines in doubt, each named with its status; with the instrument's id when one is
+    given (a value of several instruments)."""
+    items = [
+        t.WBR_CAVEAT_LINE(lang, line=line, status=STATUS_WORDS[st](lang))
+        if ident is None
+        else t.WBR_CAVEAT_LINE_OF(lang, line=line, id=ident, status=STATUS_WORDS[st](lang))
+        for ident, caveat in caveats
+        for line, st in caveat
+    ]
+    return t.WBR_CAVEAT(lang, items=t.WBR_CAVEAT_JOIN(lang).join(items)) if items else ""
+
+
+def _noted(text: str, caveats: Sequence[tuple[str | None, Caveat]], lang: Lang) -> str:
+    """`text`, followed by the lines in doubt it includes, if any."""
+    note = _caveat_text(caveats, lang)
+    return f"{text} {note}" if note else text
+
+
+def _total(text: str, status: Status, caveat: Caveat, lang: Lang) -> str:
+    """A number summed over lines: the number with its lines in doubt named, or the status
+    word when no line has readings for it (insufficient-n over all lines)."""
+    if status == "insufficient-n":
+        return STATUS_WORDS[status](lang)
+    return _noted(text, [(None, caveat)], lang)
 
 
 def _signed(x: float) -> str:
@@ -1287,13 +1352,14 @@ def _counts(review: WeeklyReview, lang: Lang) -> str:
 def _conclusion(review: WeeklyReview, lang: Lang) -> list[str]:
     worst = review.worst()
     if worst is not None and (moved := worst.shift) is not None:
-        head = t.WBR_WORST(
+        fell = t.WBR_WORST(
             lang,
             part=PART_WORDS[worst.part](lang),
             factor=worst.name,
             delta=_signed(moved[0]),
             se=f"{moved[1]:.2f}",
         )
+        head = _noted(fell, [(None, worst.caveat)], lang)
     elif any(r.shift is not None for r in review.rows(review.groups[0]) if r.name in IDENTITY):
         head = t.WBR_NO_WORST(lang)
     else:
@@ -1328,7 +1394,7 @@ def _output(review: WeeklyReview, lang: Lang) -> list[str]:
         "|---|" + "---|" * len(weeks),
     ]
     totals = [
-        _shown(f"{w.total} ({w.interval[0]:.1f}-{w.interval[1]:.1f})", w.status, lang)
+        _total(f"{w.total} ({w.interval[0]:.1f}-{w.interval[1]:.1f})", w.status, w.caveat, lang)
         for w in weeks
     ]
     out.append(f"| {t.WBR_O1_ROW(lang)} | " + " | ".join(totals) + " |")
@@ -1416,10 +1482,7 @@ def _table(review: WeeklyReview, group: Group, lang: Lang) -> list[str]:
         "|---|---|---|---|---|---|",
     ]
     for row in review.rows(group):
-        if row.hidden is not None:
-            word = STATUS_WORDS[row.hidden](lang)
-            cells = [word, word, DASH, DASH]
-        elif (moved := row.shift) is None:
+        if (moved := row.shift) is None:
             cells = [_measure(row.old), _measure(row.new), DASH, DASH]
         else:
             delta = _signed(moved[0])
@@ -1430,7 +1493,8 @@ def _table(review: WeeklyReview, group: Group, lang: Lang) -> list[str]:
                 f"{moved[1]:.2f}",
             ]
         part = "" if row.name == "N_new" else PART_WORDS[row.part](lang)
-        out.append(f"| {part} | {FACTOR_WORDS[row.name](lang)} | " + " | ".join(cells) + " |")
+        factor = _noted(FACTOR_WORDS[row.name](lang), [(None, row.caveat)], lang)
+        out.append(f"| {part} | {factor} | " + " | ".join(cells) + " |")
     return out
 
 
@@ -1477,7 +1541,12 @@ def _questions(review: WeeklyReview, lang: Lang) -> list[str]:
 
 def _repetition(review: WeeklyReview, lang: Lang) -> list[str]:
     repeats = review.repeats
-    slots = _shown(_share(repeats.slots), review.status["claims_posted"], lang)
+    slots = _total(
+        _share(repeats.slots),
+        review.status["claims_posted"],
+        review.caveats["claims_posted"],
+        lang,
+    )
     shown = _share(repeats.review) if repeats.review else t.WBR_REVIEW_UNMEASURED(lang)
     return [
         f"## {t.WBR_REPEATS(lang)}",
@@ -1488,9 +1557,7 @@ def _repetition(review: WeeklyReview, lang: Lang) -> list[str]:
     ]
 
 
-def _per_o1(value: int | None, o1: int | None, status: Status, lang: Lang) -> str:
-    if status not in USABLE and status != "insufficient-n":
-        return STATUS_WORDS[status](lang)
+def _per_o1(value: int | None, o1: int | None, lang: Lang) -> str:
     if value is None:
         return t.WBR_NOT_MEASURED(lang)
     return f"{value / o1:,.1f}" if o1 else DASH
@@ -1499,7 +1566,7 @@ def _per_o1(value: int | None, o1: int | None, status: Status, lang: Lang) -> st
 def _resources(review: WeeklyReview, lang: Lang) -> list[str]:
     d = review.delivery
     last = review.o1[-1]
-    o1 = last.total if last.status in USABLE else None
+    o1 = None if last.status == "insufficient-n" else last.total
     out = [
         f"## {t.WBR_DELIVERY(lang)}",
         "",
@@ -1510,17 +1577,18 @@ def _resources(review: WeeklyReview, lang: Lang) -> list[str]:
         out += [f"  - {reason} ({n})" for reason, n in d.reasons[:REASONS_SHOWN]]
         if len(d.reasons) > REASONS_SHOWN:
             out.append(f"  - {t.WBR_MORE(lang, n=len(d.reasons) - REASONS_SHOWN)}")
-    tokens = review.status["jev_tokens"]
-    out.append(
-        "- "
-        + t.WBR_PER_O1(
-            lang,
-            answers=_per_o1(d.answers, o1, "live", lang),
-            writer=_per_o1(d.writer_calls, o1, review.status["writer_calls"], lang),
-            tokens_in=_per_o1(d.tokens_in, o1, tokens, lang),
-            tokens_out=_per_o1(d.tokens_out, o1, tokens, lang),
-        )
+    per_o1 = t.WBR_PER_O1(
+        lang,
+        answers=_per_o1(d.answers, o1, lang),
+        writer=_per_o1(d.writer_calls, o1, lang),
+        tokens_in=_per_o1(d.tokens_in, o1, lang),
+        tokens_out=_per_o1(d.tokens_out, o1, lang),
     )
+    caveats = [
+        ("o1", last.caveat),
+        *((i, review.caveats[i]) for i in ("writer_calls", "jev_tokens")),
+    ]
+    out.append(f"- {_noted(per_o1, caveats, lang)}")
     return out
 
 
@@ -1627,7 +1695,7 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
         ],
         "o2": {"k": review.o2.k, "n": review.o2.n},
         "cohorts": [c.label for c in review.cohorts],
-        "gates": [{"intake": g.intake, "output": g.output} for g in review.gates],
+        "gates": [{"intake": dict(g.intake), "output": dict(g.output)} for g in review.gates],
         "breakdown": {
             g.kind: {"lines": list(g.lines), "old": _funnel_row(g.old), "new": _funnel_row(g.new)}
             for g in review.groups
@@ -1663,6 +1731,7 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
             "jev_output_tokens": d.tokens_out,
         },
         "instruments": dict(review.status),
+        "caveats": {i: dict(caveat) for i, caveat in review.caveats.items()},
         "author": {
             "ticks": author.ticks,
             "opened": author.opened,
