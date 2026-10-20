@@ -37,8 +37,10 @@ from .freeze import FREEZE_TIMEOUT_S
 from .intake import (
     BASELINE,
     CUT,
+    YIELD_SENDS,
     Arm,
     Candidate,
+    Fetch,
     FrozenSet,
     LineSetup,
     Query,
@@ -56,6 +58,7 @@ from .intake import (
     frozen_set,
     line_setup,
     load_candidate,
+    new_on_day,
     query_line,
     query_yields,
     replay,
@@ -121,13 +124,18 @@ def _sources(frozen: FrozenSet, reaches: Sequence[Reach], a: Arm) -> dict[str, S
 
 
 def _keyword_new(frozen: FrozenSet, queries: set[Query], until: date) -> list[SourceItem]:
-    """The sources a yield reads: each keyword send's results new to the line that day."""
-    out: dict[str, SourceItem] = {}
+    """The sources a yield's verdicts are read for: the results new to the line on each of a
+    query's last YIELD_SENDS sends (the rotation reads no older send; exhaustion needs no
+    verdict), so a long history costs no Jev request."""
+    sent: dict[Query, list[Fetch]] = {}
     for f in frozen.fetches:
         if f.net == "keyword" and f.query in queries and f.day <= until:
-            for sid in f.outputs:
-                if frozen.first.get(frozen.keys[sid]) == f.day:
-                    out[sid] = frozen.sources[sid]
+            sent.setdefault(f.query, []).append(f)
+    out: dict[str, SourceItem] = {}
+    for fetches in sent.values():
+        for f in fetches[-YIELD_SENDS:]:
+            for sid in new_on_day(frozen, f).values():
+                out[sid] = frozen.sources[sid]
     return list(out.values())
 
 
@@ -201,7 +209,7 @@ def score_snapshot(
         ot_of[f.query] = ot
         out.queries.append(SnapshotQuery(f.query, len(f.outputs), len(new), len(ot)))
     for which, a in (("base", arms.base), ("cand", arms.cand)):
-        rates = sends(arms.setup, a.queries, turn=arms.turn, runs=1, today=day, env=env)
+        rates = sends(arms.setup, _sent(a), turn=arms.turn, runs=1, today=day, env=env)
         sent = [q for q, n in rates.items() if n]
         reached: set[str] = set()
         for q in sent:
@@ -227,7 +235,10 @@ async def evaluate_line(
     jitter_n: int = JITTER_SOURCES,
     do_freeze: bool = False,
 ) -> LineResult:
-    setup = line_setup(env, slug, now=now)
+    try:
+        setup = line_setup(env, slug, now=now)
+    except KeyError as e:
+        raise UnknownLine(slug) from e
     nodes = read_lifted(GraphStore(store_dir(env)).line(slug).path)
     base_arm, cand_arm = arm(BASELINE, setup), arm(candidate, setup)
     texts = {*base_arm.queries, *cand_arm.queries, *cand_arm.dropped}
@@ -288,12 +299,11 @@ async def evaluate_line(
     )
     yields = query_yields(frozen, verdicts, sorted(yield_queries), until=end)
     turn = turn_of(nodes, setup.ctx.line.id, now.date() + timedelta(days=1))
-    rot = rotation(
-        {y.query: y for y in yields},
-        sends(setup, base_arm.queries, turn=turn, runs=ROTATION_RUNS, today=now.date(), env=env),
-        sends(setup, cand_arm.queries, turn=turn, runs=ROTATION_RUNS, today=now.date(), env=env),
-        runs=ROTATION_RUNS,
+    base_sends, cand_sends = (
+        sends(setup, _sent(a), turn=turn, runs=ROTATION_RUNS, today=now.date(), env=env)
+        for a in (base_arm, cand_arm)
     )
+    rot = rotation({y.query: y for y in yields}, base_sends, cand_sends, runs=ROTATION_RUNS)
     result = LineResult(
         slug=slug,
         start=start,
@@ -317,6 +327,15 @@ async def evaluate_line(
         arms = Arms(setup, base_arm, cand_arm, turn)
         result.snapshot = score_snapshot(snap, frozen, arms, snap_verdicts, env)
     return result
+
+
+def _sent(a: Arm) -> tuple[Query, ...]:
+    """The queries an arm sends: none with the keyword net off."""
+    return () if "keyword" in a.off else a.queries
+
+
+class UnknownLine(LookupError):
+    """A line slug config.toml does not have."""
 
 
 class RateLimited(RuntimeError):
@@ -632,7 +651,7 @@ async def intake_command(env: Mapping[str, str], args: IntakeArgs) -> int:
                         do_freeze=args.freeze,
                     )
                 )
-            except KeyError:
+            except UnknownLine:
                 sys.stderr.write(f"jrp eval intake: {slug}: config.toml に無いライン\n")
                 return 2
             except (NoQuestions, BudgetExceeded, RateLimited) as e:

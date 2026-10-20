@@ -151,7 +151,7 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
 class FreezeTransport(CassetteTransport):
     """Replay what the cassette holds; send and record only what it does not. A frozen set
     is fetched once (evals.freeze): a second freeze of the same requests sends nothing.
-    `sent` counts the requests that went upstream."""
+    `sent` counts the requests that went upstream and came back."""
 
     def __init__(self, cassette: Cassette, *, upstream: httpx2.AsyncBaseTransport) -> None:
         super().__init__(cassette, record=True, upstream=upstream)
@@ -159,10 +159,13 @@ class FreezeTransport(CassetteTransport):
 
     @override
     def _entry(self, key: str) -> Entry | None:
-        found = self.cassette.get(key)
-        if found is None:
-            self.sent += 1
-        return found
+        return self.cassette.get(key)
+
+    @override
+    async def _recorded(self, request: httpx2.Request, key: str) -> Entry:
+        entry = await super()._recorded(request, key)
+        self.sent += 1
+        return entry
 
 
 def cassette_client(path: Path, *, timeout: float = DEFAULT_TIMEOUT) -> httpx2.AsyncClient:

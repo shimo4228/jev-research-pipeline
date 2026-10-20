@@ -144,8 +144,11 @@ class Candidate(Value):
     nets: dict[DiscoveryNet, bool] = Field(default_factory=dict[DiscoveryNet, bool])
     """A net set to false sends nothing."""
     body_floor: NonNegInt | None = None
-    """Characters an abstract needs to be screened; None = production's
-    (question_screening.MIN_ABSTRACT_CHARS). A repository keeps its own floor."""
+    """Characters an abstract needs to be prefiltered; None = production's
+    (question_screening.MIN_ABSTRACT_CHARS). A repository keeps its own floor. Only the
+    intake's floor moves: the full screen (question_screening.route) still calls a shorter
+    text incomplete, so a lower floor's extra N_ot reaches keep only if the screen's floor
+    moves with it."""
     queries: dict[str, QueryEdit] = Field(default_factory=dict[str, QueryEdit])
     """Per line slug: query lines to drop from questions/<slug>.md and to add to it."""
 
@@ -350,6 +353,15 @@ def _keyword_key(query: Query, day: date) -> str:
     )
 
 
+def new_on_day(frozen: "FrozenSet", fetch: Fetch) -> dict[str, str]:
+    """Paper key -> source @id of `fetch`'s results the line first fetched that day."""
+    return {
+        frozen.keys[sid]: sid
+        for sid in fetch.outputs
+        if frozen.first.get(frozen.keys[sid]) == fetch.day
+    }
+
+
 def frozen_set(slug: str, nodes: Mapping[str, GraphNodeType], texts: Iterable[Query]) -> FrozenSet:
     """The partition's fetches; `texts` are query lines beyond the stored QueryCandidates
     (the authored and the candidate's) whose keyword records should be named."""
@@ -467,21 +479,22 @@ def replay(
     for day in sorted(days):
         todays = [f for f in frozen.fetches if f.day == day]
         got: list[tuple[str, str]] = []
-        if "firehose" not in arm.off:
-            kept, used = _firehose(todays, frozen, setup, arm)
-            got += kept
-            if arm.backlog_days:
-                ids = {sid for sid, _ in kept}
-                fill = _backlog(
-                    day, arm.cap - used, frozen, setup, arm, reached=reached | ids, start=start
-                )
-                got += [(sid, BACKLOG) for sid in fill]
+        others: list[tuple[str, str]] = []
         for f in todays:
             if f.net == "firehose" or f.net in arm.off:
                 continue
             if f.net == "keyword" and f.query is not None and f.query in arm.dropped:
                 continue
-            got += [(sid, f.via) for sid in f.outputs]
+            others += [(sid, f.via) for sid in f.outputs]
+        if "firehose" not in arm.off:
+            kept, used = _firehose(todays, frozen, setup, arm)
+            got += kept
+            if arm.backlog_days:
+                # a slot goes to a source no other request of the day brings anyway
+                taken = reached | {sid for sid, _ in kept} | {sid for sid, _ in others}
+                fill = _backlog(day, arm.cap - used, frozen, setup, arm, reached=taken, start=start)
+                got += [(sid, BACKLOG) for sid in fill]
+        got += others
         for sid, via in dict.fromkeys(got):
             out.append(Reach(day, sid, via))
         reached |= {sid for sid, _ in got}
@@ -707,11 +720,7 @@ def query_yields(
         for f in frozen.fetches:
             if f.net != "keyword" or f.query != query or f.day > until:
                 continue
-            fresh = {
-                frozen.keys[sid]: sid
-                for sid in f.outputs
-                if frozen.first.get(frozen.keys[sid]) == f.day
-            }
+            fresh = new_on_day(frozen, f)
             new.append(len(fresh))
             ot.append(sum(1 for sid in fresh.values() if (v := verdicts.get(sid)) and v.passes))
         out.append(QueryYield(query, len(new), tuple(new), tuple(ot)))
