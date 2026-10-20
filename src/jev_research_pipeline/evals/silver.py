@@ -52,8 +52,9 @@ from .sampling import interleaved
 MODEL: Final = monitor.MODEL
 BUDGET_ENV: Final = "JRP_EVAL_WEEKLY_USD"
 DEFAULT_BUDGET_USD: Final = 10.0
-"""Of the author's monthly API credit (memory: claude-api-credit-for-judges): the monitoring
-judge takes up to $5 a week, this up to $10, together under $100 a month."""
+"""Of the author's monthly API credit ($100 on the Max plan; author decision 2026-10-20 to put
+the judges on the Claude API): the monitoring judge takes up to $5 a week, this up to $10,
+together under $100 a month."""
 LEDGER_FILE: Final = "silver.jsonl"
 CONCURRENCY: Final = 4
 CALL_TIMEOUT_S: Final = 180.0
