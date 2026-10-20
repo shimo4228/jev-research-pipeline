@@ -8,8 +8,9 @@ inventory "0 と定数の判定"). So every number the weekly review compares is
 here, with what it reads, what each reading should show (its expectation, a calendar where
 there is one) and, for a number known to be degenerate, a declaration with its reason and
 the day by which it is reviewed. `status` gives each cell (instrument, line, run_date)
-and the instrument over a window one Status word. The weekly review compares live numbers
-only and prints the word in place of any other number.
+and the instrument over a window one Status word. The weekly review prints a line's number
+above 0 as a number, marking the days whose cells fail or are a declared 0, and prints the
+word in place of a 0 that is neither live nor expected-zero (pipeline.wbr).
 
 tests/test_registry.py injects one fault per instrument and checks that its status stops
 being healthy, and checks that every id in REGISTRY has such a fault: an instrument added

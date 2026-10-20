@@ -67,6 +67,7 @@ from jev_research_pipeline.pipeline.wbr import (
     WEEKLY_FILE,
     AuthorSignal,
     Delivery,
+    Doubt,
     Funnel,
     Group,
     Inputs,
@@ -618,7 +619,7 @@ def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_f
     both cohorts' windows, so the intake factors keep their numbers and name akc."""
     got = weekly_review(inputs(firehose={"akc": 2, "edge": 0, "ans": 0}), WEEK)
     assert got.status["firehose.arxiv"] == "missing"
-    assert [g.intake for g in got.gates] == [(("akc", "missing"),)] * 2
+    assert [g.intake for g in got.gates] == [(Doubt("akc", "missing", some=False),)] * 2
     text = render(got, "ja")
     assert "- 計器 firehose.arxiv: 欠落 (akc 2026-11-03)" in text
     assert "| I 入口 | N_ot 問いに合う新規の論文 ※akc は欠落 | 4 | 6 | +0.41 | 0.65 |" in text
@@ -628,9 +629,16 @@ def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_f
     assert "| I intake | N_ot new papers on a question (incl. akc: missing) | 4 | 6 |" in en
 
 
-def _template(day: date) -> Report:
-    """A note of ans with no claim and no prose, its Jev meter reading."""
-    return Line("ans").day(day, [], writer=0, tokens=500)
+def _template(day: date, slug: str = "ans") -> Report:
+    """A note of the line with no claim and no prose, its Jev meter reading."""
+    return Line(slug).day(day, [], writer=0, tokens=500)
+
+
+def with_templates(base: Inputs, slug: str, *days: date) -> Inputs:
+    """`base`, and a template note of `slug` on each day."""
+    nodes = {**base.snapshot.lines[slug], **_ids([_template(day, slug) for day in days])}
+    lines = {**base.snapshot.lines, slug: nodes}
+    return replace(base, snapshot=replace(base.snapshot, lines=lines))
 
 
 def with_a_broken_line() -> Inputs:
@@ -651,11 +659,12 @@ def test_one_broken_line_hides_its_own_cell_and_is_named_beside_the_sums():
         "edge": (0, "live"),
         "ans": (0, "unexplained-zero"),
     }
-    assert last.caveat == (("ans", "unexplained-zero"),)
-    assert got.gates[1].output == (("ans", "unexplained-zero"),)  # W44's window reaches 11-08
+    ans = Doubt("ans", "unexplained-zero", some=False)  # its O1 is 0: its cell shows the word
+    assert last.caveat == (ans,)
+    assert got.gates[1].output == (ans,)  # W44's window reaches 11-08
     assert got.gates[0].output == ()
     assert got.caveats == {
-        "claims_posted": (("ans", "unexplained-zero"),),
+        "claims_posted": (ans,),
         "writer_calls": (),
         "jev_tokens": (),
     }
@@ -693,23 +702,130 @@ def test_one_broken_line_hides_its_own_cell_and_is_named_beside_the_sums():
     weekly = weekly_row(got, generated_at=NOW)
     assert weekly["gates"] == [
         {"intake": {}, "output": {}},
-        {"intake": {}, "output": {"ans": "unexplained-zero"}},
+        {"intake": {}, "output": {"ans": {"status": "unexplained-zero", "some_days": False}}},
     ]
     assert weekly["caveats"] == {
-        "claims_posted": {"ans": "unexplained-zero"},
+        "claims_posted": {"ans": {"status": "unexplained-zero", "some_days": False}},
         "writer_calls": {},
         "jev_tokens": {},
     }
 
 
+def test_a_template_day_in_a_week_of_citations_keeps_the_weeks_number_and_names_the_day():
+    """akc first-cites 4 papers in W44 (10-28, 10-30), then its notes of 10-31 and 11-01 cite
+    nothing: the second 0 in a row reads unexplained-zero on 11-01 alone. W44's cell keeps its
+    4 with the mark, the note under the table names the day, and the all-lines sum names akc
+    as in doubt on some days (the shape of jev, desire and edge in W40 of the production
+    store's 2026-W42 review, which printed 未説明の 0 in their cells)."""
+    got = weekly_review(with_templates(inputs(), "akc", d(10, 31), d(11, 1)), WEEK)
+    w44, w45 = got.o1[-2], got.o1[-1]
+    assert w44.lines["akc"] == (4, "unexplained-zero")
+    assert w44.noted["akc"] == ((d(11, 1), "unexplained-zero"),)
+    assert w44.caveat == (Doubt("akc", "unexplained-zero", some=True),)
+    assert (w45.noted["akc"], w45.caveat) == ((), ())  # 11-03 cites 2: W45 is clean
+    text = render(got, "ja")
+    assert "| └ akc | データ不足 | データ不足 | データ不足 | 1 | 4 ※ | 2 |" in text
+    assert "| 4 (1.1-10.2) ※akc は一部の日が未説明の 0 | 2 (0.2-7.2) |" in text
+    output = text.split("## 1. 出力")[1].split("## 2. 例外")[0]
+    assert "|\n\n- ※ W44 akc: 2026-11-01 は未説明の 0\n- O2 " in output  # under the table
+    assert output.count("- ※ ") == 1
+    everyone = text.split("**全ライン**")[1].split("**枠律速")[0]
+    assert "| W 執筆 | p_wri [n] で引用された ※akc は一部の日が未説明の 0 |" in everyone
+    en = render(got, "en")
+    assert "| └ akc | too few readings | too few readings | too few readings | 1 | 4 † | 2 |" in en
+    assert "- † W44 akc: unexplained zero on 2026-11-01" in en
+    assert "| 4 (1.1-10.2) (incl. akc: unexplained zero on some days) |" in en
+    zh = render(got, "zh")
+    assert "| 4 ※ |" in zh and "- ※ W44 akc: 2026-11-01 为未解释的 0" in zh
+    assert "| 4 (1.1-10.2) ※akc 部分日期为未解释的 0 |" in zh
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    assert weekly["o1"][-2]["lines"]["akc"] == {
+        "count": 4,
+        "status": "unexplained-zero",
+        "noted": {"2026-11-01": "unexplained-zero"},
+    }
+    assert weekly["gates"][0]["output"] == {
+        "akc": {"status": "unexplained-zero", "some_days": True}
+    }
+
+
+def test_a_sum_tells_a_line_in_doubt_on_some_days_from_a_line_shown_as_its_word():
+    """W45 with ans broken (its O1 is 0, so its cell is the word) and akc's notes of 11-04 and
+    11-05 citing nothing after its 2 papers of 11-03: every sum of the week, and the breakdown
+    over W44's window, names akc as in doubt on some days and ans by the word alone."""
+    got = weekly_review(with_templates(with_a_broken_line(), "akc", d(11, 4), d(11, 5)), WEEK)
+    last = got.o1[-1]
+    assert dict(last.lines) == {
+        "akc": (2, "unexplained-zero"),
+        "edge": (0, "live"),
+        "ans": (0, "unexplained-zero"),
+    }
+    akc = Doubt("akc", "unexplained-zero", some=True)
+    ans = Doubt("ans", "unexplained-zero", some=False)
+    assert last.caveat == (akc, ans)
+    assert (got.gates[0].output, got.gates[1].output) == ((), (akc, ans))
+    assert got.caveats["claims_posted"] == (akc, ans)  # akc posted 3 claims on 11-03
+    text = render(got, "ja")
+    assert "| └ akc | データ不足 | データ不足 | データ不足 | 1 | 4 | 2 ※ |" in text
+    assert (
+        "| └ ans | データ不足 | データ不足 | データ不足 | データ不足 | データ不足 | 未説明の 0 |"
+        in text
+    )
+    assert "- ※ W45 akc: 2026-11-05 は未説明の 0" in text
+    assert "W45 ans" not in text  # a 0 shown as its word is not marked
+    both = "※akc は一部の日が未説明の 0、ans は未説明の 0"
+    assert f"| 2 (0.2-7.2) {both} |" in text
+    everyone = text.split("**全ライン**")[1].split("**枠律速")[0]
+    assert f"| W 執筆 | p_wri [n] で引用された {both} | 0.50 (1/2) | 1.00 (3/3) |" in everyone
+    assert f"| OUT 出力 | O1_c 7 日以内に初めて引用 {both} | 1 | 3 |" in everyone
+    supply = text.split("**供給律速: akc, edge**")[1].split("- 空き枠")[0]
+    assert "| W 執筆 | p_wri [n] で引用された ※akc は一部の日が未説明の 0 |" in supply
+    assert f"- 掲載枠のうち以前に掲載された論文: 2/4 (50%) {both}" in text
+    assert " / 出力 200.0 ※akc の o1 は一部の日が未説明の 0、ans の o1 は未説明の 0\n" in text
+    assert "- 計器 o1: 未説明の 0 (akc 2026-11-05)" in text
+    en = render(got, "en")
+    assert "| 2 (0.2-7.2) (incl. akc: unexplained zero on some days; ans: unexplained zero) |" in en
+    assert "(incl. o1 of akc: unexplained zero on some days; o1 of ans: unexplained zero)" in en
+    zh = render(got, "zh")
+    assert "| 2 (0.2-7.2) ※akc 部分日期为未解释的 0，ans 为未解释的 0 |" in zh
+    assert "※akc 的 o1 部分日期为未解释的 0，ans 的 o1 为未解释的 0" in zh
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    assert weekly["caveats"]["claims_posted"] == {
+        "akc": {"status": "unexplained-zero", "some_days": True},
+        "ans": {"status": "unexplained-zero", "some_days": False},
+    }
+
+
+def test_a_tick_number_above_0_keeps_its_number_and_names_its_day_in_doubt():
+    """A note seen opened on 11-05, before its own date 11-09, makes opened a contradiction that
+    day; the week's 3 opened notes still print as 3, with the day named after it."""
+    bare = inputs()
+    opened = {**bare.snapshot.opened, "2026-11-09_jrp_akc.md": d(11, 5)}
+    got = weekly_review(replace(bare, snapshot=replace(bare.snapshot, opened=opened)), WEEK)
+    assert (got.status["opened"], got.author.opened) == ("contradiction", 3)
+    assert "今週初めて開かれた jrp ノート 3 ※2026-11-05 は矛盾 ·" in render(got, "ja")
+    en = render(got, "en")
+    assert "jrp notes first opened this week 3 (incl. contradiction on 2026-11-05) ·" in en
+
+
 def test_a_sum_names_each_line_in_doubt_with_its_worst_status():
     caveat = merge(
-        (("edge", "unexplained-zero"),),
-        (("ans", "declared-degenerate"), ("edge", "contradiction")),
+        (Doubt("edge", "unexplained-zero", some=False),),
+        (Doubt("ans", "declared-degenerate", some=True), Doubt("edge", "contradiction", some=True)),
         lines=("akc", "edge", "ans"),
     )
-    assert caveat == (("edge", "contradiction"), ("ans", "declared-degenerate"))
-    assert merge((("ans", "missing"),), lines=("akc", "edge")) == ()
+    assert caveat == (
+        Doubt("edge", "contradiction", some=True),
+        Doubt("ans", "declared-degenerate", some=True),
+    )
+    assert merge((Doubt("ans", "missing", some=False),), lines=("akc", "edge")) == ()
+    # a line wholly in doubt over one cohort's window is wholly in doubt at that status
+    both = merge(
+        (Doubt("akc", "missing", some=True),),
+        (Doubt("akc", "missing", some=False),),
+        lines=("akc",),
+    )
+    assert both == (Doubt("akc", "missing", some=False),)
 
 
 # ------------------------------------------------------------------------------ the note
@@ -992,13 +1108,18 @@ def test_o2_gets_a_rate_from_20_keys_on(review: WeeklyReview):
 
 
 def test_a_meter_in_doubt_on_one_line_is_named_beside_the_per_o1_numbers(review: WeeklyReview):
-    caveats = {**review.caveats, "writer_calls": (("edge", "contradiction"),)}
+    caveats = {**review.caveats, "writer_calls": (Doubt("edge", "contradiction", some=False),)}
     broken = replace(review, status={**review.status, "writer_calls": "contradiction"})
     text = render(replace(broken, caveats=caveats), "ja")
     assert (
-        "書き手の呼び出し 1.5 · Jev token 入力 3,000.0 / 出力 150.0 ※edge の writer_calls は矛盾"
+        "書き手の呼び出し 1.5 · Jev token 入力 3,000.0 / 出力 150.0 ※edge の writer_calls は矛盾\n"
         in (text)
     )
+    some = {**review.caveats, "writer_calls": (Doubt("edge", "contradiction", some=True),)}
+    text = render(replace(broken, caveats=some), "ja")
+    assert "出力 150.0 ※edge の writer_calls は一部の日が矛盾\n" in text
+    en = render(replace(broken, caveats=some), "en")
+    assert "(incl. writer_calls of edge: contradiction on some days)" in en
     unmetered = replace(review, delivery=replace(review.delivery, tokens_in=None))
     assert "Jev token 入力 未計測 / 出力 150.0" in render(unmetered, "ja")
 

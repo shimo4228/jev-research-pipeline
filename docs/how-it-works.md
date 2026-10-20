@@ -78,13 +78,19 @@ are full and lines short of supply. It lists the open questions that did not mov
 with the stage where they stopped, how much of each note repeats earlier ones, the week's runs
 and DEGRADED reasons, Jev answers, writer calls and Jev tokens per O1 paper, and your own
 signals: new ticks, notes first opened (the weekly review's own note is not counted), and
-whether the recommendation net's positives have changed. A line's number is shown only when
-the instrument registry calls it alive; otherwise its status word stands in its place
-(declared degenerate, missing, contradiction, and so on). A number summed over lines (O1 of all
-lines, the breakdown, the repeated slots, the resources per O1 paper) stays a number when one
-line's instrument is not alive, and names that line with its status after it
-(`12 (6.2-21.0) (incl. <line>: unexplained zero)`; `※<line> は未説明の 0` in a Japanese note):
-read it as including a line you cannot trust. Text the review quotes from outside jrp, such as
+whether the recommendation net's positives have changed. A line's number above 0 is always
+shown. When the instrument registry finds one of that week's days failing (an unexplained
+zero, a gap, a contradiction, a stuck value) or a declared zero, the number carries a mark
+(`19 †`; `19 ※` in a Japanese note) and a note under the table names the day and its status
+(`† W40 jev: unexplained zero on 2026-09-29`). A line's 0 is shown as 0 only when the registry
+calls it alive or expected; otherwise its status word stands in its place (declared
+degenerate, missing, contradiction, and so on). A number summed over lines (O1 of all lines,
+the breakdown, the repeated slots, the resources per O1 paper) stays a number when one line's
+instrument is not alive, and names that line with its status after it: a line whose own number
+is above 0 as in doubt on some days, a line shown as its status word by that word alone
+(`48 (35.4-63.6) (incl. ans: unexplained zero; jev: unexplained zero on some days)`;
+`※ans は未説明の 0、jev は一部の日が未説明の 0` in a Japanese note). Read it as including lines
+you cannot fully trust. Text the review quotes from outside jrp, such as
 an error message, is escaped so that Obsidian shows it and runs, embeds or fetches none of it.
 This first version stops at the breakdown: it does not pick the change for next week. Each
 review also appends its numbers as one line to `<store>/metrics/weekly.jsonl`.

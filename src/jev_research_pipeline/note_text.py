@@ -336,7 +336,7 @@ LOW_CERTAINTY: Final = Msg(
 )
 
 # --- Instrument registry (pipeline.registry): the weekly review's status words --------------
-# A number that is not live is shown as its status word instead of its value.
+# A 0 whose instrument is not live or expected-zero is shown as its status word.
 
 STATUS_LIVE: Final = Msg("live", "live", "live")
 STATUS_EXPECTED_ZERO: Final = Msg("暦どおりの 0", "expected zero", "按日历的 0")
@@ -361,18 +361,35 @@ DECLARED_USED_VAULT: Final = Msg(
 )
 
 # --- Weekly review (pipeline.wbr): the note `<date>_jrp_wbr.md` ------------------------------
-# A line's number whose instrument is not live is shown as its STATUS_* word instead.
+# A line's number above 0 is shown as a number; a 0 whose instrument is not live or
+# expected-zero is shown as its STATUS_* word instead.
 
 WBR_TITLE: Final = Msg(
     "jrp 週次レビュー {week} ({start}〜{end})",
     "jrp weekly review {week} ({start} to {end})",
     "jrp 周报 {week} ({start}〜{end})",
 )
+# A line's number that counts a day in doubt carries the mark; the note under the table names
+# each such day: `※ W40 jev: 2026-09-29 は未説明の 0`.
+WBR_MARK: Final = Msg("※", "†", "※")
+WBR_MARKED: Final = Msg(
+    "{mark} {week} {line}: {days}", "{mark} {week} {line}: {days}", "{mark} {week} {line}: {days}"
+)
+WBR_DAY_STATUS: Final = Msg("{day} は{status}", "{status} on {day}", "{day} 为{status}")
 # A number summed over lines stays a number; the lines whose instrument is in doubt follow it.
+# A line whose own value is above 0 is in doubt on some days only (the _SOME forms).
 WBR_CAVEAT: Final = Msg("※{items}", "(incl. {items})", "※{items}")
 WBR_CAVEAT_LINE: Final = Msg("{line} は{status}", "{line}: {status}", "{line} 为{status}")
+WBR_CAVEAT_LINE_SOME: Final = Msg(
+    "{line} は一部の日が{status}", "{line}: {status} on some days", "{line} 部分日期为{status}"
+)
 WBR_CAVEAT_LINE_OF: Final = Msg(
     "{line} の {id} は{status}", "{id} of {line}: {status}", "{line} 的 {id} 为{status}"
+)
+WBR_CAVEAT_LINE_OF_SOME: Final = Msg(
+    "{line} の {id} は一部の日が{status}",
+    "{id} of {line}: {status} on some days",
+    "{line} 的 {id} 部分日期为{status}",
 )
 WBR_CAVEAT_JOIN: Final = Msg("、", "; ", "，")
 WBR_CONCLUSION: Final = Msg("0. 結論", "0. Summary", "0. 结论")

@@ -27,17 +27,26 @@ are jrp's own) goes through printable, which replaces the keys and the mark, the
 
 Every number is read as of the week's last day: nodes dated later are left out. Numbers
 are compared only where the instrument registry (pipeline.registry) calls them alive, and an
-instrument's status hides only the cell of the line it is about:
-- a number of one line, or of the whole tick, prints its status word in place of the number
-  unless that status is live or expected-zero (USABLE): a line's O1 (o1 over that line's
-  runs), new ticks (label.first_harvest), opened notes (opened);
+instrument's status hides only a 0 of the line it is about:
+- a number of one line, or of the whole tick, prints as a number when it is above 0. When
+  the instrument's cells of that line over the window hold a NOTED day (a failure or a
+  declared 0), the number carries the mark WBR_MARK (※) and the note under the table names
+  each such day with the week, the line and its status (`※ W40 jev: 2026-09-29 は未説明の 0`);
+  a number of the tick names its days after it. A 0 prints its status word in its place
+  unless that status is live or expected-zero (USABLE). These are a line's O1 (o1 over that
+  line's runs), new ticks (label.first_harvest) and opened notes (opened). One template day
+  in a week of citations never hides the week's count;
 - a number summed over lines prints as a number, followed by the lines in doubt (Caveat:
-  each line whose own status is a failure or a declared 0, NOTED, with its status word):
-  O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1 resources of
-  section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake factors
-  (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output factors
-  (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after. One
-  broken line never hides the other lines' sum; only a sum that no line has readings for
+  each line whose own status over the window is NOTED, with its status word). A line whose
+  own value there is above 0 is named as in doubt on some days (Doubt.some, `jev は一部の日が
+  未説明の 0`): for O1 of all lines, its cell kept its number; for the other sums, the
+  instrument's readings of that line over the window add up above 0. A line whose own value
+  is 0 or unread is named with the status word alone (`ans は未説明の 0`), as its cell shows
+  it. The sums are O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1
+  resources of section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake
+  factors (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output
+  factors (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after.
+  One broken line never hides the other lines' sum; only a sum that no line has readings for
   (insufficient-n) prints the status word.
 Exceptions (section 2): the instruments whose status over the week is a failure
 (registry.FAILURES: contradiction, missing, unexplained-zero, stuck; a declared, expected or
@@ -157,10 +166,12 @@ Z95: Final = 1.959963984540054
 PAPER_PREFIXES: Final = ("arxiv:", "doi:", "gh:", "url:")
 """The paper key's precedence (O2 counts the first three only)."""
 USABLE: Final[frozenset[Status]] = frozenset({"live", "expected-zero"})
-"""A line's number the review prints as a number; any other status prints its word."""
+"""The statuses under which a line's 0 prints as 0; under any other a 0 prints the word (a
+number above 0 prints as a number under every status)."""
 NOTED: Final[tuple[Status, ...]] = (*FAILURES, "declared-degenerate")
-"""The statuses by which a sum over lines names a line (Caveat), most severe first. A line
-with too few readings (in v0: none, it did not run) adds nothing to the sum and is not named."""
+"""The statuses of a day that a number marks and names (Days), and by which a sum over lines
+names a line (Caveat), most severe first. A line with too few readings (in v0: none, it did
+not run) adds nothing to the sum and is not named."""
 INTAKE: Final = ("firehose.arxiv", "firehose.hf")
 """The instruments under N_ot: a failing fetch names its line beside a cohort's intake
 factors."""
@@ -190,8 +201,25 @@ _HALF: Final = re.compile(r"(?:\\+|&[#\w]*)$")
 """What a cut can leave half-written at the end: an escape's backslash, an entity before
 its `;`."""
 
-type Caveat = tuple[tuple[str, Status], ...]
-"""The lines in doubt of a sum over lines, each with its status (NOTED), in config order."""
+
+@dataclass(frozen=True)
+class Doubt:
+    """One line in doubt beside a sum over lines."""
+
+    line: str
+    status: Status
+    """Its most severe NOTED status over the sum's window."""
+    some: bool
+    """The line's own value over the window is above 0, so the sum counts it and only some
+    of its days are in doubt (WBR_CAVEAT_LINE_SOME). False: its value is 0 or unread, and
+    its own cell shows the status word (WBR_CAVEAT_LINE)."""
+
+
+type Caveat = tuple[Doubt, ...]
+"""The lines in doubt of a sum over lines, in config order."""
+type Days = tuple[tuple[date, Status], ...]
+"""An instrument's NOTED cells of one line (or of the tick) over a window: (run_date, status),
+in day order."""
 type FactorName = Literal["N_new", "N_ot", "p_sel", "p_ext", "p_wri", "O1_c"]
 type GroupKind = Literal["all", "slot", "supply"]
 type Stage = Literal["screening", "keep", "claim", "cite", "delivered"]
@@ -564,27 +592,50 @@ class _Registry:
             self._cache[key] = status(instrument, snapshot, start=start, end=end)
         return self._cache[key]
 
+    def noted(self, ident: str, start: date, end: date, line: str) -> Days:
+        """The line's NOTED cells of the instrument over [start, end]."""
+        return noted_days(self.full(ident, start, end, line))
+
     def caveat(self, idents: Sequence[str], start: date, end: date, lines: Sequence[str]) -> Caveat:
         """Each of `lines` whose own status over [start, end], under any of the instruments,
-        is NOTED, with the most severe such status."""
-        out: list[tuple[str, Status]] = []
+        is NOTED, with the most severe such status; `some` when every instrument at that
+        status read the line above 0 over the window (read_total)."""
+        out: list[Doubt] = []
         for line in lines:
-            found = {self.of(i, start, end, line) for i in idents}
-            noted: list[Status] = [st for st in NOTED if st in found]
-            if noted:
-                out.append((line, noted[0]))
+            found = [self.full(i, start, end, line) for i in idents]
+            noted = [f for f in found if f.status in NOTED]
+            if not noted:
+                continue
+            worst = min(noted, key=lambda f: NOTED.index(f.status)).status
+            some = all(read_total(f) > 0 for f in noted if f.status == worst)
+            out.append(Doubt(line, worst, some))
         return tuple(out)
+
+
+def noted_days(instrument: InstrumentStatus) -> Days:
+    """The instrument's NOTED cells, (run_date, status) in cell order: day order for one line
+    or for the tick."""
+    return tuple((c.observation.run_date, c.status) for c in instrument.cells if c.status in NOTED)
+
+
+def read_total(instrument: InstrumentStatus) -> int:
+    """What the instrument read over its window: the sum of its cells' values (a missing
+    reading adds nothing)."""
+    return sum(c.observation.value or 0 for c in instrument.cells)
 
 
 def merge(*caveats: Caveat, lines: Sequence[str]) -> Caveat:
     """Each of `lines` (in that order) that any caveat names, with the most severe status they
-    give it."""
-    worst: dict[str, Status] = {}
+    give it; `some` only when every doubt at that status says some."""
+    worst: dict[str, Doubt] = {}
     for caveat in caveats:
-        for line, st in caveat:
-            if line not in worst or NOTED.index(st) < NOTED.index(worst[line]):
-                worst[line] = st
-    return tuple((line, worst[line]) for line in lines if line in worst)
+        for doubt in caveat:
+            known = worst.get(doubt.line)
+            if known is None or NOTED.index(doubt.status) < NOTED.index(known.status):
+                worst[doubt.line] = doubt
+            elif doubt.status == known.status and not doubt.some:
+                worst[doubt.line] = doubt
+    return tuple(worst[line] for line in lines if line in worst)
 
 
 # ------------------------------------------------------------------------------ results
@@ -599,11 +650,17 @@ class O1Week:
     """o1's status over the week (all lines)."""
     lines: Mapping[str, tuple[int, Status]]
     """Line slug → (its O1, o1's status over its own line-runs)."""
+    noted: Mapping[str, Days]
+    """Line slug → o1's NOTED cells over the week on that line's runs (every line; () when
+    none): the days the line's cell marks when its O1 is above 0."""
 
     @property
     def caveat(self) -> Caveat:
-        """The lines in doubt the total includes (NOTED)."""
-        return tuple((slug, st) for slug, (_, st) in self.lines.items() if st in NOTED)
+        """The lines in doubt the total includes (NOTED); `some` when the line's own cell keeps
+        its number (its O1 is above 0)."""
+        return tuple(
+            Doubt(slug, st, some=n > 0) for slug, (n, st) in self.lines.items() if st in NOTED
+        )
 
 
 @dataclass(frozen=True)
@@ -876,6 +933,7 @@ def _o1(week: Week, firsts: _Firsts, slugs: Sequence[str], registry: _Registry) 
             )
             for slug in slugs
         },
+        noted={slug: registry.noted("o1", week.start, week.end, slug) for slug in slugs},
     )
 
 
@@ -1285,21 +1343,58 @@ STAGE_WORDS: Final[Mapping[Stage, Msg]] = {
 DASH: Final = "—"
 
 
-def _shown(text: str, status: Status, lang: Lang) -> str:
-    """A line's (or the tick's) number, or the status word when its instrument is not usable."""
-    return text if status in USABLE else STATUS_WORDS[status](lang)
+def _shown(value: int, status: Status, lang: Lang) -> str:
+    """A line's (or the tick's) number: the number when it is above 0 or its instrument is
+    usable, else (a 0 of an instrument in doubt) the status word."""
+    return str(value) if value > 0 or status in USABLE else STATUS_WORDS[status](lang)
+
+
+def _days_text(days: Days, lang: Lang) -> str:
+    """Each day in doubt with its status: `2026-09-29 は未説明の 0`."""
+    return t.WBR_CAVEAT_JOIN(lang).join(
+        t.WBR_DAY_STATUS(lang, day=day.isoformat(), status=STATUS_WORDS[st](lang))
+        for day, st in days
+    )
+
+
+def _o1_cell(week: O1Week, slug: str, lang: Lang) -> tuple[str, str | None]:
+    """A line's O1 cell of one week, and the note under the table when its number counts a
+    day in doubt (the cell then carries the mark)."""
+    n, status = week.lines[slug]
+    shown = _shown(n, status, lang)
+    days = week.noted.get(slug, ())
+    if n == 0 or not days:
+        return shown, None
+    mark = t.WBR_MARK(lang)
+    note = t.WBR_MARKED(
+        lang, mark=mark, week=week.week.short, line=slug, days=_days_text(days, lang)
+    )
+    return f"{shown} {mark}", note
+
+
+def _tick(value: int, ident: str, review: WeeklyReview, lang: Lang) -> str:
+    """A number of the whole tick (_shown), with the days in doubt it counts named after it."""
+    shown = _shown(value, review.status[ident], lang)
+    days = noted_days(next(i for i in review.instruments if i.id == ident))
+    if value == 0 or not days:
+        return shown
+    return f"{shown} {t.WBR_CAVEAT(lang, items=_days_text(days, lang))}"
+
+
+def _doubt_text(doubt: Doubt, ident: str | None, lang: Lang) -> str:
+    """One line in doubt with its status, `一部の日が` when the sum counts its value; with the
+    instrument's id when one is given (a value of several instruments)."""
+    status = STATUS_WORDS[doubt.status](lang)
+    if ident is None:
+        msg = t.WBR_CAVEAT_LINE_SOME if doubt.some else t.WBR_CAVEAT_LINE
+        return msg(lang, line=doubt.line, status=status)
+    msg = t.WBR_CAVEAT_LINE_OF_SOME if doubt.some else t.WBR_CAVEAT_LINE_OF
+    return msg(lang, line=doubt.line, id=ident, status=status)
 
 
 def _caveat_text(caveats: Sequence[tuple[str | None, Caveat]], lang: Lang) -> str:
-    """The lines in doubt, each named with its status; with the instrument's id when one is
-    given (a value of several instruments)."""
-    items = [
-        t.WBR_CAVEAT_LINE(lang, line=line, status=STATUS_WORDS[st](lang))
-        if ident is None
-        else t.WBR_CAVEAT_LINE_OF(lang, line=line, id=ident, status=STATUS_WORDS[st](lang))
-        for ident, caveat in caveats
-        for line, st in caveat
-    ]
+    """The lines in doubt, each named with its status (_doubt_text)."""
+    items = [_doubt_text(doubt, ident, lang) for ident, caveat in caveats for doubt in caveat]
     return t.WBR_CAVEAT(lang, items=t.WBR_CAVEAT_JOIN(lang).join(items)) if items else ""
 
 
@@ -1398,11 +1493,14 @@ def _output(review: WeeklyReview, lang: Lang) -> list[str]:
         for w in weeks
     ]
     out.append(f"| {t.WBR_O1_ROW(lang)} | " + " | ".join(totals) + " |")
+    notes: list[str] = []
     for slug in review.lines:
-        cells = [_shown(str(w.lines[slug][0]), w.lines[slug][1], lang) for w in weeks]
-        out.append(f"| └ {slug} | " + " | ".join(cells) + " |")
+        cells = [_o1_cell(w, slug, lang) for w in weeks]
+        notes += [note for _, note in cells if note is not None]
+        out.append(f"| └ {slug} | " + " | ".join(cell for cell, _ in cells) + " |")
     out += [
         "",
+        *(f"- {note}" for note in notes),
         f"- {t.WBR_O2(lang, value=_o2_text(review.o2, lang))}",
         *_monitor_lines(review.monitor, lang),
         f"- {t.WBR_O1_NOTE(lang)}",
@@ -1628,8 +1726,8 @@ def _instruments(review: WeeklyReview, lang: Lang) -> list[str]:
         "- "
         + t.WBR_AUTHOR(
             lang,
-            ticks=_shown(str(author.ticks), review.status["label.first_harvest"], lang),
-            opened=_shown(str(author.opened), review.status["opened"], lang),
+            ticks=_tick(author.ticks, "label.first_harvest", review, lang),
+            opened=_tick(author.opened, "opened", review, lang),
             positives=_positives(author, lang),
         )
     )
@@ -1675,6 +1773,14 @@ def _pair(pair: tuple[int, int] | None) -> JsonValue:
     return None if pair is None else [pair[0], pair[1]]
 
 
+def _days_row(days: Days) -> dict[str, JsonValue]:
+    return {day.isoformat(): st for day, st in days}
+
+
+def _caveat_row(caveat: Caveat) -> dict[str, JsonValue]:
+    return {d.line: {"status": d.status, "some_days": d.some} for d in caveat}
+
+
 def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonValue]:
     """The week's line of metrics/weekly.jsonl: every number of the note, raw. Rerunning a
     week appends another line; a reader takes the latest line of a week."""
@@ -1689,13 +1795,18 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
                 "low": round(w.interval[0], 3),
                 "high": round(w.interval[1], 3),
                 "status": w.status,
-                "lines": {slug: {"count": n, "status": st} for slug, (n, st) in w.lines.items()},
+                "lines": {
+                    slug: {"count": n, "status": st, "noted": _days_row(w.noted.get(slug, ()))}
+                    for slug, (n, st) in w.lines.items()
+                },
             }
             for w in review.o1
         ],
         "o2": {"k": review.o2.k, "n": review.o2.n},
         "cohorts": [c.label for c in review.cohorts],
-        "gates": [{"intake": dict(g.intake), "output": dict(g.output)} for g in review.gates],
+        "gates": [
+            {"intake": _caveat_row(g.intake), "output": _caveat_row(g.output)} for g in review.gates
+        ],
         "breakdown": {
             g.kind: {"lines": list(g.lines), "old": _funnel_row(g.old), "new": _funnel_row(g.new)}
             for g in review.groups
@@ -1731,7 +1842,7 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
             "jev_output_tokens": d.tokens_out,
         },
         "instruments": dict(review.status),
-        "caveats": {i: dict(caveat) for i, caveat in review.caveats.items()},
+        "caveats": {i: _caveat_row(caveat) for i, caveat in review.caveats.items()},
         "author": {
             "ticks": author.ticks,
             "opened": author.opened,

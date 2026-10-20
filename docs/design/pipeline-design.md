@@ -152,8 +152,10 @@ state (filter state in code), adversarial text (treat as data).
    > 2026-10-21). Every cell (instrument, line, run_date) and every instrument over a window
    > gets one word: live / expected-zero / declared-degenerate / insufficient-n /
    > unexplained-zero / stuck / missing / contradiction; the weekly review prints the word in
-   > place of any number that is not live. The calendar: the arXiv RSS feed of a day (it
-   > rolls over at midnight EST) is empty on Saturday, Sunday and the day after an arXiv
+   > place of a line's 0 that is neither live nor expected-zero, and marks a number above 0
+   > whose week holds a failing or declared day, naming the day. The calendar: the arXiv RSS
+   > feed of a day (it rolls over at midnight EST) is empty on Saturday, Sunday and the day
+   > after an arXiv
    > holiday (info.arxiv.org availability page, 2026 list), so a 05:00 JST run reads 0 on
    > Sunday and Monday and two days after a holiday; HF daily reads 0 when the UTC day before
    > the run is a weekend; a listing on such a day is a contradiction, a 0 on another day is
@@ -188,9 +190,11 @@ state (filter state in code), adversarial text (treat as data).
    > (a claim on a QuestionLog) × p_wri ([n]-cited) = O1_c, each within 7 days of the first
    > fetch, with Δln and a provisional delta-method SE, for all lines and split by the review
    > week's free slots (≤ 30% free = slot-bound; slots = claims_per_question(k) × k at the
-   > run's k open questions). A number the registry does not call live prints its status
-   > word. v0 stops at the breakdown: "where to fix" and "last week's change" are headings
-   > only, and no change is picked automatically. The track slug `wbr` is reserved
+   > run's k open questions). A line's 0 the registry does not call live or expected-zero
+   > prints its status word; a number above 0 prints as a number, marked (※) with its days in
+   > doubt named under the table. v0 stops at the breakdown: "where to fix" and "last
+   > week's change" are headings only, and no change is picked automatically. The track
+   > slug `wbr` is reserved
    > (`config.RESERVED_SLUGS`): its notes' glob would harvest the review.
 
 ### Failure policy, testing
