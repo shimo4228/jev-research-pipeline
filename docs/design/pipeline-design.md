@@ -1354,6 +1354,33 @@ LLM-as-judge with another LLM as the truth source.
   compress → single report call; `eval_groundedness` = extract claims → verify each.
   Not borrowed: supervisor/researcher loops.
 
+> **注記（2026-10-20, pydantic-ai advisories）**: pydantic-ai stays at 2.47.0. pip-audit
+> (2026-10-20) lists four advisories against it, and jrp reaches none of their paths.
+> GHSA-6fqq-452j-qhrp (PYSEC-2026-4285, fixed 2.53.0) is a streamed request through
+> `ConcurrencyLimitedModel` / `limit_model_concurrency` keeping its slot: jrp builds neither,
+> every call is a non-streaming `agent.run` (jev/core.py:608, generation/prose.py:353,
+> pipeline/monitor.py:437, evals/silver.py:359), and its in-flight limits are its own
+> semaphores (pipeline/run.py:580-581). GHSA-v36g-jcw9-x7cw (PYSEC-2026-4290, fixed 2.52.0) is
+> the local `web_fetch` tool's HTML conversion: no Agent gets a tool, and the one capability is
+> `RaiseContentFilterError` (generation/prose.py:205). GHSA-xv4x-g8mx-ch56 (MCP credentials in
+> traces) and GHSA-5pfm-2g3g-gh85 (the Vercel AI / AG-UI adapters), both fixed 2.58.0 and
+> published 2026-10-20: jrp has no MCP toolset and no UI adapter.
+> The bump changes what jrp sends, so it is a change of its own, not a patch: on 2.53.0 and on
+> 2.58.0, 58 tests fail on cassette misses and on wire behaviour the tests pin. By first release:
+> - 2.48.0: `gpt-6-luna` enters the OpenAI profile, so the `openai-codex:` writer sends
+>   `reasoning.effort` (`none` / `medium`), which 2.47 leaves out (tests/test_codex.py:179).
+> - 2.50.0: inside every Jev question (`/v1/systemone`) the agent's instructions are labelled
+>   `background` instead of `instructions` (`pydantic_ai.models.decision._INSTRUCTIONS_KEY`):
+>   new wording for every S and X judgment. `Ask.sha256` (jev/core.py:91) hashes the schema,
+>   not this rendering, so answers under both labels would share one bundle id. With the bump,
+>   decide how the bundle identity follows (and so what the store re-asks), and compare the
+>   two wordings on frozen data first ("Gate eval: S and X on frozen data").
+> - 2.54.0: pydantic-ai meters a refused Claude API response itself, and `refused()`
+>   (generation/prose.py:234) adds its tokens again: the meter reads 0 requests and 24,000 /
+>   600 tokens where 2.47 gives 1 and 12,000 / 300 (tests/test_anthropic.py:220).
+> Raise the pin as that change, or sooner when an advisory lands on a path jrp uses. 2.58.0 is
+> the first release clear of all four.
+
 ## Build sequence (for implementation-chain, feat chain)
 
 1. Repo bootstrap: uv project, `verify-bootstrap` → `.claude/verify.sh` (ruff, pyright
