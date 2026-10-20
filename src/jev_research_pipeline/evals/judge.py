@@ -22,7 +22,7 @@ change on the service's side since the stored answer, which the rows cannot sepa
 import asyncio
 import json
 import random
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
@@ -63,6 +63,15 @@ JITTER_SOURCES: Final = 40
 API_KEY_ENV: Final = "TYPESAFE_API_KEY"
 
 
+JEV_LIMIT_STOP: Final = 3
+RATE_LIMITED: Final = "status_code: 429"
+"""How a 429 reads in a JevFailure's detail (pydantic-ai's ModelHTTPError)."""
+
+
+class JevRateLimited(RuntimeError):
+    """Jev answered 429 JEV_LIMIT_STOP times: the asking stopped (report, do not retry)."""
+
+
 class BudgetExceeded(RuntimeError):
     def __init__(self, estimate: float, cap: float, requests: int) -> None:
         super().__init__(
@@ -94,6 +103,27 @@ class Spend:
     requests: int = 0
     input_tokens: int = 0
     failed: int = 0
+    limited: int = 0
+    """Requests Jev answered 429: at JEV_LIMIT_STOP no further one is sent."""
+
+    @property
+    def stopped(self) -> bool:
+        return self.limited >= JEV_LIMIT_STOP
+
+    async def send(
+        self, gate: asyncio.Semaphore, call: Callable[[], Awaitable[Judged[BaseModel] | JevFailure]]
+    ) -> Judged[BaseModel] | JevFailure | None:
+        """One request under `gate`, unless 429s already stopped the asking (None: not sent).
+        A 429 burst is a policy signal, not a transient error (rule debugging.md): the
+        client's own retry sends a request once more, the burst stops here."""
+        async with gate:
+            if self.stopped:
+                return None
+            self.requests += 1
+            result = await call()
+        if isinstance(result, JevFailure) and RATE_LIMITED in result.detail:
+            self.limited += 1
+        return result
 
     @property
     def usd(self) -> float:
@@ -166,21 +196,21 @@ class Judge:
         gate = asyncio.Semaphore(jev_concurrency({}))
         ask = self.ask
 
-        async def one(s: SourceItem) -> Judged[BaseModel] | JevFailure:
-            async with gate:
-                return await jev.judge(ask, (s.id,), self.state(s), now=now)
+        def ask_one(s: SourceItem) -> Callable[[], Awaitable[Judged[BaseModel] | JevFailure]]:
+            return lambda: jev.judge(ask, (s.id,), self.state(s), now=now)
 
-        results = await asyncio.gather(*(one(s) for s in missing))
-        self.spend.requests += len(missing)
+        results = await asyncio.gather(*(self.spend.send(gate, ask_one(s)) for s in missing))
         self.spend.input_tokens += jev.input_tokens
-        for s, result in zip(missing, results, strict=True):
-            if isinstance(result, JevFailure):
-                self.spend.failed += 1
-                continue
-            out[s.id] = verdict_of(_probabilities(result, n), fresh=True)
         self.asked += jev.fresh
         if jev.fresh:
             self.bench.put(jev.fresh)
+        if self.spend.stopped:
+            raise JevRateLimited(f"Jev が {self.spend.limited} 回 429 を返したので聞くのを止めた")
+        for s, result in zip(missing, results, strict=True):
+            if result is None or isinstance(result, JevFailure):
+                self.spend.failed += 1
+                continue
+            out[s.id] = verdict_of(_probabilities(result, n), fresh=True)
         return out
 
 
@@ -234,16 +264,16 @@ async def measure_jitter(
     ask = judge.ask
     q = len(judge.setup.questions)
 
-    async def one(s: SourceItem) -> Judged[BaseModel] | JevFailure:
-        async with gate:
-            return await client.judge(ask, (s.id,), judge.state(s), now=now)
+    def ask_one(s: SourceItem) -> Callable[[], Awaitable[Judged[BaseModel] | JevFailure]]:
+        return lambda: client.judge(ask, (s.id,), judge.state(s), now=now)
 
-    again = await asyncio.gather(*(one(s) for s, _ in sample))
-    judge.spend.requests += len(sample)
+    again = await asyncio.gather(*(judge.spend.send(gate, ask_one(s)) for s, _ in sample))
     judge.spend.input_tokens += client.input_tokens
+    if judge.spend.stopped:
+        raise JevRateLimited(f"Jev が {judge.spend.limited} 回 429 を返したので聞くのを止めた")
     rows: list[JitterRow] = []
     for (s, before), after in zip(sample, again, strict=True):
-        if isinstance(after, JevFailure):
+        if after is None or isinstance(after, JevFailure):
             judge.spend.failed += 1
             continue
         for i, (p0, p1) in enumerate(

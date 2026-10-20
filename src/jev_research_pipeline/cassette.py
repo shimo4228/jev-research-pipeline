@@ -12,8 +12,10 @@ Invariants:
   requests the cassette does not hold yet, so each is sent once).
 - Key = "<METHOD> <URL with sorted query minus secret params> body:<16 hex of the
   JSON-canonical body's sha256>" — readable in diffs, collision-safe within one file.
-  Headers are never part of the key and never stored, so API keys in Authorization /
-  x-api-key headers cannot reach a cassette file.
+  Request headers are never part of the key and never stored, so API keys in
+  Authorization / x-api-key headers cannot reach a cassette file. Of a response's headers
+  only KEPT_HEADERS are kept: what adapters read to tell a rate limit and its cost
+  (adapters.base: GitHub's 403 rate limit is told apart from a refusal by them alone).
 - The file is sorted by key: re-recording the same traffic rewrites identical bytes.
 """
 
@@ -26,12 +28,15 @@ from urllib.parse import parse_qsl, urlencode
 import httpx2
 from pydantic import TypeAdapter
 
+from .adapters.base import CREDITS_HEADER
 from .model import sha256_hex
 
 RECORD_ENV: Final = "JRP_CASSETTE_RECORD"
 # Query parameters that carry credentials in some APIs. Dropped from key and file.
 SECRET_PARAMS: Final = frozenset({"api_key", "apikey", "key", "token", "access_token"})
 DEFAULT_TIMEOUT: Final = 30.0
+KEPT_HEADERS: Final = ("retry-after", "x-ratelimit-remaining", "x-ratelimit-reset", CREDITS_HEADER)
+"""Response headers a cassette keeps and replays. None of them carries a credential."""
 
 
 class CassetteMiss(LookupError):
@@ -42,6 +47,8 @@ class Entry(TypedDict):
     status: int
     content_type: str
     body: str
+    headers: NotRequired[dict[str, str]]
+    """The response's KEPT_HEADERS that it had."""
     request_body: NotRequired[str]
     """The request body as sent (headers are never stored). Lets the drift job replay the
     recorded Jev inputs against the live model."""
@@ -112,7 +119,8 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
         self._upstream = upstream
 
     async def _recorded(self, request: httpx2.Request, key: str) -> Entry:
-        """Send `request` upstream and keep its response under `key` (no header is kept)."""
+        """Send `request` upstream and keep its response under `key` (of its headers, only
+        KEPT_HEADERS)."""
         if self._upstream is None:
             raise CassetteMiss(f"no upstream to send {key} to ({self.cassette.path})")
         live = await self._upstream.handle_async_request(request)
@@ -122,12 +130,20 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
             content_type=live.headers.get("content-type", ""),
             body=live.text,
         )
+        kept = {h: live.headers[h] for h in KEPT_HEADERS if h in live.headers}
+        if kept:
+            entry["headers"] = kept
         if request.content:
             entry["request_body"] = request.content.decode("utf-8", errors="replace")
         await live.aclose()
-        self.cassette.put(key, entry)
-        self.cassette.save()
+        if self._keeps(entry):
+            self.cassette.put(key, entry)
+            self.cassette.save()
         return entry
+
+    def _keeps(self, entry: Entry) -> bool:
+        """Whether a response that came back is written to the cassette (all of them)."""
+        return True
 
     def _entry(self, key: str) -> Entry | None:
         """The response this transport answers `key` with without sending: None = send it."""
@@ -143,6 +159,7 @@ class CassetteTransport(httpx2.AsyncBaseTransport):
         found = self._entry(key)
         entry = found if found is not None else await self._recorded(request, key)
         headers = {"content-type": entry["content_type"]} if entry["content_type"] else {}
+        headers |= entry.get("headers", {})
         return httpx2.Response(
             entry["status"], headers=headers, text=entry["body"], request=request
         )
@@ -166,6 +183,11 @@ class FreezeTransport(CassetteTransport):
         entry = await super()._recorded(request, key)
         self.sent += 1
         return entry
+
+    @override
+    def _keeps(self, entry: Entry) -> bool:
+        """A failed response is not frozen as data: a later freeze may send it again."""
+        return entry["status"] < 400
 
 
 def cassette_client(path: Path, *, timeout: float = DEFAULT_TIMEOUT) -> httpx2.AsyncClient:

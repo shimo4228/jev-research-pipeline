@@ -128,7 +128,8 @@ class FetchOutcome(Value):
     """Results dropped individually for failing validation (empty text, non-http URL)."""
     credits: int = 0
     """OpenAlex credits this fetch spent: the response's CREDITS_HEADER, or the adapter's
-    declared credit_cost when the header is absent (a replayed cassette keeps no headers).
+    declared credit_cost when the header is absent (a cassette recorded before it kept
+    cassette.KEPT_HEADERS has none).
     0 for a cached fetch, a failure and every non-OpenAlex source."""
 
     @model_validator(mode="after")

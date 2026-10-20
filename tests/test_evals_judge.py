@@ -4,6 +4,7 @@ bench, the noise floor re-asks identical states; a frozen request is sent once a
 without its headers. Jev answers come from synthetic cassettes; the freeze's upstream is a
 fake transport."""
 
+import asyncio
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -16,6 +17,7 @@ from jev_research_pipeline.cassette import Cassette, FreezeTransport
 from jev_research_pipeline.evals import freeze
 from jev_research_pipeline.evals.intake import LineSetup
 from jev_research_pipeline.evals.judge import (
+    JEV_LIMIT_STOP,
     BudgetExceeded,
     Judge,
     Spend,
@@ -23,9 +25,16 @@ from jev_research_pipeline.evals.judge import (
     measure_jitter,
     read_jitter,
 )
-from jev_research_pipeline.jev import LineContext, question_prefilter
+from jev_research_pipeline.jev import JevFailure, LineContext, question_prefilter
 from jev_research_pipeline.jev.core import JEV_MODEL
-from jev_research_pipeline.model import GraphNodeType, Judgment, NoulAnswer, SourceItem, StageRecord
+from jev_research_pipeline.model import (
+    AdapterKind,
+    GraphNodeType,
+    Judgment,
+    NoulAnswer,
+    SourceItem,
+    StageRecord,
+)
 from jev_research_pipeline.pipeline import nets
 from jev_research_pipeline.store import Partition, input_sha256
 
@@ -183,6 +192,7 @@ async def test_a_freeze_fetches_through_collect_once_and_stops_on_rate_limits(tm
     planned = [replace_pacing(r) for r in planned]
     part = Partition(tmp_path / "snap" / "akc.jsonld")
     cassette = tmp_path / "snap" / "cassette.json"
+    quota = freeze.Quota(credit_cap=400)
     done = await freeze.freeze(
         planned,
         part,
@@ -190,10 +200,12 @@ async def test_a_freeze_fetches_through_collect_once_and_stops_on_rate_limits(tm
         cassette=cassette,
         now=b.T0,
         env={},
+        quota=quota,
         upstream=httpx2.MockTransport(upstream),
     )
     assert done.results == 1
-    assert done.stopped  # arXiv's listing and HF search both answered 429
+    assert quota.stopped  # arXiv's listing and HF search both answered 429
+    assert len(json.loads(cassette.read_text(encoding="utf-8"))) == 1  # a 429 is not frozen
     assert any(isinstance(n, StageRecord) for n in part.load().values())
     sent = len(calls)
     again = await freeze.freeze(
@@ -203,6 +215,7 @@ async def test_a_freeze_fetches_through_collect_once_and_stops_on_rate_limits(tm
         cassette=cassette,
         now=b.T0,
         env={},
+        quota=freeze.Quota(credit_cap=400),
         upstream=httpx2.MockTransport(upstream),
     )
     assert (again.sent, len(calls)) == (0, sent)  # collect's StageRecord answers it
@@ -211,3 +224,73 @@ async def test_a_freeze_fetches_through_collect_once_and_stops_on_rate_limits(tm
 
 def replace_pacing(request: freeze.Request) -> freeze.Request:
     return replace(request, adapter=replace(request.adapter, min_interval_s=0.0))
+
+
+def keyword(kind: AdapterKind, text: str) -> freeze.Request:
+    planned, _ = freeze.requests(
+        nets.NetConfig(budgets={"firehose": 0}), [(kind, text)], now=b.T0, env={}
+    )
+    return replace_pacing(planned[0])
+
+
+async def test_githubs_403_rate_limit_is_told_by_its_headers_and_stops_the_source(tmp_path: Path):
+    """The cassette keeps the rate-limit headers: without them a 403 reads as forbidden."""
+    calls: list[str] = []
+
+    async def upstream(request: httpx2.Request) -> httpx2.Response:
+        calls.append(str(request.url))
+        headers = {"x-ratelimit-remaining": "0", "retry-after": "60"}
+        return httpx2.Response(403, json={"message": "API rate limit exceeded"}, headers=headers)
+
+    quota = freeze.Quota(credit_cap=400)
+    planned = [keyword("github", "agent memory"), keyword("github", "agent skills")]
+    for slug in ("akc", "jev"):  # the second line asks nothing of a source the first stopped
+        await freeze.freeze(
+            planned,
+            Partition(tmp_path / f"{slug}.jsonld"),
+            b.line(),
+            cassette=tmp_path / "cassette.json",
+            now=b.T0,
+            env={},
+            quota=quota,
+            upstream=httpx2.MockTransport(upstream),
+        )
+    assert quota.limited == ["keyword/github"]
+    assert len(calls) == 1
+
+
+async def test_openalex_requests_stop_at_the_credit_cap(tmp_path: Path):
+    async def upstream(request: httpx2.Request) -> httpx2.Response:
+        raise AssertionError(f"sent {request.url}")
+
+    quota = freeze.Quota(credit_cap=0)
+    done = await freeze.freeze(
+        [keyword("arxiv", "agent memory")],
+        Partition(tmp_path / "akc.jsonld"),
+        b.line(),
+        cassette=tmp_path / "cassette.json",
+        now=b.T0,
+        env={},
+        quota=quota,
+        upstream=httpx2.MockTransport(upstream),
+    )
+    assert "上限 0" in done.lines[0]
+
+
+async def test_jev_429s_stop_the_asking():
+    spend = Spend(cap=1.0)
+    gate = asyncio.Semaphore(1)
+    limited = JevFailure(
+        function="question_prefilter",
+        subjects=("x",),
+        bundle_sha256="0" * 64,
+        reason="api_error",
+        detail="status_code: 429, model_name: jev-1.13.0, body: {}",
+    )
+
+    async def call() -> JevFailure:
+        return limited
+
+    results = [await spend.send(gate, call) for _ in range(5)]
+    assert spend.requests == JEV_LIMIT_STOP
+    assert results[JEV_LIMIT_STOP:] == [None, None]

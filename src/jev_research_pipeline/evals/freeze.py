@@ -15,9 +15,13 @@ Recommendation, citation and exploration are not frozen here: their requests are
 the store's accepted papers, and their history in the store (evals.intake) already holds what
 they returned under the seeds of each day.
 
-A rate limit stops that adapter for the rest of the freeze, and a second adapter's stops the
-freeze: a burst of 429s on a shared pool is a policy signal, not a transient error (rule
-debugging.md). The lines say so, and the caller exits non-zero.
+What the freezes of one invocation share is one Quota, as a run's lines share nets.DayBudget:
+a rate limit stops that source for every later line, a second source's stops the freeze (a
+burst of 429s on a shared pool is a policy signal, not a transient error: rule debugging.md),
+and the OpenAlex requests stop at the day's credit cap (nets.NetConfig.credit_cap), one
+pool-wide quiet with any OpenAlex rate limit. The lines say so, and the caller exits
+non-zero. The cap is the run's own: the next 05:00 run may draw from the same UTC day of the
+keyless pool, and two caps of 400 stay under its 1,000.
 """
 
 from collections.abc import Mapping, Sequence
@@ -57,20 +61,40 @@ class Request:
 
 
 @dataclass
+class Quota:
+    """What every freeze of one invocation shares (module docstring)."""
+
+    credit_cap: int
+    credits: int = 0
+    """OpenAlex credits the freezes spent."""
+    limited: list[str] = field(default_factory=list[str])
+    """`<net>/<adapter>` sources a rate limit stopped."""
+    openalex_quiet: bool = False
+
+    @property
+    def stopped(self) -> bool:
+        return len(self.limited) >= MAX_LIMITED
+
+    def held_back(self, request: "Request") -> str | None:
+        """Why `request` does not go out, or None."""
+        if f"{request.net}/{request.adapter.kind}" in self.limited:
+            return "rate limit で停止中"
+        if request.adapter.credit_cost and self.openalex_quiet:
+            return "OpenAlex が rate limit で停止中"
+        if request.adapter.credit_cost and self.credits >= self.credit_cap:
+            return f"OpenAlex credit の上限 {self.credit_cap} に達した"
+        return None
+
+
+@dataclass
 class Frozen:
-    """What one freeze did, for the printed lines."""
+    """What one line's freeze did, for the printed lines."""
 
     sent: int = 0
     """Requests that went upstream (the rest were already in the cassette or the snapshot)."""
     results: int = 0
     credits: int = 0
     lines: list[str] = field(default_factory=list[str])
-    limited: list[str] = field(default_factory=list[str])
-    """`<net>/<adapter>` sources a rate limit stopped."""
-
-    @property
-    def stopped(self) -> bool:
-        return len(self.limited) >= MAX_LIMITED
 
 
 def requests(
@@ -110,6 +134,7 @@ async def freeze(
     cassette: Path,
     now: AwareDatetime,
     env: Mapping[str, str],
+    quota: Quota,
     upstream: httpx2.AsyncBaseTransport | None = None,
 ) -> Frozen:
     """Send what is not frozen yet, in order; `upstream` is the network (tests pass a fake)."""
@@ -119,31 +144,33 @@ async def freeze(
     done = Frozen()
     async with httpx2.AsyncClient(transport=transport, timeout=FREEZE_TIMEOUT_S) as client:
         for request in planned:
-            source = f"{request.net}/{request.adapter.kind}"
-            if source in done.limited:
-                done.lines.append(f"  {source}: {request.query} → 送らない (rate limit で停止中)")
-                continue
-            if done.stopped:
+            if quota.stopped:
                 break
+            source = f"{request.net}/{request.adapter.kind}"
+            if (why := quota.held_back(request)) is not None:
+                done.lines.append(f"  {source}: {request.query} → 送らない ({why})")
+                continue
             out = await collect(
                 request.adapter, client, partition, line, request.query, now=now, env=env
             )
+            quota.credits += out.credits
+            done.credits += out.credits
             if out.failure is not None:
                 done.lines.append(
                     f"  {source}: {request.query} → 失敗 ({out.failure.reason}: "
                     f"{out.failure.detail})"
                 )
                 if nets.is_rate_limit(out.failure):
-                    done.limited.append(source)
+                    quota.limited.append(source)
+                    quota.openalex_quiet |= request.adapter.credit_cost > 0
                 continue
             done.results += len(out.sources)
-            done.credits += out.credits
             state = "凍結済み" if out.cached else "取得"
             done.lines.append(f"  {source}: {request.query} → {len(out.sources)} 件 ({state})")
     done.sent = transport.sent
-    if done.stopped:
+    if quota.stopped:
         done.lines.append(
-            f"  rate limit が {len(done.limited)} つの取得元で続いたので凍結を止めた "
-            f"({', '.join(done.limited)})"
+            f"  rate limit が {len(quota.limited)} つの取得元で続いたので凍結を止めた "
+            f"({', '.join(quota.limited)})"
         )
     return done

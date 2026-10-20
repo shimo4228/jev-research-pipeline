@@ -42,11 +42,12 @@ main の checkout を読むので、次の tick から効く。
   ```
 - 回し方: `uv run jrp eval intake --candidate <toml> [--line <slug>]... [--days 14] [--freeze]`。
   `--freeze` は今日の firehose と両方の設定の keyword クエリを 1 回ずつ取得して凍結する（同じ日の 2 回目は
-  何も送らない。rate limit が 2 つの取得元で出たら止まって exit 2）。書くのは
+  何も送らない。rate limit が出た取得元は以降のラインでも送らず、2 つの取得元で出たら止まって exit 2。OpenAlex は
+  config の credit 上限まで）。書くのは
   `<JRP_STORE_DIR>/evals/intake/`（`JRP_EVAL_DIR` で移せる）だけで、store の partition は読むだけ。試すときは
   `JRP_EVAL_DIR` を scratch に向ける
 - 費用: 保存済みの判定が無い source だけを Jev に聞く。送る前に高めに見積もり、`--max-usd`（既定 $0.50）を
-  超えるなら何も送らず exit 2。`TYPESAFE_API_KEY` が無ければ聞かず、N_ot は下限として出る。雑音の床は
+  超えるなら何も送らず exit 2。`TYPESAFE_API_KEY` が無ければ聞かず、N_ot は下限として出る。Jev が 429 を 3 回返したら聞くのを止めて exit 2。雑音の床は
   bench に jitter の行が無いとき最初に測る（`--jitter 40` = 40 source を聞き直す）
 - 読み方: 判定の行が「差あり」になるのは、日ごとの差の t 区間が 0 を含まず、符号反転の p < 0.05 で、
   差が雑音の床の外のときだけ。「差のうち境界の論文」が多い差は、判定役の境目に乗った差として割り引く。

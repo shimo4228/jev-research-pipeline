@@ -26,7 +26,8 @@ import httpx2
 from pydantic import AwareDatetime, JsonValue
 
 from jev_research_pipeline.model import GraphNodeType, SourceItem
-from jev_research_pipeline.pipeline.config import env_tracks
+from jev_research_pipeline.pipeline.config import config_path, env_tracks
+from jev_research_pipeline.pipeline.nets import load_nets
 from jev_research_pipeline.pipeline.registry import read_lifted
 from jev_research_pipeline.pipeline.runner import store_dir
 from jev_research_pipeline.questions import NoQuestions
@@ -73,6 +74,7 @@ from .judge import (
     API_KEY_ENV,
     JITTER_SOURCES,
     BudgetExceeded,
+    JevRateLimited,
     Judge,
     Spend,
     judgments_partition,
@@ -233,8 +235,9 @@ async def evaluate_line(
     days: int = DEFAULT_DAYS,
     as_of: date | None = None,
     jitter_n: int = JITTER_SOURCES,
-    do_freeze: bool = False,
+    quota: freeze.Quota | None = None,
 ) -> LineResult:
+    """`quota`: freeze today's snapshot first, under the invocation's shared Quota."""
     try:
         setup = line_setup(env, slug, now=now)
     except KeyError as e:
@@ -251,7 +254,7 @@ async def evaluate_line(
     judge = Judge(setup, known, bench, spend, http=http, api_key=api_key)
     notes: list[str] = []
 
-    if do_freeze:
+    if quota is not None:
         planned, skipped = freeze.requests(
             setup.nets, [*base_arm.queries, *cand_arm.queries], now=now, env=env
         )
@@ -262,12 +265,13 @@ async def evaluate_line(
             cassette=freeze.snapshot_dir(bench, now.date()) / "cassette.json",
             now=now,
             env=env,
+            quota=quota,
         )
         notes += [
             f"凍結: 送信 {done.sent} 件、結果 {done.results} 件、OpenAlex credit {done.credits}"
         ]
         notes += skipped + done.lines
-        if done.stopped:
+        if quota.stopped:
             raise RateLimited("\n".join(notes))
 
     base_reach = replay(frozen, setup, base_arm, window, start=start)
@@ -631,6 +635,11 @@ async def intake_command(env: Mapping[str, str], args: IntakeArgs) -> int:
     slugs = list(args.lines) or [s for s in tracks if s in candidate.queries] or tracks
     bench = args.bench or eval_root(env) / "intake"
     spend = Spend(cap=args.max_usd)
+    quota = (
+        freeze.Quota(credit_cap=load_nets(config_path(env)).credit_cap(env))
+        if args.freeze
+        else None
+    )
     now = datetime.now().astimezone()
     results: list[LineResult] = []
     async with httpx2.AsyncClient(timeout=FREEZE_TIMEOUT_S) as http:
@@ -648,13 +657,13 @@ async def intake_command(env: Mapping[str, str], args: IntakeArgs) -> int:
                         days=args.days,
                         as_of=args.as_of,
                         jitter_n=args.jitter,
-                        do_freeze=args.freeze,
+                        quota=quota,
                     )
                 )
             except UnknownLine:
                 sys.stderr.write(f"jrp eval intake: {slug}: config.toml に無いライン\n")
                 return 2
-            except (NoQuestions, BudgetExceeded, RateLimited) as e:
+            except (NoQuestions, BudgetExceeded, RateLimited, JevRateLimited) as e:
                 sys.stderr.write(f"jrp eval intake: {slug}: {e}\n")
                 return 2
     lines = render(results, candidate, spend)
