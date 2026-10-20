@@ -4,11 +4,15 @@ It also reports what python cannot: a run that hangs (the watchdog) and a wrappe
 fails before python starts."""
 
 import os
+import re
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+
+from jev_research_pipeline.cli import LOG_TIME_FORMAT
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "launchd-jrp.sh"
 
@@ -30,6 +34,10 @@ set -euo pipefail
 {DOCTOR}
 notes="$JRP_VAULT_DIR/daily-research"
 [[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || {{ echo "vault not staged: $JRP_VAULT_DIR"; exit 9; }}
+if [[ -n "${{EXPECT_WORKSPACE:-}}" ]]; then  # Obsidian's list, read from the stage
+  [[ "$(cat "$JRP_VAULT_DIR/.obsidian/workspace.json")" == "$EXPECT_WORKSPACE" ]] ||
+    {{ echo "workspace not staged"; exit 7; }}
+fi
 grep -q "[x]" "$notes/2026-09-23_jrp_akc.md"
 echo "rewritten" > "$notes/2026-09-24_jrp_akc.md"
 echo "new" > "$notes/2026-09-24_jrp_aap.md"
@@ -266,3 +274,161 @@ def test_an_installed_jrp_is_started_directly_and_notifies_through_python(tmp_pa
     assert "args: run" in out.stdout  # `jrp run`, not `uv run --project … jrp run`
     assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
     assert [t for t, _ in _messages(notified)] == ["jrp doctor FAILED"]
+
+
+# --- the log's times --------------------------------------------------------------------
+
+_STAMP = re.compile(r"^(\S+) (.*)$")
+
+
+def _timed(text: str) -> list[tuple[datetime, str]]:
+    """(time, text) of each line that starts with a LOG_TIME_FORMAT time."""
+    out: list[tuple[datetime, str]] = []
+    for line in text.splitlines():
+        if m := _STAMP.match(line):
+            try:
+                out.append((datetime.strptime(m[1], LOG_TIME_FORMAT), m[2]))
+            except ValueError:
+                continue
+    return out
+
+
+def test_the_wrapper_and_python_write_one_time_format():
+    assert f"date '+{LOG_TIME_FORMAT}'" in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_every_wrapper_line_starts_with_the_time_and_the_run_is_framed(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    timed = _timed(out.stdout)
+    texts = [text for _, text in timed]
+    assert texts[0] == "ok   env: fake doctor"  # the doctor's lines, as the wrapper logs them
+    assert texts[1] == "start jrp run"
+    assert re.fullmatch(r"end jrp run status 0 · \d+ s", texts[2])
+    assert sorted(texts[3:]) == ["vault ← 2026-09-24_jrp_aap.md", "vault ← 2026-09-24_jrp_akc.md"]
+    assert all(when.tzinfo is not None for when, _ in timed)
+    lines = out.stdout.splitlines()
+    run_line = next(i for i, ln in enumerate(lines) if "--frozen jrp run" in ln)
+    start = next(i for i, ln in enumerate(lines) if ln.endswith(" start jrp run"))
+    end = next(i for i, ln in enumerate(lines) if " end jrp run status " in ln)
+    assert start < run_line < end  # python's output (untimed here: the fake's) in between
+    assert len(timed) == len(lines) - 1  # every line but the fake python's own
+
+
+def test_a_wrapper_failure_on_stderr_starts_with_the_time_and_slack_gets_it_bare(
+    tmp_path: Path,
+):
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    env["JRP_UV"] = str(tmp_path / "no-such-uv")
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.stdout == ""  # stderr only: the two streams stay apart
+    texts = [text for _, text in _timed(out.stderr)]
+    assert len(texts) == len(out.stderr.splitlines()) == 2
+    assert texts[0].startswith("uv not found at ")
+    assert texts[1].startswith("jrp run FAILED: launchd-jrp.sh stopped before jrp started: ")
+    ((title, body),) = _messages(notified)
+    assert title == "jrp run FAILED" and body.startswith("launchd-jrp.sh stopped")
+
+
+def test_a_killed_run_logs_its_end_before_the_timeout_notice(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    env |= {"JRP_RUN_TIMEOUT_S": "1", "HUNG_PID": str(tmp_path / "hung.pid")}
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 124
+    (end,) = [t for _, t in _timed(out.stdout) if t.startswith("end jrp run")]
+    assert re.fullmatch(r"end jrp run status (?!0 )\d+ · \d+ s", end)
+    assert [t for _, t in _timed(out.stderr)][-1].startswith("jrp run TIMED OUT: killed after 1 s")
+
+
+# --- Obsidian's recently opened files ------------------------------------------------------
+
+
+def _obsidian(tmp_path: Path) -> Path:
+    """The vault's .obsidian: the two lists, an iCloud conflict copy and an app setting."""
+    obsidian = tmp_path / "vault" / ".obsidian"
+    obsidian.mkdir(parents=True)
+    for name, text in [
+        ("workspace.json", '{"lastOpenFiles": ["desktop"]}'),
+        ("workspace-mobile.json", '{"lastOpenFiles": ["mobile"]}'),
+        ("workspace 2.json", '{"lastOpenFiles": ["conflict"]}'),
+        ("app.json", "{}"),
+    ]:
+        (obsidian / name).write_text(text)
+    old = time.time() - 7200
+    os.utime(obsidian / "workspace.json", (old, old))
+    return obsidian
+
+
+def test_the_two_workspace_lists_and_nothing_else_reach_the_stage(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    obsidian = _obsidian(tmp_path)
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime) for p in obsidian.iterdir()}
+    env["EXPECT_WORKSPACE"] = '{"lastOpenFiles": ["desktop"]}'  # the fake reads the stage
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    assert sorted(p.name for p in staged.iterdir()) == ["workspace-mobile.json", "workspace.json"]
+    for name in ("workspace.json", "workspace-mobile.json"):
+        assert (staged / name).read_bytes() == before[name][0]
+        assert (staged / name).stat().st_mtime == before[name][1]  # cp -p
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime) for p in obsidian.iterdir()} == before
+    assert _messages(notified) == [] and out.stderr == ""
+
+
+def test_a_list_the_vault_no_longer_has_leaves_the_stage(tmp_path: Path):
+    env, _, _ = _setup(tmp_path)
+    obsidian = _obsidian(tmp_path)
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    (obsidian / "workspace-mobile.json").unlink()
+    subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    assert [p.name for p in staged.iterdir()] == ["workspace.json"]
+    for p in obsidian.iterdir():
+        p.unlink()
+    obsidian.rmdir()  # a vault without .obsidian: yesterday's copies go too
+    subprocess.run(["bash", str(SCRIPT), "run"], env=env, capture_output=True, check=True)
+    assert list(staged.iterdir()) == []
+
+
+def test_a_vault_without_obsidian_is_not_a_failure(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0 and out.stderr == ""
+    assert _messages(notified) == []
+    assert not (tmp_path / "store" / "vault-stage" / ".obsidian").exists()
+    assert not (vault.parent / ".obsidian").exists()
+
+
+def test_a_list_that_cannot_be_staged_is_one_log_line_and_the_run_goes_on(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    _obsidian(tmp_path)
+    staged = tmp_path / "store" / "vault-stage" / ".obsidian"
+    staged.mkdir(parents=True)
+    staged.chmod(0o555)  # the stage refuses the copies
+    try:
+        out = subprocess.run(
+            ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+        )
+    finally:
+        staged.chmod(0o755)
+    assert out.returncode == 0
+    assert _messages(notified) == []
+    texts = [t for _, t in _timed(out.stderr)]
+    assert len(texts) == len(out.stderr.splitlines()) == 2  # one line per list, nothing else
+    assert texts[0].startswith(".obsidian/workspace.json not staged: ")
+    assert texts[1].startswith(".obsidian/workspace-mobile.json not staged: ")
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the run did run

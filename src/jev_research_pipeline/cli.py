@@ -36,6 +36,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 import webbrowser
 from collections.abc import Mapping
 from datetime import datetime
@@ -82,6 +83,9 @@ RUBRICS: Final[Mapping[Lang, Path]] = {
 }
 """The fidelity judge's checks per draft language; each gate file embeds the one of its
 variant's language (pipeline.prose_bench.gate_files)."""
+LOG_TIME_FORMAT: Final = "%Y-%m-%dT%H:%M:%S%z"
+"""The time at the start of a timed log line, the same form scripts/launchd-jrp.sh's `say`
+writes (tests pin the two equal), so one log reads one way."""
 
 
 def parser() -> argparse.ArgumentParser:
@@ -140,7 +144,18 @@ def _slugs(env: Mapping[str, str]) -> list[str]:
     return list(rotation_config(env_tracks(env), per_tick=1).order)
 
 
+def _log_line(text: str) -> None:
+    """One stdout line after the local time. Flushed at once: stdout into a log file is
+    block-buffered, and a run killed by the watchdog would lose what the buffer held."""
+    sys.stdout.write(f"{datetime.now().astimezone().strftime(LOG_TIME_FORMAT)} {text}\n")
+    sys.stdout.flush()
+
+
 async def _run(env: Mapping[str, str]) -> int:
+    """The pipeline between a timed start line and a timed end line on stdout (the end line
+    also when the run raises or is cancelled), so a log the launchd wrapper does not write
+    (cron, systemd, a terminal) still says when the run ran and for how long. The message
+    after them (run_summary) is the one Slack gets, unchanged."""
     unanswered: list[str] = []
     failed: list[str] = []
     # The launchd wrapper's watchdog stops a hung run with SIGTERM. Its default action ends
@@ -151,6 +166,8 @@ async def _run(env: Mapping[str, str]) -> int:
     task = asyncio.current_task()
     if task is not None:
         loop.add_signal_handler(signal.SIGTERM, task.cancel)
+    _log_line("pipeline start")
+    started = time.monotonic()
     try:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_S) as http:
             outcomes = await run_pipeline(
@@ -166,6 +183,7 @@ async def _run(env: Mapping[str, str]) -> int:
         raise
     finally:
         loop.remove_signal_handler(signal.SIGTERM)
+        _log_line(f"pipeline end · {round(time.monotonic() - started)} s")
     # A skipped line (no open question) and a degraded one (failed drafts, a refused writer,
     # failed fetches, the cost cap) are said out loud rather than looking like a quiet
     # success; one message either way (runner.run_summary).

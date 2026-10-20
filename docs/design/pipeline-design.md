@@ -420,6 +420,22 @@ the rate is not near zero; if it is, fix the matching first.
 > Time-to-Discovery no longer exist (decisions 5 and 6, Meters). Still nothing reads a
 > UsedMark: not `DecisionLog.gold()`, fit, export-cases or the Semantic Scholar nets.
 
+> **注記（2026-10-20, plan quality-metrics）**: 「開いたか」 (opened) is measured too, beside
+> the ticks and never as a primary metric (author decision 2026-10-20). Before each `jrp run`
+> the launchd wrapper copies the vault's `.obsidian/workspace.json` and
+> `workspace-mobile.json`, and nothing else of `.obsidian`, into the stage (python still never
+> opens the iCloud vault; run directly, python reads the vault's own two files).
+> `reduction/opened.py` keeps from their `lastOpenFiles` only the names of jrp notes
+> (`daily-research/*_jrp_*.md`), drops every other file name, and appends each name seen for
+> the first time to `<store>/metrics/opened.jsonl` as
+> `{"note": <file name>, "first_seen": <day>}`. `metrics/` is not a partition, so migrate
+> never touches it. The list is short and recent and the copy is
+> taken at the run's start: `first_seen` is the morning after an opening at best, and a note
+> opened and pushed off the list between two runs is never seen. Obsidian's file format is
+> not a public spec, so a file jrp cannot read yields no name. It feeds the weekly review's
+> author signal and the "a line with O1 whose notes stay unopened" exception. A failure is
+> one `opened skip:` line in the note, like `used skip:`.
+
 ### jevcal (search-first 2026-09-23) — NOT-ADOPT
 
 Two packages share the name. `pip install jevcal` fetches aakgna/jevcal 0.2.0 (2026-09-21),

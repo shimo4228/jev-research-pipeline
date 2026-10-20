@@ -51,6 +51,7 @@ from jev_research_pipeline.questions import (
     open_questions,
     question_queries,
 )
+from jev_research_pipeline.reduction.opened import record_opened
 from jev_research_pipeline.reduction.used import (
     Scan,
     mark_used,
@@ -176,6 +177,18 @@ def update_used(
     return [], scan
 
 
+def update_opened(store: GraphStore, vault: Path, now: AwareDatetime) -> list[str]:
+    """Opened, a signal beside the ticks (reduction.opened): the jrp notes on Obsidian's
+    recently-opened lists, as staged in the vault dir, appended to the store's
+    metrics/opened.jsonl the first time each is seen. Silent on success, like the used rate;
+    a failure is one line in the note, never the end of the run."""
+    try:
+        record_opened(vault, store.root, now.date())
+    except (OSError, ValueError) as e:
+        return [f"opened skip: {type(e).__name__}: {' '.join(str(e).split())[:160]}"]
+    return []
+
+
 def claims_before(nodes: Mapping[str, GraphNodeType], today: date) -> set[str]:
     """Claims reported on an earlier day. The evidence set is pinned to these so today's
     own accepts cannot change the state a re-run judges against."""
@@ -232,8 +245,9 @@ async def run_pipeline(
         for slug in (only or (*rotation.order, *daily))
     }
     used_note, used_scan = update_used(store, list(tracks.values()), vault, tuple(harvested), now)
+    opened_note = update_opened(store, vault, now)
     for slug in harvested:
-        harvested[slug].extend(used_note)
+        harvested[slug].extend([*used_note, *opened_note])
     picked = tuple(only) if only else (*advance_rotation(store, rotation, now), *daily)
     # One Jev rate window for the whole tick: the limit is per key, not per line.
     pacer = RequestPacer(JEV_REQUESTS_PER_MINUTE)

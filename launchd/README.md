@@ -27,6 +27,14 @@ wrapper copies the vault's `*_jrp_*.md` notes into `<JRP_STORE_DIR>/vault-stage/
 `JRP_VAULT_DIR` there, and afterwards copies back only the notes the run wrote. A tick made
 during the run is harvested the next morning. Nothing in the vault is deleted.
 
+It also copies Obsidian's two lists of recently opened files, `.obsidian/workspace.json` and
+`.obsidian/workspace-mobile.json` (nothing else of `.obsidian`: not the app settings, not iCloud's
+`workspace 2.json` conflict copies), into the stage's `.obsidian/`, after removing the stage's
+copies from the day before. The run keeps from them only the names of jrp notes, each with the day
+it was first seen, in `<JRP_STORE_DIR>/metrics/opened.jsonl` (`reduction/opened.py`); every other
+file name is dropped. These copies never go back to the vault. A vault without `.obsidian` is
+skipped quietly, and a copy that fails is one line in the log, never a message or a stop.
+
 The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
 through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going after
 `JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) gets SIGTERM
@@ -40,3 +48,9 @@ Before each `jrp run` the wrapper runs `jrp doctor` (limited to 120 s) and write
 the log, so the morning log shows whether the launchd job could reach the writer's login — Claude
 Code's lives in the macOS keychain, which a launchd job may not be allowed to read. A failing
 doctor sends `jrp doctor FAILED` with its `FAIL` lines; the run still goes ahead.
+
+Every line the wrapper writes to the log starts with the local time (`2026-10-21T05:00:02+0900`),
+on stdout or stderr as before, and `jrp run` sits between `start jrp run` and
+`end jrp run status <exit status> · <seconds> s`. In between, Python's own lines start and end
+with `pipeline start` and `pipeline end · <seconds> s` at Python's own times: its output reaches
+the log in buffered chunks, so a time the wrapper put in front of it would be the flush's.

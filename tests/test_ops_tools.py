@@ -1,6 +1,7 @@
 """Step 10 tools: drift job, Slack one-liner, CLI wiring (no live calls, no real script)."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import httpx2
@@ -115,7 +116,49 @@ async def test_drift_counts_failed_replays(tmp_path: Path):
     assert (rows, failed) == ([], 1)
 
 
-def test_cli_run_failure_is_notified(monkeypatch: pytest.MonkeyPatch):
+def _timed_texts(out: str) -> list[str]:
+    """The text after the time of each stdout line that starts with one (cli._log_line)."""
+    from jev_research_pipeline.cli import LOG_TIME_FORMAT
+
+    texts: list[str] = []
+    for line in out.splitlines():
+        stamp, _, text = line.partition(" ")
+        try:
+            when = datetime.strptime(stamp, LOG_TIME_FORMAT)
+        except ValueError:
+            continue
+        assert when.tzinfo is not None  # the local offset is in the line
+        texts.append(text)
+    return texts
+
+
+def test_cli_run_is_framed_by_timed_lines_and_the_message_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """Under cron or systemd no wrapper writes the log's times: python writes its own."""
+    from jev_research_pipeline import cli
+
+    async def ran(*args: object, **kwargs: object) -> list[object]:
+        return []
+
+    sent: list[tuple[str, str]] = []
+
+    def fake_notify(title: str, body: str, *, env: object) -> bool:
+        sent.append((title, body))
+        return True
+
+    monkeypatch.setattr(cli, "run_pipeline", ran)
+    monkeypatch.setattr(cli, "notify", fake_notify)
+    assert cli.main(["run"]) == 0
+    out = capsys.readouterr().out
+    assert _timed_texts(out) == ["pipeline start", "pipeline end · 0 s"]
+    assert out.splitlines()[2:] == ["jrp run", "no line ran"]  # run_summary, as before
+    assert sent == [("jrp run", "no line ran")]  # Slack gets no time
+
+
+def test_cli_run_failure_is_notified(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     from jev_research_pipeline import cli
 
     sent: list[tuple[str, str]] = []
@@ -133,9 +176,12 @@ def test_cli_run_failure_is_notified(monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(RuntimeError):
         cli.main(["run"])
     assert sent and sent[0][0] == "jrp run FAILED" and "vault missing" in sent[0][1]
+    assert _timed_texts(capsys.readouterr().out) == ["pipeline start", "pipeline end · 0 s"]
 
 
-def test_sigterm_cancels_the_run_so_its_cleanup_runs(monkeypatch: pytest.MonkeyPatch):
+def test_sigterm_cancels_the_run_so_its_cleanup_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     """The wrapper's watchdog sends SIGTERM: the run is cancelled and unwinds (a claude-code
     CLI is killed on the way out) instead of python dying mid-await."""
     import asyncio
@@ -160,6 +206,7 @@ def test_sigterm_cancels_the_run_so_its_cleanup_runs(monkeypatch: pytest.MonkeyP
         cli.main(["run"])
     assert unwound == ["cancelled"]
     assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL  # the handler is not left behind
+    assert _timed_texts(capsys.readouterr().out)[-1] == "pipeline end · 0 s"  # a killed run too
 
 
 def test_notify_posts_to_a_slack_webhook_and_survives_its_failure():

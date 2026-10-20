@@ -20,11 +20,20 @@ cp ~/.config/jrp/launchd/local.jrp.run.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.jrp.run.plist
 ```
 
-The wrapper sources the env file, copies the vault's jrp notes to a local stage (macOS privacy
-guards a vault in iCloud Drive per executable), runs `jrp doctor` and then `jrp run` under a
-watchdog (`JRP_RUN_TIMEOUT_S`, default 3600 s), copies back the notes the run wrote, and reports
-what python cannot (a hung run, a wrapper that stops before jrp starts) through the channels
-below. Its log is `~/Library/Logs/jrp-run.log`. Details: [launchd/README.md](../launchd/README.md).
+The wrapper sources the env file, copies the vault's jrp notes and Obsidian's two lists of
+recently opened files (`.obsidian/workspace.json`, `workspace-mobile.json`) to a local stage
+(macOS privacy guards a vault in iCloud Drive per executable), runs `jrp doctor` and then
+`jrp run` under a watchdog (`JRP_RUN_TIMEOUT_S`, default 3600 s), copies back the notes the run
+wrote, and reports what python cannot (a hung run, a wrapper that stops before jrp starts)
+through the channels below. Its log is `~/Library/Logs/jrp-run.log`, where each line the wrapper
+writes starts with the local time. From the Obsidian lists the run keeps only which jrp notes
+were opened, by the day it first saw each, in `<JRP_STORE_DIR>/metrics/opened.jsonl`. Details:
+[launchd/README.md](../launchd/README.md).
+
+`jrp schedule install` keeps a wrapper that is already there, so upgrading jrp does not change
+an installed job's wrapper. To bring it up to date, remove
+`~/.config/jrp/launchd/launchd-jrp.sh` and run `jrp schedule install` again; the plist that is
+there is kept as it is.
 
 ## Linux (cron or systemd)
 
@@ -58,6 +67,10 @@ systemctl --user enable --now jrp.timer
 ```
 
 `EnvironmentFile` reads `KEY=value` lines; quote-free values are the safe form there.
+
+`jrp run` itself begins and ends its output with a line that starts with the local time
+(`pipeline start`, `pipeline end · <seconds> s`), so these logs show when each run ran. Run
+directly, it reads Obsidian's recently opened lists from the vault's own `.obsidian/`.
 
 ## Notifications
 

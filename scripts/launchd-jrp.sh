@@ -14,6 +14,9 @@
 # ticks are in them) to a local stage, python reads and writes only the stage, and after
 # the run bash copies back the notes the run wrote. Nothing in the vault is deleted, and a
 # note the run did not touch is not copied back (an edit made during the run survives).
+# Obsidian's two lists of recently opened files (.obsidian/workspace.json, desktop, and
+# workspace-mobile.json) are staged the same way, nothing else of .obsidian: python records
+# from them which jrp notes were opened (reduction/opened.py). They never go back.
 #
 # What python cannot report, this script does (the log always; Slack / Notification Center
 # as pipeline/notify.py sends them, JRP_SLACK_NOTIFY / JRP_SLACK_WEBHOOK_URL / JRP_NOTIFY_MACOS): a run past
@@ -23,6 +26,10 @@
 # Before `jrp run` it runs `jrp doctor` (pipeline/doctor.py) under the same watchdog and logs
 # its lines, so the log shows whether launchd could reach the writer's login (Claude Code's
 # sits in the keychain); a failing doctor is notified and the run still goes ahead.
+# Every line this script writes starts with the local time (say), and `jrp run` is framed
+# by a start line and an end line with its exit status and seconds. stdout and stderr stay
+# two streams; python's own lines carry python's own times (cli._run), since python's
+# stdout reaches the log only when its buffer is flushed.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ENV_FILE="${JRP_ENV_FILE:-${HOME}/.config/jrp/env}"
@@ -38,22 +45,32 @@ MARK=""
 DOCTOR_OUT=""
 DOCTOR_TIMEOUT_S=120  # the doctor answers in seconds; a keychain prompt nobody sees never does
 TIMED_OUT=0
+WORKSPACES=(workspace.json workspace-mobile.json)  # Obsidian's recently opened files
+
+say() {  # say <text>: one log line after the local time (cli.LOG_TIME_FORMAT); >&2 for stderr
+  printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"
+}
 
 notify() {  # notify <title> <body>: the log always, then the channels the env names
-  echo "$1: $2" >&2
+  say "$1: $2" >&2
   if [[ "${JRP_SLACK_NOTIFY:-}" == "1" ]]; then
-    bash "$NOTIFY_SCRIPT" "$1" "$2" || echo "slack notify failed" >&2
+    bash "$NOTIFY_SCRIPT" "$1" "$2" || say "slack notify failed" >&2
   fi
   # webhook / Notification Center through python's notify (pipeline/notify.py), the harness
   # script left out there since it was just called; skipped while jrp cannot be started
   if [[ (-n "${JRP_SLACK_WEBHOOK_URL:-}" || "${JRP_NOTIFY_MACOS:-}" == "1") && ${#JRP[@]} -gt 0 ]]; then
-    env JRP_SLACK_NOTIFY= "${JRP[@]}" notify -- "$1" "$2" || echo "notify failed" >&2
+    env JRP_SLACK_NOTIFY= "${JRP[@]}" notify -- "$1" "$2" || say "notify failed" >&2
   fi
+}
+
+quietly() {  # quietly <what> <cmd...>: cmd; when it fails, one log line "<what>: <its error>"
+  local err  # instead of a stop (set -e) or a notice
+  err="$("${@:2}" 2>&1 >/dev/null)" || say "$1: ${err//$'\n'/ }" >&2
 }
 
 die() {  # die <why>: stop before jrp starts; on_exit notifies with the reason
   WHY="$1"
-  echo "$1" >&2
+  say "$1" >&2
   exit 1
 }
 
@@ -144,6 +161,23 @@ mkdir -p "$STAGE/$NOTES" "$VAULT/$NOTES" || die "cannot create ${STAGE}/${NOTES}
 rsync -a --include='*_jrp_*.md' --exclude='*' "$VAULT/$NOTES/" "$STAGE/$NOTES/" ||
   die "cannot stage the vault's notes (rsync)"
 
+# vault -> stage: Obsidian's lists of recently opened files, those two names only (not app
+# settings, not iCloud's "workspace 2.json" conflict copies). The stage's old copies go
+# first, so a list the vault no longer has is not read again. No .obsidian: nothing to do.
+# Nothing here is worth a notice or a stop: a failure is one log line. (/usr/bin/rsync is
+# openrsync, without --ignore-missing-args, so each file is tested and copied on its own.)
+for ws in "${WORKSPACES[@]}"; do
+  quietly "stale .obsidian/${ws} left in the stage" rm -f "$STAGE/.obsidian/$ws"
+done
+if [[ -d "$VAULT/.obsidian" ]]; then
+  quietly ".obsidian not staged" mkdir -p "$STAGE/.obsidian"
+  for ws in "${WORKSPACES[@]}"; do
+    if [[ -f "$VAULT/.obsidian/$ws" && -d "$STAGE/.obsidian" ]]; then
+      quietly ".obsidian/${ws} not staged" cp -p "$VAULT/.obsidian/$ws" "$STAGE/.obsidian/$ws"
+    fi
+  done
+fi
+
 # doctor: logged always, notified when it fails, never a reason to skip the run. It sees
 # the stage as its vault, like the run: python never touches the iCloud path.
 DOCTOR_OUT="$(mktemp "${TMPDIR:-/tmp}/jrp-doctor.XXXXXX")" || die "cannot create a temp file (mktemp)"
@@ -151,7 +185,7 @@ set +e
 limited "$DOCTOR_TIMEOUT_S" env JRP_VAULT_DIR="$STAGE" "${JRP[@]}" doctor >"$DOCTOR_OUT"
 doctor_status=$?
 set -e
-cat "$DOCTOR_OUT"
+while IFS= read -r line || [[ -n "$line" ]]; do say "$line"; done <"$DOCTOR_OUT"
 if ((TIMED_OUT)); then
   notify "jrp doctor FAILED" "no answer in ${DOCTOR_TIMEOUT_S} s and killed; the run goes ahead"
 elif ((doctor_status != 0)); then
@@ -161,11 +195,14 @@ fi
 
 MARK="$(mktemp "${TMPDIR:-/tmp}/jrp-run-mark.XXXXXX")" || die "cannot create the run mark (mktemp)"
 STARTED=1
+say "start jrp run"
+run_from=$SECONDS
 set +e
 limited "$TIMEOUT" env JRP_VAULT_DIR="$STAGE" "${JRP[@]}" "$@"
 status=$?
 timed_out=$TIMED_OUT
 set -e
+say "end jrp run status ${status} · $((SECONDS - run_from)) s"
 
 # stage -> vault: only the notes this run wrote (newer than the mark) — a killed run's too
 # A copy that fails does not stop the others, and is said: python already reported the run
@@ -174,7 +211,7 @@ copied=0
 uncopied=""
 while IFS= read -r -d '' note; do
   if cp -p "$note" "$VAULT/$NOTES/"; then
-    echo "vault ← $(basename "$note")"
+    say "vault ← $(basename "$note")"
     copied=$((copied + 1))
   else
     uncopied="${uncopied} $(basename "$note")"
