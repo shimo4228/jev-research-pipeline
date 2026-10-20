@@ -1,6 +1,8 @@
 """Prose bench, the automated half: the fidelity cutoff and a simulated reader, both through
 `claude -p` on the author's subscription (generation.claude_code; plan
-docs/plans/daily-tool-hardening.md, 2026-10-01). Dev time only; no run calls these.
+docs/plans/daily-tool-hardening.md, 2026-10-01). Dev time only; no run calls these. The
+weekly review's monitoring judge sends JUDGE_INSTRUCTIONS with the same gate text to the
+Claude API instead (pipeline.monitor).
 
     jrp prose judge       one variant's gate files → one pass / fail verdict per draft
                           (docs/prose-rubric.md; the same judgment .claude/agents/prose-judge.md

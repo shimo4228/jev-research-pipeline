@@ -426,6 +426,47 @@ WBR_O2_RATE: Final = Msg(
     "{rate} (Wilson {low}-{high}, {k}/{n})",
     "{rate} (Wilson {low}-{high}，{k}/{n})",
 )
+# The monitoring judge (pipeline.monitor): shown in section 1, never a gate.
+WBR_PRECISION: Final = Msg(
+    "OUT 精度標本 (監視 judge、O1 の論文から最大 {n} 本、claim は問いを前に進めるか): {value}",
+    "OUT precision sample (monitoring judge, up to {n} O1 papers: does the claim move the "
+    "question forward): {value}",
+    "OUT 精度样本 (监视 judge，从 O1 论文中最多 {n} 篇，claim 是否推进了问题): {value}",
+)
+WBR_FIDELITY: Final = Msg(
+    "W 忠実さの標本 (監視 judge、本文のある節から最大 {n} 節、prose-rubric の Q1〜Q6): {value}",
+    "W fidelity sample (monitoring judge, up to {n} sections with prose, prose-rubric "
+    "Q1-Q6): {value}",
+    "W 忠实度样本 (监视 judge，从有正文的节中最多 {n} 节，prose-rubric 的 Q1〜Q6): {value}",
+)
+WBR_ADVANCED: Final = Msg("yes+partial {k}/{n}", "yes+partial {k}/{n}", "yes+partial {k}/{n}")
+WBR_PASSED: Final = Msg("pass {k}/{n}", "pass {k}/{n}", "pass {k}/{n}")
+WBR_FAILED_SECTIONS: Final = Msg("fail: {sections}", "fail: {sections}", "fail: {sections}")
+WBR_UNMEASURED: Final = Msg("未測定 ({why})", "not measured ({why})", "未测量 ({why})")
+WBR_UNMEASURED_REST: Final = Msg(
+    "未測定 {m} ({why})", "{m} not measured ({why})", "未测量 {m} ({why})"
+)
+WBR_NO_TARGET: Final = Msg("対象なし", "nothing to sample", "没有可抽样的对象")
+WBR_MONITOR_COST: Final = Msg(
+    "監視 judge {model}: 今回 ${usd} · 今週 ${week} / 上限 ${cap}",
+    "Monitoring judge {model}: this review ${usd} · this week ${week} / cap ${cap}",
+    "监视 judge {model}: 本次 ${usd} · 本周 ${week} / 上限 ${cap}",
+)
+MONITOR_NO_KEY: Final = Msg("key なし", "no key", "没有 key")
+MONITOR_BAD_BUDGET: Final = Msg(
+    "JRP_MONITOR_WEEKLY_USD が 0 以上の数でない",
+    "JRP_MONITOR_WEEKLY_USD is not a number of 0 or more",
+    "JRP_MONITOR_WEEKLY_USD 不是 0 以上的数",
+)
+MONITOR_NO_RUBRIC: Final = Msg("rubric が読めない", "the rubric cannot be read", "无法读取 rubric")
+MONITOR_BUDGET: Final = Msg("今週の上限に達した", "this week's cap is reached", "已达到本周上限")
+MONITOR_RATE_LIMIT: Final = Msg(
+    "429 rate limit、再試行しない", "429 rate limit, not retried", "429 rate limit，不重试"
+)
+MONITOR_CREDIT: Final = Msg("API クレジット切れ", "the API credits are spent", "API 额度已用尽")
+MONITOR_AUTH: Final = Msg("key が拒否された", "the key was refused", "key 被拒绝")
+MONITOR_DEADLINE: Final = Msg("時間切れ", "out of time", "超时")
+MONITOR_ERROR: Final = Msg("呼び出しの失敗", "failed calls", "调用失败")
 WBR_EXCEPTIONS: Final = Msg("2. 例外", "2. Exceptions", "2. 例外")
 WBR_EX_INSTRUMENT: Final = Msg(
     "計器 {id}: {status} ({where})",

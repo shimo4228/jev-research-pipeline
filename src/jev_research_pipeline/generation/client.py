@@ -148,10 +148,11 @@ def _key_env(spec: ModelSpec) -> str | None:
             return None
 
 
-def _credit_exhausted(error: ModelHTTPError) -> bool:
+def credit_exhausted(error: ModelHTTPError) -> bool:
     """The Claude API's answer once the organization's credits are spent: a 400 whose message
     says so (platform docs "API credits for Max and Team plans", as-of 2026-10-19). It repeats
-    on every call until the next month's credits arrive or a human buys some."""
+    on every call until the next month's credits arrive or a human buys some, so the weekly
+    review's monitoring judge stops on it (pipeline.monitor)."""
     return error.status_code == 400 and "credit balance is too low" in str(error.body)
 
 
@@ -163,7 +164,7 @@ def auth_failure(error: BaseException) -> bool:
     draft of every line until a human acts, so the run's notification names it
     (pipeline.health)."""
     if isinstance(error, ModelHTTPError):
-        return error.status_code in (401, 403) or _credit_exhausted(error)
+        return error.status_code in (401, 403) or credit_exhausted(error)
     return isinstance(
         error, CredentialsRefreshError | CredentialsPersistenceError | ClaudeAuthError
     )
@@ -212,9 +213,16 @@ class Writer:
     Codex login is loaded once and a refresh is single-flight across the lines that run side
     by side: a second provider would spend the same single-use refresh token. The Codex
     provider attaches its auth to `http` (it only touches requests to the Codex host) and
-    refuses a client that already carries one: one Writer per client."""
+    refuses a client that already carries one: one Writer per client.
 
-    def __init__(self, auth: ProseAuth, http: httpx2.AsyncClient) -> None:
+    `max_retries` sets how often the Claude API SDK retries a request by itself (a 408, 409,
+    429, 5xx or lost connection; twice when None, the SDK's default), on the `anthropic:`
+    backend only. The weekly review's monitoring judge passes 0, since it stops at the first
+    429 instead (pipeline.monitor)."""
+
+    def __init__(
+        self, auth: ProseAuth, http: httpx2.AsyncClient, *, max_retries: int | None = None
+    ) -> None:
         self.spec = auth.spec
         self._provider: OpenAICodexProvider | AlibabaProvider | AnthropicProvider | Path
         if auth.spec.backend == "claude-code":
@@ -230,7 +238,10 @@ class Writer:
         elif not auth.api_key:
             raise MissingCredentials(f"missing env: {_key_env(auth.spec)} (for {auth.spec})")
         elif auth.spec.backend == "anthropic":
-            self._provider = AnthropicProvider(api_key=auth.api_key, http_client=http)
+            provider = AnthropicProvider(api_key=auth.api_key, http_client=http)
+            if max_retries is not None:
+                provider.client.max_retries = max_retries
+            self._provider = provider
         else:
             self._provider = AlibabaProvider(
                 api_key=auth.api_key, base_url=DASHSCOPE_BASE_URL, http_client=http

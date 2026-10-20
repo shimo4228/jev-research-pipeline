@@ -9,13 +9,16 @@ instruments, and it never picks the one change for next week (sections 4 and 8 s
 Reads, never writes, the store: the partitions are loaded through registry.read_snapshot
 (an additive @context is lifted in memory, an incompatible one raises StoreSchemaError,
 which `jrp wbr` turns into one line and exit 2), plus metrics/opened.jsonl, questions/ and
-config.toml. It writes exactly two things: the note `<out>/<Monday after the week>_jrp_wbr.md`
-(its name holds `_jrp_`, so the used scan skips it by name, and the slug `wbr` is reserved,
-so no line's `*_jrp_<slug>.md` glob harvests it) and one appended line of
+config.toml. It writes the note `<out>/<Monday after the week>_jrp_wbr.md` (its name holds
+`_jrp_`, so the used scan skips it by name, and the slug `wbr` is reserved, so no line's
+`*_jrp_<slug>.md` glob harvests it) and one appended line of
 `<store>/metrics/weekly.jsonl` with every number of the note, raw: a past week recomputed
 from the store later drifts with every upsert, so the row keeps the week as it read then
 (v0 writes it and reads nothing back; the six weeks of O1 are recomputed). Rerunning a week
-appends another row. The note's body holds no source key (arXiv id, DOI, URL) and no `jrp:`
+appends another row. With ANTHROPIC_API_KEY set, the monitoring judge (pipeline.monitor)
+also calls the Claude API on a seeded sample of the week and appends one line per call to
+`<store>/metrics/judge.jsonl`; without it nothing is called and section 1 says 未測定 (key
+なし). The note's body holds no source key (arXiv id, DOI, URL) and no `jrp:`
 mark: free text from the store (DEGRADED reasons, an instrument's broken invariant) has its
 URLs, DOIs and `jrp:` replaced before it is printed.
 
@@ -64,9 +67,12 @@ Definitions:
   sources screened for it, of those kept, sources of its claims, sources its prose cited.
   The open questions come from questions/ (questions.open_questions), never from Question
   nodes, which a run stores only when evidence grows.
+- Monitoring samples (pipeline.monitor, monitor_sample): the week's sections with prose
+  (QuestionLogs of the week with text; the question is the stored Question node, else the
+  one of questions/), and the week's O1 papers, each with the claim of its first-day [n]
+  (the first by line, question and claim when several cited it that day).
 """
 
-import json
 import math
 import re
 from collections import Counter
@@ -76,6 +82,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Final, Literal
 
+import httpx2
 from pydantic import AwareDatetime, JsonValue
 
 from jev_research_pipeline import note_text as t
@@ -101,8 +108,12 @@ from jev_research_pipeline.questions import NoQuestions, open_questions
 from jev_research_pipeline.reduction.used import keys_of_text
 from jev_research_pipeline.store import GraphStore
 
+from . import monitor
 from .config import config_path, env_tracks, line_context
+from .metrics import append_row
+from .monitor import FIDELITY_N, PRECISION_N, STOP_WORDS, MonitorResult, Tally
 from .nets import for_line, load_nets, paper_id
+from .prose_bench import case_of
 from .registry import (
     FAILURES,
     REGISTRY,
@@ -314,6 +325,10 @@ class LineSpec:
     slug: str
     questions: tuple[Question, ...] | None
     """Its open questions (questions.open_questions); None = 問い未設定."""
+    name: str = ""
+    """The line's name and vocabulary (config.line_context), as the writer was given them:
+    the monitoring judge's materials name the line by them ("" = the slug)."""
+    vocabulary: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -330,12 +345,12 @@ def read_inputs(env: Mapping[str, str], *, now: AwareDatetime) -> Inputs:
     nets = load_nets(cfg)
     specs: list[LineSpec] = []
     for track in tracks:
-        line = line_context(track).line.id
+        ctx = line_context(track)
         try:
-            questions = tuple(open_questions(env, track.slug, line=line, now=now))
+            questions = tuple(open_questions(env, track.slug, line=ctx.line.id, now=now))
         except NoQuestions:
             questions = None
-        specs.append(LineSpec(track.slug, questions))
+        specs.append(LineSpec(track.slug, questions, ctx.line.name, ctx.vocabulary))
     firehose = {t.slug: for_line(cfg, t.slug, nets).budget("firehose") for t in tracks}
     snapshot = read_snapshot(
         GraphStore(store_dir(env)), [t.slug for t in tracks], firehose=firehose
@@ -352,6 +367,7 @@ class _Cite:
     day: date
     line: str
     question: str
+    claim: str
     source: str
     key: str
 
@@ -417,7 +433,7 @@ class _Line:
             for n in sorted(citations(log.text)):
                 claim = log.claims[n - 1] if 1 <= n <= len(log.claims) else ""
                 if (sid := self.claim_source.get(claim)) is not None:
-                    yield _Cite(log.run_date, self.slug, log.question, sid, self.keys[sid])
+                    yield _Cite(log.run_date, self.slug, log.question, claim, sid, self.keys[sid])
 
     def _posts(self, logs: Sequence[QuestionLog]) -> Iterator[_Post]:
         """Every claim of a QuestionLog that resolves to a source."""
@@ -716,6 +732,9 @@ class WeeklyReview:
     author: AuthorSignal
     status: Mapping[str, Status]
     """Instrument id → its status over the week (the instruments, by id)."""
+    monitor: MonitorResult | None = None
+    """The monitoring judge's answers (pipeline.monitor). weekly_review is pure and leaves it
+    None, and the note then has no monitor lines; write_weekly_review always sets it."""
 
     def rows(self, group: Group) -> tuple[Row, ...]:
         old_gate, new_gate = self.gates
@@ -1042,13 +1061,21 @@ def _gate(registry: _Registry, cohort: Week) -> Gate:
     )
 
 
+def _index(inputs: Inputs, as_of: date) -> list[_Line]:
+    """Every configured line's partition as of a day, in config order."""
+    return [_Line(s.slug, inputs.snapshot.lines.get(s.slug, {}), as_of) for s in inputs.lines]
+
+
 def weekly_review(inputs: Inputs, week: Week) -> WeeklyReview:
     """Every number of one week's review, as of the week's last day (module docstring)."""
+    return _review(inputs, week, _index(inputs, week.end))
+
+
+def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyReview:
     as_of = week.end
     snapshot = inputs.snapshot
     registry = _Registry(snapshot)
     slugs = tuple(spec.slug for spec in inputs.lines)
-    indexed = [_Line(slug, snapshot.lines.get(slug, {}), as_of) for slug in slugs]
     lines = {line.slug: line for line in indexed}
     firsts = _first_cites(indexed)
     older, newer = week.shifted(-2), week.shifted(-1)
@@ -1084,6 +1111,75 @@ def weekly_review(inputs: Inputs, week: Week) -> WeeklyReview:
         author=_author(indexed, snapshot, week),
         status={i.id: i.status for i in instruments},
     )
+
+
+# ---------------------------------------------------------------------- the monitor sample
+
+
+def _question_of(spec: LineSpec, nodes: Mapping[str, GraphNodeType], ident: str) -> Question | None:
+    """The question a section or a citation was asked under: the stored node (its evidence
+    is what the writer was told was known), else the open question of questions/."""
+    node = nodes.get(ident)
+    if isinstance(node, Question):
+        return node
+    return next((q for q in spec.questions or () if q.id == ident), None)
+
+
+def _sections(inputs: Inputs, week: Week) -> list[monitor.Section]:
+    """Every section of the week with prose whose question and claims are stored."""
+    out: list[monitor.Section] = []
+    for spec in inputs.lines:
+        nodes = inputs.snapshot.lines.get(spec.slug, {})
+        reports = _of(nodes, Report)
+        name = spec.name or spec.slug
+        for log in _of(nodes, QuestionLog):
+            question = _question_of(spec, nodes, log.question)
+            if not log.text or not week.holds(log.run_date) or question is None:
+                continue
+            case = case_of(
+                spec.slug,
+                log,
+                question,
+                nodes,
+                reports=reports,
+                line_name=name,
+                vocabulary=spec.vocabulary or (name,),
+            )
+            if case is not None:
+                out.append(monitor.Section(log.id, spec.slug, question.slug, case))
+    return out
+
+
+def _papers(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> list[monitor.Paper]:
+    """Every O1 paper of the week, with the claim of its first-day [n] (the first by line,
+    question and claim when several cited it that day)."""
+    specs = {spec.slug: spec for spec in inputs.lines}
+    lines = {line.slug: line for line in indexed}
+    out: list[monitor.Paper] = []
+    for key, (day, cites) in _first_cites(indexed).items():
+        if not week.holds(day):
+            continue
+        cite = min(cites, key=lambda c: (c.line, c.question, c.claim))
+        nodes = inputs.snapshot.lines.get(cite.line, {})
+        question = _question_of(specs[cite.line], nodes, cite.question)
+        claim = nodes.get(cite.claim)
+        if question is None or not isinstance(claim, Claim):
+            continue
+        title = lines[cite.line].sources[cite.source].title
+        out.append(monitor.Paper(key, cite.line, question, claim.text, title))
+    return out
+
+
+def monitor_sample(inputs: Inputs, week: Week, lang: Lang) -> monitor.Sample:
+    """The monitoring judge's seeded sample of the week (module docstring, pipeline.monitor):
+    nothing is called here."""
+    return _monitor_sample(inputs, week, lang, _index(inputs, week.end))
+
+
+def _monitor_sample(
+    inputs: Inputs, week: Week, lang: Lang, indexed: Sequence[_Line]
+) -> monitor.Sample:
+    return monitor.draw(week.label, lang, _sections(inputs, week), _papers(inputs, week, indexed))
 
 
 # ---------------------------------------------------------------------------- rendering
@@ -1204,7 +1300,57 @@ def _output(review: WeeklyReview, lang: Lang) -> list[str]:
     for slug in review.lines:
         cells = [_shown(str(w.lines[slug][0]), w.lines[slug][1], lang) for w in weeks]
         out.append(f"| └ {slug} | " + " | ".join(cells) + " |")
-    out += ["", f"- {t.WBR_O2(lang, value=_o2_text(review.o2, lang))}", f"- {t.WBR_O1_NOTE(lang)}"]
+    out += [
+        "",
+        f"- {t.WBR_O2(lang, value=_o2_text(review.o2, lang))}",
+        *_monitor_lines(review.monitor, lang),
+        f"- {t.WBR_O1_NOTE(lang)}",
+    ]
+    return out
+
+
+def _tally_text(tally: Tally, head: Msg, lang: Lang) -> str:
+    """`head` k/n of what was judged, then how many are unmeasured and why; the reason
+    alone when nothing was judged; 対象なし for an empty sample nothing stopped."""
+    why = STOP_WORDS[tally.stop or "error"](lang)
+    if not tally.judged:
+        if tally.asked or tally.stop is not None:
+            return t.WBR_UNMEASURED(lang, why=why)
+        return t.WBR_NO_TARGET(lang)
+    parts = [head(lang, k=tally.passed, n=tally.judged)]
+    if tally.unmeasured:
+        parts.append(t.WBR_UNMEASURED_REST(lang, m=tally.unmeasured, why=why))
+    if tally.failed:
+        parts.append(t.WBR_FAILED_SECTIONS(lang, sections=", ".join(tally.failed)))
+    return " · ".join(parts)
+
+
+def _monitor_lines(result: MonitorResult | None, lang: Lang) -> list[str]:
+    """Section 1's monitor lines (pipeline.monitor); none for a review computed without it."""
+    if result is None:
+        return []
+    out = [
+        "- "
+        + t.WBR_PRECISION(
+            lang, n=PRECISION_N, value=_tally_text(result.precision, t.WBR_ADVANCED, lang)
+        ),
+        "- "
+        + t.WBR_FIDELITY(
+            lang, n=FIDELITY_N, value=_tally_text(result.fidelity, t.WBR_PASSED, lang)
+        ),
+    ]
+    if result.week_usd:
+        cap = DASH if result.budget is None else f"{result.budget:.2f}"
+        out.append(
+            "- "
+            + t.WBR_MONITOR_COST(
+                lang,
+                model=monitor.MODEL.name,
+                usd=f"{result.usd:.2f}",
+                week=f"{result.week_usd:.2f}",
+                cap=cap,
+            )
+        )
     return out
 
 
@@ -1490,6 +1636,7 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
             "unknown": author.unknown,
         },
         "exceptions": review.exceptions(),
+        "monitor": None if review.monitor is None else monitor.as_row(review.monitor),
     }
 
 
@@ -1500,28 +1647,38 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
 class Written:
     note: Path
     row: dict[str, JsonValue]
+    review: WeeklyReview
+    """What the note renders, the monitoring judge's answers included."""
 
 
-def _append(path: Path, line: dict[str, JsonValue]) -> None:
-    """One JSON line at the end of `path`; a last line cut short is closed first."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tail = path.read_bytes()[-1:] if path.is_file() else b""
-    with path.open("a", encoding="utf-8") as out:
-        if tail and tail != b"\n":
-            out.write("\n")
-        out.write(json.dumps(line, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def write_weekly_review(
-    env: Mapping[str, str], *, week: Week, out: Path, now: AwareDatetime
+async def write_weekly_review(
+    env: Mapping[str, str],
+    *,
+    week: Week,
+    out: Path,
+    now: AwareDatetime,
+    http: httpx2.AsyncClient,
 ) -> Written:
-    """Read the store, write `<out>/<note_name(week)>` (replacing a note of the same week)
-    and append the week's row to `<store>/metrics/weekly.jsonl`. Nothing else is written."""
+    """Read the store, run the monitoring judge over the week's sample (pipeline.monitor:
+    nothing is called without ANTHROPIC_API_KEY), then write `<out>/<note_name(week)>`
+    (replacing a note of the same week) and append the week's row to
+    `<store>/metrics/weekly.jsonl`. The judge's calls append to `<store>/metrics/judge.jsonl`;
+    nothing else is written."""
     lang = note_lang(env)
-    review = weekly_review(read_inputs(env, now=now), week)
+    inputs = read_inputs(env, now=now)
+    indexed = _index(inputs, week.end)
+    checked = await monitor.monitor_judge(
+        _monitor_sample(inputs, week, lang, indexed),
+        env,
+        store_dir(env) / monitor.LEDGER_FILE,
+        http=http,
+        now=now,
+        rubric=monitor.read_rubric(lang),
+    )
+    review = replace(_review(inputs, week, indexed), monitor=checked)
     out.mkdir(parents=True, exist_ok=True)
     note = out / note_name(week)
     note.write_text(render(review, lang), encoding="utf-8")
     line = row(review, generated_at=now)
-    _append(store_dir(env) / WEEKLY_FILE, line)
-    return Written(note=note, row=line)
+    append_row(store_dir(env) / WEEKLY_FILE, line)
+    return Written(note=note, row=line, review=review)

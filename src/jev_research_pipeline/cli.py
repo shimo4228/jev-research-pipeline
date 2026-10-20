@@ -23,8 +23,10 @@ jrp wbr [--week YYYY-Www] [--out DIR]
                    the weekly review of one ISO week (default: the last complete one) from
                    the store alone: the note <DIR>/<the Monday after>_jrp_wbr.md (default
                    DIR <JRP_VAULT_DIR>/daily-research) and one line appended to
-                   <store>/metrics/weekly.jsonl, nothing else (pipeline.wbr). An older store
-                   is read under today's schema in memory, never migrated
+                   <store>/metrics/weekly.jsonl (pipeline.wbr); with ANTHROPIC_API_KEY set,
+                   the monitoring judge's calls to the Claude API, one line each in
+                   <store>/metrics/judge.jsonl (pipeline.monitor). An older store is read
+                   under today's schema in memory, never migrated
 jrp queries check --line <slug>
                    send each authored query once, print hits (pipeline.query_check)
 jrp prose export|bench|read|gate
@@ -73,10 +75,11 @@ from .pipeline.concurrency import prose_concurrency
 from .pipeline.config import config_path, env_tracks, line_context, rotation_config
 from .pipeline.doctor import doctor
 from .pipeline.drift import LIVE_ENV, drift_table, drift_with_failures
+from .pipeline.monitor import CALL_TIMEOUT_S
 from .pipeline.notify import notify
 from .pipeline.query_check import check_queries
 from .pipeline.runner import run_pipeline, run_summary, store_dir
-from .pipeline.wbr import Week, write_weekly_review
+from .pipeline.wbr import Week, Written, write_weekly_review
 from .questions import NoQuestions, questions_path
 from .reduction import DecisionLog, export_cases, fit_thresholds, write_proposal
 from .report import VaultNotConfigured, vault_dir
@@ -87,14 +90,6 @@ from .store.migrate import StoreSchemaError, migrate_store, prepare_store
 from .telemetry import setup_telemetry
 
 HTTP_TIMEOUT_S = 30.0
-DOCS = Path(__file__).resolve().parents[2] / "docs"
-RUBRICS: Final[Mapping[Lang, Path]] = {
-    "ja": DOCS / "prose-rubric.md",
-    "en": DOCS / "prose-rubric.en.md",
-    "zh": DOCS / "prose-rubric.zh.md",
-}
-"""The fidelity judge's checks per draft language; each gate file embeds the one of its
-variant's language (pipeline.prose_bench.gate_files)."""
 LOG_TIME_FORMAT: Final = "%Y-%m-%dT%H:%M:%S%z"
 """The time at the start of a timed log line, the same form scripts/launchd-jrp.sh's `say`
 writes (tests pin the two equal), so one log reads one way."""
@@ -275,14 +270,13 @@ def _migrate(env: Mapping[str, str], *, dry_run: bool) -> int:
 
 
 def _wbr(env: Mapping[str, str], week: Week | None, out: str | None) -> int:
-    """Read-only on the store (pipeline.wbr): an incompatible partition raises
-    StoreSchemaError, which main() prints as one line with exit 2."""
+    """Read-only on the store's partitions (pipeline.wbr): an incompatible partition raises
+    StoreSchemaError, which main() prints as one line with exit 2. With ANTHROPIC_API_KEY
+    set, the monitoring judge calls the Claude API (pipeline.monitor)."""
     now = datetime.now().astimezone()
     try:
         target = Path(out) if out else vault_dir(env) / REPORT_DIR
-        written = write_weekly_review(
-            env, week=week or Week.last_complete(now.date()), out=target, now=now
-        )
+        written = asyncio.run(_weekly(env, week or Week.last_complete(now.date()), target, now))
     except StoreSchemaError:
         raise
     except (VaultNotConfigured, OSError, ValueError) as e:  # config, questions, JRP_NOTE_LANG
@@ -290,6 +284,12 @@ def _wbr(env: Mapping[str, str], week: Week | None, out: str | None) -> int:
         return 1
     sys.stdout.write(f"{written.note}\n")
     return 0
+
+
+async def _weekly(env: Mapping[str, str], week: Week, out: Path, now: datetime) -> Written:
+    """One HTTP client for the monitoring judge; its per-call timeout is the judge's own."""
+    async with httpx2.AsyncClient(timeout=CALL_TIMEOUT_S) as http:
+        return await write_weekly_review(env, week=week, out=out, now=now, http=http)
 
 
 def _fit(env: Mapping[str, str]) -> int:
@@ -368,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                 code = _migrate(env, dry_run=bool(args.dry_run))
             case "doctor":
                 code = _doctor(env)
-            case "wbr":  # synchronous: never into _async_command, whose fallback is drift
+            case "wbr":  # dispatched here, never into _async_command, whose fallback is drift
                 code = _wbr(env, args.week, args.out)
             case _:
                 code = asyncio.run(_async_command(env, args))
@@ -493,7 +493,7 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
             if args.verdicts:
                 lines = pb.gate_summary(bench, str(args.variant), Path(args.verdicts))
             else:
-                rubric = RUBRICS[pb.variant_lang(bench, str(args.variant))].read_text(
+                rubric = pb.RUBRICS[pb.variant_lang(bench, str(args.variant))].read_text(
                     encoding="utf-8"
                 )
                 out, n = pb.gate_files(

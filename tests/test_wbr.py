@@ -27,6 +27,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from pydantic import BaseModel
 
@@ -57,6 +58,7 @@ from jev_research_pipeline.model import (
 from jev_research_pipeline.model.jsonld import CONTEXT
 from jev_research_pipeline.pipeline.config import ReservedSlug, load_tracks
 from jev_research_pipeline.pipeline.doctor import doctor
+from jev_research_pipeline.pipeline.monitor import LEDGER_FILE
 from jev_research_pipeline.pipeline.registry import Snapshot
 from jev_research_pipeline.pipeline.wbr import (
     O2,
@@ -71,6 +73,7 @@ from jev_research_pipeline.pipeline.wbr import (
     Measure,
     Week,
     WeeklyReview,
+    Written,
     note_name,
     paper_key,
     poisson_interval,
@@ -665,7 +668,7 @@ def test_a_track_cannot_take_the_reviews_slug(tmp_path: Path):
 # ------------------------------------------------------------------------- files, the CLI
 
 
-def _setup(tmp_path: Path) -> dict[str, str]:
+def scenario_on_disk(tmp_path: Path) -> dict[str, str]:
     """The scenario on disk: config.toml, questions/, the store and a vault dir."""
     (tmp_path / "config.toml").write_text(CONFIG, encoding="utf-8")
     qdir = tmp_path / "questions"
@@ -697,22 +700,39 @@ def _files(root: Path) -> dict[str, tuple[int, bytes]]:
     }
 
 
-def test_it_reads_the_store_and_writes_only_its_note_and_one_row(
+def _no_call(request: httpx2.Request) -> httpx2.Response:
+    raise AssertionError(f"no request expected without ANTHROPIC_API_KEY: {request.url}")
+
+
+async def _write(env: Mapping[str, str], out: Path, now: datetime = NOW) -> Written:
+    """The review with a monitoring-judge client that fails on any request: the env of these
+    tests has no ANTHROPIC_API_KEY."""
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(_no_call)) as http:
+        return await write_weekly_review(env, week=WEEK, out=out, now=now, http=http)
+
+
+async def test_it_reads_the_store_and_writes_only_its_note_and_one_row(
     tmp_path: Path, review: WeeklyReview
 ):
-    env = _setup(tmp_path)
+    env = scenario_on_disk(tmp_path)
     store = Path(env["JRP_STORE_DIR"])
     before = _files(store)
     out = tmp_path / "out"
-    written = write_weekly_review(env, week=WEEK, out=out, now=NOW)
+    written = await _write(env, out)
     assert _files(store) == before  # same bytes, same mtimes: nothing in the store moved
     assert written.note == out / "2026-11-09_jrp_wbr.md"
     assert sorted(p.name for p in out.iterdir()) == ["2026-11-09_jrp_wbr.md"]
-    assert written.note.read_text(encoding="utf-8") == render(review, "ja")
+    assert written.review == replace(review, monitor=written.review.monitor)
+    assert written.note.read_text(encoding="utf-8") == render(written.review, "ja")
+    assert not (store / LEDGER_FILE).exists()  # no key: nothing called, nothing written
     (line,) = (store / WEEKLY_FILE).read_text(encoding="utf-8").splitlines()
     row: Any = json.loads(line)
     assert row == json.loads(json.dumps(written.row))
     assert (row["week"], row["generated_at"], row["exceptions"]) == ("2026-W45", NOW.isoformat(), 4)
+    assert (row["monitor"]["fidelity"], row["monitor"]["precision"]) == (
+        {"asked": 3, "judged": 0, "passed": 0, "stop": "no-key", "failed": []},
+        {"asked": 2, "judged": 0, "passed": 0, "stop": "no-key", "failed": []},
+    )
     assert [w["count"] for w in row["o1"]] == [0, 0, 0, 1, 4, 2]
     assert row["breakdown"]["all"]["old"] == {
         "new": 6,
@@ -721,14 +741,14 @@ def test_it_reads_the_store_and_writes_only_its_note_and_one_row(
         "posted": 2,
         "cited": 1,
     }
-    write_weekly_review(env, week=WEEK, out=out, now=NOW + timedelta(hours=1))
+    await _write(env, out, NOW + timedelta(hours=1))
     assert len((store / WEEKLY_FILE).read_text(encoding="utf-8").splitlines()) == 2
 
 
-def test_a_store_with_an_older_additive_context_is_read_in_memory_and_left_as_is(
+async def test_a_store_with_an_older_additive_context_is_read_in_memory_and_left_as_is(
     tmp_path: Path, review: WeeklyReview
 ):
-    env = _setup(tmp_path)
+    env = scenario_on_disk(tmp_path)
     path = Path(env["JRP_STORE_DIR"]) / "lines" / "akc.jsonld"
     doc = json.loads(path.read_text(encoding="utf-8"))
     doc["@context"] = {k: v for k, v in CONTEXT.items() if k != "claim_count"}
@@ -736,13 +756,14 @@ def test_a_store_with_an_older_additive_context_is_read_in_memory_and_left_as_is
     with pytest.raises(ValueError, match="旧 schema"):
         Partition(path).load()  # the run would migrate it first; wbr does not
     before = (path.stat().st_mtime_ns, path.read_bytes())
-    written = write_weekly_review(env, week=WEEK, out=tmp_path / "out", now=NOW)
+    written = await _write(env, tmp_path / "out")
     assert (path.stat().st_mtime_ns, path.read_bytes()) == before
-    assert written.note.read_text(encoding="utf-8") == render(review, "ja")
+    assert written.review == replace(review, monitor=written.review.monitor)
 
 
 def _main(monkeypatch: pytest.MonkeyPatch, env: Mapping[str, str], *argv: str) -> int:
-    for key in ("JRP_NOTE_LANG", "OTEL_EXPORTER_OTLP_ENDPOINT"):
+    # the developer's own key must never reach the monitoring judge of a test
+    for key in ("JRP_NOTE_LANG", "OTEL_EXPORTER_OTLP_ENDPOINT", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -752,7 +773,7 @@ def _main(monkeypatch: pytest.MonkeyPatch, env: Mapping[str, str], *argv: str) -
 def test_an_incompatible_store_stops_with_one_line_and_exit_2(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    env = _setup(tmp_path)
+    env = scenario_on_disk(tmp_path)
     path = Path(env["JRP_STORE_DIR"]) / "lines" / "edge.jsonld"
     doc = json.loads(path.read_text(encoding="utf-8"))
     doc["@context"] = {**CONTEXT, "text": "schema:description"}
@@ -767,11 +788,14 @@ def test_an_incompatible_store_stops_with_one_line_and_exit_2(
 def test_the_cli_writes_into_the_vaults_daily_research_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    env = _setup(tmp_path)
+    env = scenario_on_disk(tmp_path)
     assert _main(monkeypatch, {**env, "JRP_NOTE_LANG": "en"}, "--week", "2026-W45") == 0
     note = tmp_path / "vault" / "daily-research" / "2026-11-09_jrp_wbr.md"
     assert capsys.readouterr().out == f"{note}\n"
-    assert note.read_text(encoding="utf-8").startswith("# jrp weekly review 2026-W45")
+    text = note.read_text(encoding="utf-8")
+    assert text.startswith("# jrp weekly review 2026-W45")
+    assert "- OUT precision sample (monitoring judge, up to 12 O1 papers: does the claim " in text
+    assert "question forward): not measured (no key)" in text
 
 
 def test_the_cli_refuses_a_week_that_is_not_an_iso_week(monkeypatch: pytest.MonkeyPatch):
@@ -783,7 +807,7 @@ def test_the_cli_refuses_a_week_that_is_not_an_iso_week(monkeypatch: pytest.Monk
 def test_the_cli_says_what_is_missing_without_a_vault(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    env = _setup(tmp_path)
+    env = scenario_on_disk(tmp_path)
     monkeypatch.delenv("JRP_VAULT_DIR", raising=False)
     env = {k: v for k, v in env.items() if k != "JRP_VAULT_DIR"}
     assert _main(monkeypatch, env, "--week", "2026-W45") == 1

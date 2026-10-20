@@ -15,7 +15,9 @@ Roles (skill author-calibrated-eval): the author reads for readability; a fresh-
 Opus judge (.claude/agents/prose-judge.md) checks fidelity only, one draft at a time, with
 binary checks and a pass / fail verdict (docs/prose-rubric.md) — an Opus judge asked for
 readability picked the more informative draft the author found hard to read (2026-09-23);
-code checks form. Dev time only; no run calls Claude. Everything lives under <JRP_STORE_DIR>/prose_bench/, never in the repo: cases
+code checks form. Dev time only; no run calls Claude (the weekly review's monitoring judge
+reuses case_of, gate_text and GateVerdict on the Claude API, writing nothing here:
+pipeline.monitor). Everything lives under <JRP_STORE_DIR>/prose_bench/, never in the repo: cases
 carry verbatim third-party text (claims, source excerpts), and the repo is public.
 
 Cases are split by their id alone (about one in three held out), so a case never changes
@@ -64,6 +66,16 @@ from jev_research_pipeline.store import GraphStore
 
 BENCH_DIR: Final = "prose_bench"
 HOLDOUT_EVERY: Final = 3
+DOCS: Final = Path(__file__).resolve().parents[3] / "docs"
+"""The checkout's docs/: the rubrics are read from there (a wheel does not carry docs/)."""
+RUBRICS: Final[Mapping[Lang, Path]] = {
+    "ja": DOCS / "prose-rubric.md",
+    "en": DOCS / "prose-rubric.en.md",
+    "zh": DOCS / "prose-rubric.zh.md",
+}
+"""The fidelity judge's checks per draft language: `jrp prose gate` embeds the one of its
+variant's language in each gate file (gate_files), the weekly review's monitoring judge the
+one of the note's language (pipeline.monitor)."""
 
 type Split = Literal["dev", "holdout"]
 
@@ -140,54 +152,81 @@ def cases_from_nodes(
     slug: str, nodes: Mapping[str, GraphNodeType], *, line_name: str, vocabulary: Sequence[str]
 ) -> list[BenchCase]:
     """Every question-day with prose in one line partition. `split` is assigned later."""
-    out: list[BenchCase] = []
     reports = [n for n in nodes.values() if isinstance(n, Report)]
+    out: list[BenchCase] = []
     for log in (n for n in nodes.values() if isinstance(n, QuestionLog) and n.text):
         question = nodes.get(log.question)
-        claims = [c for i in log.claims if isinstance(c := nodes.get(i), Claim)]
-        if not isinstance(question, Question) or not claims:
+        if not isinstance(question, Question):
             continue
-        sources: list[SourceItem] = []
-        claim_sources: list[int | None] = []
-        for c in claims:
-            unit = nodes.get(c.unit)
-            src = nodes.get(unit.source) if isinstance(unit, Unit) else None
-            if isinstance(src, SourceItem):
-                if src not in sources:
-                    sources.append(src)
-                claim_sources.append(sources.index(src) + 1)
-            else:
-                claim_sources.append(None)
-        earlier = {claim for r in reports if r.run_date < log.run_date for claim in r.claims}
-        today = set(log.claims)
-        known = [
-            k.text
-            for i in question.evidence
-            if i in earlier and i not in today and isinstance(k := nodes.get(i), Claim)
-        ]
-        out.append(
-            BenchCase(
-                id=_case_id(slug, question.id, [c.id for c in claims]),
-                split="dev",
-                line_slug=slug,
-                line_name=line_name,
-                vocabulary=tuple(vocabulary),
-                question_title=question.title,
-                question_brief=question.brief,
-                run_date=log.run_date,
-                claims=tuple(
-                    BenchClaim(text=c.text, source=s)
-                    for c, s in zip(claims, claim_sources, strict=True)
-                ),
-                known=tuple(known),
-                sources=tuple(
-                    BenchSource(title=s.title, url=s.url, excerpt=s.text[:SOURCE_EXCERPT_CHARS])
-                    for s in sources
-                ),
-                baseline=log.text,
-            )
+        case = case_of(
+            slug,
+            log,
+            question,
+            nodes,
+            reports=reports,
+            line_name=line_name,
+            vocabulary=vocabulary,
         )
+        if case is not None:
+            out.append(case)
     return out
+
+
+def case_of(
+    slug: str,
+    log: QuestionLog,
+    question: Question,
+    nodes: Mapping[str, GraphNodeType],
+    *,
+    reports: Sequence[Report],
+    line_name: str,
+    vocabulary: Sequence[str],
+) -> BenchCase | None:
+    """One question-day as the writer saw it: its claims in the section's [n] order, their
+    sources' titles and excerpts, the evidence known from earlier Reports, and the prose the
+    run wrote (`baseline`). None when no claim of it is stored. `question` is passed in, so a
+    caller can take it from questions/ when the partition holds no Question node for it (the
+    weekly review's monitoring judge, pipeline.monitor)."""
+    claims = [c for i in log.claims if isinstance(c := nodes.get(i), Claim)]
+    if not claims:
+        return None
+    sources: list[SourceItem] = []
+    claim_sources: list[int | None] = []
+    for c in claims:
+        unit = nodes.get(c.unit)
+        src = nodes.get(unit.source) if isinstance(unit, Unit) else None
+        if isinstance(src, SourceItem):
+            if src not in sources:
+                sources.append(src)
+            claim_sources.append(sources.index(src) + 1)
+        else:
+            claim_sources.append(None)
+    earlier = {claim for r in reports if r.run_date < log.run_date for claim in r.claims}
+    today = set(log.claims)
+    known = [
+        k.text
+        for i in question.evidence
+        if i in earlier and i not in today and isinstance(k := nodes.get(i), Claim)
+    ]
+    return BenchCase(
+        id=_case_id(slug, question.id, [c.id for c in claims]),
+        split="dev",
+        line_slug=slug,
+        line_name=line_name,
+        vocabulary=tuple(vocabulary),
+        question_title=question.title,
+        question_brief=question.brief,
+        run_date=log.run_date,
+        claims=tuple(
+            BenchClaim(text=c.text, source=s) for c, s in zip(claims, claim_sources, strict=True)
+        ),
+        known=tuple(known),
+        sources=tuple(
+            BenchSource(title=s.title, url=s.url, excerpt=s.text[:SOURCE_EXCERPT_CHARS])
+            for s in sources
+        ),
+        baseline=log.text,
+    )
 
 
 def split_of(case_id: str) -> Split:
@@ -488,21 +527,30 @@ def gate_files(
     out.mkdir(parents=True, exist_ok=True)
     selected = _selected(bench, variant, split, only)
     for case, d in selected:
-        lang = d.lang
-        failed = gates(d.prose, len(case.claims), lang) if d.prose else d.gates
-        code = G_PASSED(lang) if not failed else G_FAILED(lang, why=" / ".join(failed))
-        body = "\n\n".join(
-            [
-                rubric.strip(),
-                G_MATERIALS(lang),
-                materials(case, lang),
-                G_DRAFT(lang),
-                code,
-                d.prose or G_NO_DRAFT(lang),
-            ]
-        )
+        failed = gates(d.prose, len(case.claims), d.lang) if d.prose else d.gates
+        body = gate_text(rubric, case, d.prose, failed, d.lang)
         (out / f"{case.id}.md").write_text(body + "\n", encoding="utf-8")
     return out, len(selected)
+
+
+def gate_text(
+    rubric: str, case: BenchCase, prose: str | None, failed: Sequence[str], lang: Lang
+) -> str:
+    """What the fidelity judge reads for one draft: the rubric, the materials, the code-gate
+    line (`failed` = the code gates' failures, empty = passed) and the draft. Pure: the
+    bench writes it to a gate file, the weekly review's monitoring judge sends it as the
+    prompt (pipeline.monitor)."""
+    code = G_PASSED(lang) if not failed else G_FAILED(lang, why=" / ".join(failed))
+    return "\n\n".join(
+        [
+            rubric.strip(),
+            G_MATERIALS(lang),
+            materials(case, lang),
+            G_DRAFT(lang),
+            code,
+            prose or G_NO_DRAFT(lang),
+        ]
+    )
 
 
 class Check(Value):
