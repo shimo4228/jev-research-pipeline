@@ -1,0 +1,7 @@
+name = "firehose-backlog-7"
+# The first cap candidate (plan intake-eval): a listing that leaves room under the cap is
+# topped up with the last 7 days' unjudged arXiv overflow, BM25 order. Everything else is
+# production's.
+
+[firehose]
+backlog_days = 7

@@ -526,7 +526,9 @@ class Score:
     reached: int
     """Distinct sources the configuration reached in the window."""
     screened: int
-    """Of them, past the floor: the prefilter requests a run sends for them (once each)."""
+    """Of them, past the floor and never prefiltered before the window: the prefilter
+    requests the window costs (a source judged earlier is answered by run.StoredJev, unless
+    its text changed since)."""
     unjudged: int
     """Past the floor with no answer (no key, a failed request): N_ot is a lower bound."""
     keys: int
@@ -582,6 +584,7 @@ def score(
     days: Sequence[date],
 ) -> Score:
     """`known`: paper keys fetched before the window (never new)."""
+    start = min(days, default=date.max)
     screen = screenable_reached(reaches, frozen, arm)
     keys = {frozen.keys[r.source] for r in reaches}
     found: dict[str, set[str]] = {}
@@ -603,7 +606,7 @@ def score(
     return Score(
         arm=arm.name,
         reached=len({r.source for r in reaches}),
-        screened=len(screen),
+        screened=sum(1 for sid in screen if frozen.judged_on.get(sid, date.max) >= start),
         unjudged=sum(1 for sid in screen if sid not in verdicts),
         keys=len(keys),
         keys_new=len(keys - known),

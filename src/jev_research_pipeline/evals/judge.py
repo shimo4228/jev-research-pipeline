@@ -50,6 +50,12 @@ from .intake import LineSetup, Verdict, verdict_of
 JEV_USD_PER_INPUT_TOKEN: Final = 42e-9
 """TypeSafe's price, $42 per billion input tokens (README, as-of 2026-10-07). Review when
 TypeSafe changes its price or Jev's version."""
+REQUEST_TOKENS: Final = 250
+QUESTION_TOKENS: Final = 150
+"""Input tokens a prefilter request carries beyond its state (the instructions, each
+question's field description, the framing). Measured 2026-10-20 on jev, 3 questions, 1,390
+requests: 1,599 input tokens each against 1,114 from the state alone, so 485 beyond it; 250 +
+3 x 150 = 700 keeps the estimate above the bill."""
 DEFAULT_MAX_USD: Final = 0.50
 """What one `jrp eval intake` may spend on Jev unless --max-usd says otherwise."""
 JITTER_SOURCES: Final = 40
@@ -132,7 +138,10 @@ class Judge:
         return None
 
     def estimate(self, sources: Sequence[SourceItem]) -> float:
-        return sum(estimated_tokens(self.state(s)) for s in sources) * JEV_USD_PER_INPUT_TOKEN
+        """High: the state (core.estimated_tokens) plus what a request carries besides it."""
+        overhead = REQUEST_TOKENS + QUESTION_TOKENS * len(self.setup.questions)
+        tokens = sum(estimated_tokens(self.state(s)) + overhead for s in sources)
+        return tokens * JEV_USD_PER_INPUT_TOKEN
 
     async def verdicts(
         self, sources: Sequence[SourceItem], *, now: AwareDatetime

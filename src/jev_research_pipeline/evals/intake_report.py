@@ -82,6 +82,7 @@ from .stats import Chao2, PairedDiff, expected_flips, paired_diff, wilson
 DEFAULT_DAYS: Final = 14
 ROTATION_RUNS: Final = 12
 """Runs the rotation estimate looks ahead: one full cycle of a line's ~11 query lines."""
+SIGNIFICANT: Final = 0.05
 BOUNDARY: Final = 0.1
 """An on-topic difference within this of the cut is a boundary one (judge-relative)."""
 
@@ -96,7 +97,9 @@ class LineResult:
     cand: Score
     diff: PairedDiff
     floor: float | None
-    """Expected verdict flips over the sources only one arm reached; None = no jitter rows."""
+    """Expected verdict flips over the sources of new papers only one arm reached (the only
+    answers the difference rests on: a shared source is one stored answer for both); None =
+    no jitter rows."""
     boundary: int
     """N_ot papers only one arm found whose best on_topic is within BOUNDARY of the cut."""
     check: SelfCheck
@@ -276,7 +279,8 @@ async def evaluate_line(
     base = score(frozen, base_arm, base_reach, verdicts, known=known_keys, days=window)
     cand = score(frozen, cand_arm, cand_reach, verdicts, known=known_keys, days=window)
     diff = paired_diff([cand.per_day.get(d, 0) - base.per_day.get(d, 0) for d in window])
-    only = set(base_src) ^ set(cand_src)
+    # only a new paper can move N_ot: a source of a known one never counts, so it adds no noise
+    only = {sid for sid in set(base_src) ^ set(cand_src) if frozen.keys[sid] not in known_keys}
     floor = (
         expected_flips((v.margin for sid in only if (v := verdicts.get(sid))), deltas)
         if deltas
@@ -348,16 +352,28 @@ def _delay(score: Score) -> str:
 
 
 def _verdict_line(r: LineResult) -> str:
+    """A difference only when the t interval and the sign-flip p agree and it clears the
+    noise floor: with many tied days (a full listing leaves no room) the two can disagree."""
     d = r.diff
     if d.low is None or d.high is None:
         return "判定: 日が 1 つしかなく区間が出ない"
-    floor = r.floor
-    outside = d.low > 0 or d.high < 0
-    if floor is None:
+    if r.floor is None:
         return "判定: 雑音の床が未測定 (TYPESAFE_API_KEY が無く、jitter の行も無い)"
-    if outside and abs(d.total) > floor:
-        return "判定: 差は区間でも雑音の床の外 (日ごとの対で 0 を含まない)"
-    return "判定: 差は区間か雑音の床の内側 (この窓では判別できない)"
+    excludes = d.low > 0 or d.high < 0
+    significant = d.p is not None and d.p < SIGNIFICANT
+    if excludes and significant and abs(d.total) > r.floor:
+        return "判定: 差あり (t 区間が 0 を含まず、符号反転の p < 0.05、雑音の床の外)"
+    if excludes or significant:
+        return "判定: 境目 (t 区間と符号反転の p が食い違う。窓を延ばすか日を足して測り直す)"
+    return "判定: この窓では判別できない (区間が 0 を含む)"
+
+
+def _sends_line(freed: float) -> str:
+    if abs(freed) < 0.05:
+        return "- keyword の送信: 1 run あたりの数は変わらない"
+    if freed > 0:
+        return f"- keyword の送信: 1 run あたり {freed:.1f} 件少ない"
+    return f"- keyword の送信: 1 run あたり {-freed:.1f} 件多い"
 
 
 def render_line(r: LineResult, candidate: str) -> list[str]:
@@ -379,7 +395,7 @@ def render_line(r: LineResult, candidate: str) -> list[str]:
         f"| 雑音の床 (片方だけが届いた source の再判定で動く見込み) | | | {floor} |",
         f"| 差のうち境界の論文 (on_topic {CUT:.1f}〜{CUT + BOUNDARY:.1f}) | | | {r.boundary} |",
         f"| store に対する新規率 (論文) | {_share(b.keys_new, b.keys)} | {_share(c.keys_new, c.keys)} | |",
-        f"| prefilter の判定 (窓で届いた source) | {b.screened} | {c.screened} | {_signed(c.screened - b.screened)} ({_signed(per_run)}/run) |",
+        f"| prefilter の新しい判定 (窓で初めて判定に届く source) | {b.screened} | {c.screened} | {_signed(c.screened - b.screened)} ({_signed(per_run)}/run) |",
         f"| 未判定 (N_ot は下限) | {b.unjudged} | {c.unjudged} | |",
         f"| 初取得から判定まで | {_delay(b)} | {_delay(c)} | |",
         f"| 取りこぼし Chao2 (query net 全部) | {_chao(b.chao_all)} | {_chao(c.chao_all)} | |",
@@ -418,9 +434,7 @@ def render_line(r: LineResult, candidate: str) -> list[str]:
         "",
         f"- 1 run あたり新規で問いに合う論文: baseline {rot.base.per_run:.2f} → 候補 {rot.cand.per_run:.2f}"
         f" (差 {rot.delta:+.2f} [{rot.low:+.2f}, {rot.high:+.2f}])",
-        f"- keyword の送信: 1 run あたり {rot.freed:+.1f} 件少ない"
-        if rot.freed >= 0
-        else f"- keyword の送信: 1 run あたり {-rot.freed:.1f} 件多い",
+        _sends_line(rot.freed),
     ]
     if rot.cand.missing:
         lines.append(
@@ -443,6 +457,34 @@ def render_line(r: LineResult, candidate: str) -> list[str]:
     return [*lines, ""]
 
 
+def day_deltas(r: LineResult) -> list[int]:
+    return [r.cand.per_day.get(d, 0) - r.base.per_day.get(d, 0) for d in r.days]
+
+
+def pooled_lines(results: Sequence[LineResult]) -> list[str]:
+    """Every line's run days as the pairs of one difference (a line-day is the unit)."""
+    d = paired_diff([x for r in results for x in day_deltas(r)])
+    base = sum(r.base.n_ot for r in results)
+    cand = sum(r.cand.n_ot for r in results)
+    screened = sum(r.cand.screened - r.base.screened for r in results)
+    floor = sum(r.floor or 0.0 for r in results)
+    boundary = sum(r.boundary for r in results)
+    interval = (
+        f" [{_signed(d.low)}, {_signed(d.high)}]"
+        if d.low is not None and d.high is not None
+        else ""
+    )
+    p = f" p={d.p:.3f}" if d.p is not None else ""
+    return [
+        f"## 全ライン ({len(results)} ライン、line-day {d.days})",
+        "",
+        f"- N_ot: {base} → {cand} ({_signed(d.total)}{interval}{p})、雑音の床 ±{floor:.1f}、"
+        f"差のうち境界の論文 {boundary}",
+        f"- prefilter の新しい判定: {_signed(screened)}",
+        "",
+    ]
+
+
 def render(results: Sequence[LineResult], candidate: Candidate, spend: Spend) -> list[str]:
     head = [
         f"# jrp eval intake — {candidate.name} と baseline",
@@ -452,6 +494,8 @@ def render(results: Sequence[LineResult], candidate: Candidate, spend: Spend) ->
         "",
     ]
     body = [line for r in results for line in render_line(r, candidate.name)]
+    if len(results) > 1:
+        body += pooled_lines(results)
     tail = [
         "## 費用",
         "",

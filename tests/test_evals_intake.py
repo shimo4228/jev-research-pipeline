@@ -416,3 +416,11 @@ async def test_a_candidate_that_does_not_load_exits_2(
     bad.write_text('name = "x"\n[queries.akc]\ndrop = ["memory"]\n', encoding="utf-8")
     assert await intake_command({}, IntakeArgs(candidate=bad, lines=())) == 2
     assert "not a query line" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "path", sorted((Path(__file__).parent.parent / "bench" / "intake").glob("*.toml"))
+)
+def test_the_committed_candidates_load(path: Path):
+    candidate = ev.load_candidate(path)
+    assert candidate.name == path.stem

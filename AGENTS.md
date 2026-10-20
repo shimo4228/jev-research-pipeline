@@ -19,6 +19,41 @@
 （`~/.config/jrp/env`）。書き換えたら **commit して main に入れる** — launchd の 05:00 の run は
 main の checkout を読むので、次の tick から効く。
 
+## 入口を比べる（intake eval）
+
+クエリの集合・net の on/off・firehose の上限と並べ方・本文の床を変える前に、候補の設定と現行の設定を
+同じ凍結した取得の上で比べる。設計の正本は design「Intake eval」。
+
+- 役割の違い: `jrp queries check` は書いたクエリを 1 回ずつ送り、ヒット数と上位の題を見る（的外れで
+  ないかを書いた直後に確かめる。保存も判定もしない）。`jrp eval intake` は候補と現行の差を見る
+  （問いに合う新規の論文の数 N_ot の差・区間・雑音の床・費用。判定役は本番の prefilter）
+- 候補は TOML 1 本。書かない鍵は本番のまま:
+  ```toml
+  name = "firehose-backlog-7"
+  body_floor = 150            # 要旨の床（文字）。省略 = 本番の 200
+  [firehose]
+  max = 300                   # 1 line-run の上限。省略 = config.toml の [nets] firehose_max
+  backlog_days = 7            # 一覧が枠を余らせた日に、過去 7 日の未判定の溢れを BM25 順で足す
+  [nets]
+  recommendation = false      # false の net は送らない
+  [queries.aap]
+  drop = ["hf: agents violating their own rules"]   # questions/aap.md の行をそのまま
+  add = ["github: agent approval workflow"]
+  ```
+- 回し方: `uv run jrp eval intake --candidate <toml> [--line <slug>]... [--days 14] [--freeze]`。
+  `--freeze` は今日の firehose と両方の設定の keyword クエリを 1 回ずつ取得して凍結する（同じ日の 2 回目は
+  何も送らない。rate limit が 2 つの取得元で出たら止まって exit 2）。書くのは
+  `<JRP_STORE_DIR>/evals/intake/`（`JRP_EVAL_DIR` で移せる）だけで、store の partition は読むだけ。試すときは
+  `JRP_EVAL_DIR` を scratch に向ける
+- 費用: 保存済みの判定が無い source だけを Jev に聞く。送る前に高めに見積もり、`--max-usd`（既定 $0.50）を
+  超えるなら何も送らず exit 2。`TYPESAFE_API_KEY` が無ければ聞かず、N_ot は下限として出る。雑音の床は
+  bench に jitter の行が無いとき最初に測る（`--jitter 40` = 40 source を聞き直す）
+- 読み方: 判定の行が「差あり」になるのは、日ごとの差の t 区間が 0 を含まず、符号反転の p < 0.05 で、
+  差が雑音の床の外のときだけ。「差のうち境界の論文」が多い差は、判定役の境目に乗った差として割り引く。
+  self-check が外れた日は、再生が本番の仕組みを写せていない日として名指される
+- クエリの差し替えを本番に入れるかは著者が決める。agent は結果（差・区間・費用、枯渇したクエリ）を渡す。
+  入れると決まったら skill `jrp-question` の手順で questions/*.md を直す
+
 ## 本文を磨く（prose bench）
 
 本文の改善は開発時のループで行う。下書き・判定・読み手シミュレーションは Claude のサブスクリプション

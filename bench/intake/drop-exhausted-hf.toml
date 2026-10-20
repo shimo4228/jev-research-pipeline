@@ -1,0 +1,24 @@
+name = "drop-exhausted-hf"
+# hf: queries whose last 3 sends brought no paper new to the line (jrp eval intake, 2026-10-20)
+
+[queries.akc]
+drop = ["hf: agent skill library evaluation"]
+
+[queries.aap]
+drop = ["hf: agent accountability traceability", "hf: agents violating their own rules", "hf: autonomous agents legal responsibility"]
+
+[queries.authorship]
+drop = ["hf: AI search citation", "hf: AI search visibility", "hf: agent readable documentation"]
+
+[queries.ans]
+drop = ["hf: Abhidharma mental factors", "hf: meditation predictive processing"]
+
+[queries.desire]
+drop = ["hf: AI and human flourishing", "hf: post-work society preferences AI"]
+
+[queries.edge]
+drop = ["hf: AI dependence skill decay", "hf: agent instruction violation"]
+
+[queries.jev]
+drop = ["hf: judge model calibration"]
+

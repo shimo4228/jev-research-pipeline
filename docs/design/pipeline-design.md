@@ -724,7 +724,9 @@ deepseek-v4.1-flash and its json_schema 400 — while the keyword net still carr
   > queries is still not a run-time call; the non-goal "Claude at runtime" is lifted for
   > the prose site only ("`claude-code` backend" below).
 - Checked before a run depends on them: `jrp queries check --line <slug>` sends each once and
-  prints hit count and the first titles; nothing is stored, no model is called.
+  prints hit count and the first titles; nothing is stored, no model is called. It answers
+  "does this query find the right field at all". Whether a changed query set brings more new
+  on-topic papers than the current one is `jrp eval intake` ("Intake eval" below).
 - At run time they bypass Qwen and Jev query_selection. Each adapter's list is rotated by the
   line's run count (earlier Reports), because the keyword budget (and, until 2026-09-26,
   arXiv's one-search-a-line cap) cuts from the front; not by the day ordinal, which repeats the same start when a rotated
@@ -1182,6 +1184,55 @@ novelty, the slot order) against today's run on a frozen set, dev and holdout ap
 Review-when: the silver labels are checked by the author (re-read the precision rows); a
 candidate is adopted into the run (its next weeks' factors in the weekly review are the
 transfer check); Jev's version changes (refreeze: every stored answer belongs to 1.13.0).
+
+### Intake eval (plan intake-eval, 2026-10-20)
+
+The weekly review breaks O1 down and put the largest drop on the intake (N_ot, Δln −0.45
+over 09-28 → 10-05), but production cannot compare intake configurations: the nets return
+other papers every day. `jrp eval intake --candidate <toml>` (`evals/`, steps AGENTS.md)
+holds the fetches still and changes one thing (research report
+docs/plans/research/2026-10-20-intake-eval.md):
+- **Frozen sets.** The store's StageRecord(fetch_*) outputs are the history: a firehose
+  listing's are there in full, overflow included, because collect stores every result before
+  the cap cuts (jev: 13,721 arXiv listings in 27 days, 4,789 judged). `--freeze` adds today's
+  firehose and every keyword query of both configurations, each sent once through collect
+  over cassette.FreezeTransport into `<JRP_STORE_DIR>/evals/intake/snapshots/` (no header is
+  kept). Recommendation, citation and exploration are not frozen live: their history already
+  holds what they returned on each day's seeds.
+- **The arms mirror production.** The replay calls the run's own nets.firehose_cut,
+  run.firehose_query, authored_candidates and nets.plan; a self-check compares the baseline's
+  replay of each day with what production prefiltered that day (store of 10-20: every day from
+  09-27 on within 1–2 sources; the days before were cut in feed order).
+- **The judge is the production prefilter** for today's open questions, replayed by the
+  Judgment's run @id (jev: 3,474 of 3,474 judged sources of 14 days hit under today's
+  questions), else asked once into the bench under a priced cap (`--max-usd`, default $0.50;
+  the estimate adds 250 + 150/question tokens per request to the state, measured 1,599 per
+  request against 1,114 from the state alone). The prefilter's cut is the measuring stick and
+  never a candidate; screening and claims are the S/X eval's.
+- **Numbers.** N_ot = papers new to the line as of the window's first day (not today's store:
+  the current configuration must not lose to a candidate for having fetched a paper already),
+  past the floor, passing the prefilter; the paired day difference with its t interval and
+  sign-flip p (Smucker et al. 2009); the noise floor = expected flips among the new papers only
+  one arm reached, from re-asked identical states (2026-10-20: 120 answers, mean |Δp| 0.0095,
+  max 0.10, 3 crossed 0.5); a verdict only when the interval and the p agree and the
+  difference clears the floor; new prefilter judgments as the cost; per-net and per-query
+  found / unique (set-dependent, so a swap is replayed as a set); exhaustion (the last 3 sends
+  brought nothing new to the line); a rotation estimate of the next 12 runs; Chao2 (Chao &
+  Colwell 2017 eq. 2b) over the query nets' request-days, with and without the seeded nets,
+  read as "at least" and only toward missing coverage.
+- **First two candidates (store of 2026-10-20, 14-day windows).** Firehose backlog
+  (`backlog_days = 7`: a listing that leaves room is topped up with the last 7 days' unjudged
+  overflow, BM25 order): N_ot 703 → 732 over 7 lines, +29 [+7.4, +50.6] p = 0.002, floor ±4.1,
+  17 of the 29 within 0.1 of the cut, at +3,885 new prefilter judgments (about $0.29 of Jev in
+  two weeks); no single line separates (jev +11, borderline). Dropping the 14 hf: queries the
+  eval marks exhausted: N_ot ±0 on every line (none of their results was new), up to 2 fewer
+  requests a run, a rotation estimate of +0.6 to +1.1 new on-topic papers a run on aap,
+  authorship, edge and jev; today's snapshot of aap, authorship and jev found every result of
+  those queries already in the store. Whether either goes into production is the author's
+  call (questions/*.md are the author's).
+Review-when: the self-check stops matching on a day after the mechanism changed (the replay
+no longer mirrors the run), the prefilter's version or ask changes (every stored answer is a
+new id), or TypeSafe's price changes (evals/judge.JEV_USD_PER_INPUT_TOKEN).
 
 ### Non-goals (explicit)
 
