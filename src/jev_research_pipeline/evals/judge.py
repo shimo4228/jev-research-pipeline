@@ -39,7 +39,7 @@ from jev_research_pipeline.jev import (
     judged_of,
     question_prefilter,
 )
-from jev_research_pipeline.jev.core import BATCH_SUBJECT, JEV_MODEL, estimated_tokens
+from jev_research_pipeline.jev.core import BATCH_SUBJECT, JEV_MODEL, bundles, estimated_tokens
 from jev_research_pipeline.model import GraphNodeType, Judgment, SourceItem
 from jev_research_pipeline.pipeline.concurrency import jev_concurrency
 from jev_research_pipeline.pipeline.run import StoredJev
@@ -155,10 +155,12 @@ class Judge:
         return question_prefilter.state(self.setup.ctx, source, self.setup.questions)
 
     def stored(self, source: SourceItem) -> Judged[BaseModel] | None:
-        """The answer the store or the bench holds for this state (run.StoredJev's lookup)."""
+        """The answer the store or the bench holds for this state: run.StoredJev's lookup,
+        and also under a legacy rendering (core.LEGACY_WIRES), which the run no longer replays
+        but the eval reads as the same question."""
         ask = self.ask
         digest = input_sha256(self.state(source))
-        for bundle in (ask.sha256, ask.batched(BATCH_SUBJECT).sha256):
+        for bundle in bundles(ask, subject=BATCH_SUBJECT):
             jid = Judgment.id_for(ask.function, (source.id,), JEV_MODEL, digest, bundle)
             hit = self.known.get(jid)
             if isinstance(hit, Judgment):

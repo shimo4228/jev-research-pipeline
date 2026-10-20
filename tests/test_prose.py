@@ -39,7 +39,7 @@ def test_endpoint_and_model_ids_are_pinned():
 
 
 def test_qwen38_profile_enables_native_json_schema(cassette: ClientFactory):
-    # pydantic-ai 2.47 enables json_schema output only for qwen3.5 names; 3.8 is overridden.
+    # pydantic-ai enables json_schema output only for qwen3.5 names (2.58); 3.8 is overridden.
     model = qwen_model(cassette(fake_qwen()))
     assert model.profile.get("supports_json_schema_output") is True
 

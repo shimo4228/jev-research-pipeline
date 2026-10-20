@@ -176,12 +176,12 @@ async def test_the_thinking_policy_maps_to_a_known_models_reasoning_effort(tmp_p
     assert effort[1] != "none"  # always / rewrite: the model's own default (medium)
 
 
-async def test_gpt6_luna_gets_no_reasoning_settings_from_pydantic_ai_247(tmp_path: Path):
-    """pydantic-ai 2.47's OpenAI profile knows gpt-5.6 and gpt-6-astra, not gpt-6-luna, so
-    it sends no `reasoning` at all for the default model: JRP_PROSE_THINKING has no effect on
-    it and the backend's own default effort applies. Pinned so an upgrade that starts
-    sending it (or a profile override) shows up here, and the policy can be re-decided."""
-    assert await _efforts(LUNA, tmp_path) == [None, None]
+async def test_gpt6_luna_gets_the_thinking_policy_as_its_reasoning_effort(tmp_path: Path):
+    """pydantic-ai's OpenAI profile knows gpt-6-luna (from 2.48): it reasons by default at
+    medium and accepts `none`, so the default model gets what gpt-5.6 gets — JRP_PROSE_THINKING
+    =off sends `none`, always / rewrite send `medium`, its own default. Pinned so a profile
+    change on an upgrade shows up here, and the policy can be re-decided."""
+    assert await _efforts(LUNA, tmp_path) == ["none", "medium"]
 
 
 async def test_codex_credentials_go_to_the_codex_host_only(tmp_path: Path):

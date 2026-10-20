@@ -19,10 +19,11 @@ from jev_research_pipeline.jev import (
     JevFailure,
     JevState,
     Judged,
+    claim_detection,
     decide,
     judged_of,
 )
-from jev_research_pipeline.jev.core import certainty, output_of, position
+from jev_research_pipeline.jev.core import bundles, certainty, output_of, position
 from jev_research_pipeline.model import (
     ChoiceAnswer,
     Judgment,
@@ -109,6 +110,36 @@ def test_ask_hash_changes_with_the_version_and_the_function():
     # or the pre-bump judgments keep being replayed and counted as current.
     assert replace(ASK, version="v2").sha256 != ASK.sha256
     assert replace(ASK, function="source_trust").sha256 != ASK.sha256
+
+
+def test_ask_hash_changes_with_the_wire_rendering():
+    # pydantic-ai 2.50 relabelled the instructions inside each question; an answer asked
+    # under another rendering is another bundle, so the run never replays it as today's.
+    assert replace(ASK, wire="instructions").sha256 != ASK.sha256
+    assert replace(ASK, wire=None).sha256 != ASK.sha256
+    assert ASK.batched("source").wire == ASK.wire
+
+
+def test_the_legacy_hash_is_the_one_the_store_holds():
+    """The legacy form must hash exactly as before the rendering was hashed: 6,671 stored
+    claim_detection Judgments carry this bundle (store of 2026-10-20), and the readers find
+    them by it."""
+    (legacy,) = claim_detection.ASK.legacy()
+    assert legacy.wire is None
+    assert legacy.sha256 == "a02d58cda0fd4e38d7ad2d2620ed3df8764011b9e81072f77e603e9ba90074c9"
+    assert legacy.batched("source").sha256 == (
+        "6bcfef8c109658489bfc9fbc574cf5a993a83465a3847a22221418da7fdd77ef"
+    )
+
+
+def test_bundles_name_today_first_then_the_legacy_forms():
+    (legacy,) = ASK.legacy()
+    assert bundles(ASK) == (
+        ASK.sha256,
+        ASK.batched("source").sha256,
+        legacy.sha256,
+        legacy.batched("source").sha256,
+    )
 
 
 def test_ask_hash_changes_when_a_score_level_is_renamed():
@@ -230,6 +261,17 @@ def test_judged_of_reads_a_stored_judgment_back_as_its_judged(batched: bool):
     # The rules read the stored distributions, not the rounded level the output holds.
     assert position(judged, "depth") == pytest.approx(0.6)
     assert certainty(judged) == pytest.approx(0.6)  # min(0.8, 0.6, 0.7)
+
+
+@pytest.mark.parametrize("batched", [False, True], ids=["alone", "batched"])
+def test_judged_of_reads_an_answer_of_the_legacy_rendering(batched: bool):
+    """Re-asked frozen states put the two renderings within the noise floor (core
+    LEGACY_WIRES), so the store's readers keep the history they had."""
+    (legacy,) = ASK.legacy()
+    asked = legacy.batched("source") if batched else legacy
+    judged = judged_of(ASK, _stored(asked.sha256))
+    assert judged is not None
+    assert judged.output == Answers(checkable=0.9, depth=Depth.specific, kind="normative")
 
 
 def test_judged_of_refuses_a_judgment_another_ask_asked():
@@ -358,6 +400,15 @@ def test_reworded_ask_yields_a_distinct_decision():
     assert a.policy == c.policy
     assert a.id != c.id
     assert (a.bundle_sha256, c.bundle_sha256) == (ASK.sha256, reworded.sha256)
+
+
+def test_a_decision_over_a_legacy_answer_keeps_its_bundle():
+    (legacy,) = ASK.legacy()
+    old = decide(_failure(legacy.sha256), ask=ASK, thresholds=(), rule=lambda j: (True, 1.0))
+    new = decide(_failure(ASK.sha256), ask=ASK, thresholds=(), rule=lambda j: (True, 1.0))
+    assert old.policy == new.policy
+    assert (old.bundle_sha256, new.bundle_sha256) == (legacy.sha256, ASK.sha256)
+    assert old.id != new.id
 
 
 def test_decide_rejects_a_result_from_another_ask():

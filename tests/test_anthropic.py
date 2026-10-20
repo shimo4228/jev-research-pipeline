@@ -216,7 +216,7 @@ async def test_a_refusal_is_a_one_line_failure_naming_its_category(content: list
         meter,
     )
     assert (result.prose, result.failure, result.auth) == (None, "refusal (cyber)", False)
-    # billed, so metered: pydantic-ai raises before it records the refused response's tokens
+    # billed, so metered once: pydantic-ai records the tokens, refused() the request
     assert (meter.requests, meter.input_tokens, meter.output_tokens) == (1, 12000, 300)
 
 

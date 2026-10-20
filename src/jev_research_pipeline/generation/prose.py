@@ -234,9 +234,10 @@ def is_writer_limit(failure: str | None) -> bool:
 def refused(error: ContentFilterError, usage: RunUsage) -> str:
     """`refusal (<category>)` from the response ContentFilterError carries (pydantic-ai keeps
     the Claude API's stop_details.category in provider_details), not the multi-line JSON its
-    str() spills into the run's notification. The refused response is billed, but pydantic-ai
-    raises before it records the response's tokens: they are added to `usage` here (requests
-    was already counted), so the meter and the cost cap see them."""
+    str() spills into the run's notification. The refused response came back and is billed:
+    pydantic-ai records its tokens in `usage`, but counts a request only once the run commits
+    a response, which a refusal never reaches. Its request is added here, so the meter's
+    writer calls see it alongside its tokens."""
     category: object = None
     try:
         messages = ModelMessagesTypeAdapter.validate_json(error.body or "[]")
@@ -244,7 +245,7 @@ def refused(error: ContentFilterError, usage: RunUsage) -> str:
         messages = []
     for response in messages:
         if isinstance(response, ModelResponse):
-            usage.incr(response.usage)
+            usage.requests += 1
             if response.provider_details:
                 category = response.provider_details.get("refusal_category") or category
     return f"refusal ({category})" if category else "refusal"

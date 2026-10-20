@@ -24,9 +24,9 @@ requires-python = ">=3.12"
 # pydantic-ai is pinned exactly (weekly releases) and carries the models: `anthropic` and
 # `openai` are the prose backends (generation.client), its `typesafe`
 # extra brings typesafe-sdk, which no module of ours imports any more, and its injected
-# http_client is what the cassette layer depends on. Held at 2.47.0 under pip-audit's
-# advisories (none on a path jrp uses; the bump changes the Jev wire wording): design
-# "Libraries", 注記 2026-10-20.
+# http_client is what the cassette layer depends on. An upgrade that changes what a Jev
+# question carries changes jev.core.JEV_WIRE (design "Libraries", 注記 2026-10-20,
+# pydantic-ai 2.58).
 dependencies = [
     "bm25s>=0.3.11",
     "defusedxml>=0.7.1",
@@ -39,8 +39,8 @@ dependencies = [
     "opentelemetry-instrumentation-httpx==0.65b0",
     "opentelemetry-sdk==1.44.0",
     "pydantic>=2.13.5",
-    "pydantic-ai-slim[anthropic,openai,typesafe]==2.47.0",
-    "pydantic-evals==2.47.0",
+    "pydantic-ai-slim[anthropic,openai,typesafe]==2.58.0",
+    "pydantic-evals==2.58.0",
 ]
 
 [project.scripts]

@@ -92,9 +92,9 @@ PRECISION_N: Final = 12
 CONCURRENCY: Final = 4
 CALL_TIMEOUT_S: Final = 180.0
 MAX_TOKENS: Final = 8192
-"""Thinking and the answer of one call (pydantic-ai sends 4096 otherwise, which a fidelity
-verdict with its Q1-Q6 evidence and thinking can run past). It also bounds one call's output
-at about $0.16."""
+"""Thinking and the answer of one call (pydantic-ai 2.47 sent 4096 otherwise, which a fidelity
+verdict with its Q1-Q6 evidence and thinking can run past; 2.58 sends the model's maximum,
+streamed). It also bounds one call's output at about $0.16."""
 FRAMING_TOKENS: Final = 2048
 """Input tokens a request is allowed beyond the bytes of its text (call_bound): the message
 framing, the structured output's and thinking's own system text. An allowance, not measured."""

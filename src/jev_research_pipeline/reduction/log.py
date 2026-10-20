@@ -6,6 +6,7 @@ Links every Jev judgment to the claims, and through them to the author's Labels:
     claim-subject functions   → subjects[0] (the claim judged; for pairs, the new claim)
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -77,12 +78,13 @@ class DecisionLog:
             case _:
                 return []
 
-    def current(self, function: str, bundle_sha256: str) -> list[Judgment]:
-        """One judgment per subject tuple: this bundle's wording, latest judged. Re-runs and
-        stale wordings never count twice (fits and cases read only these)."""
+    def current(self, function: str, bundles: Collection[str]) -> list[Judgment]:
+        """One judgment per subject tuple: one of these bundles (core.bundles: today's wording,
+        in today's rendering or a legacy one), latest judged. Re-runs and stale wordings never
+        count twice (fits and cases read only these)."""
         latest: dict[tuple[str, ...], Judgment] = {}
         for j in sorted(self.judgments, key=lambda j: (j.judged_at, j.id)):
-            if j.function == function and j.bundle_sha256 == bundle_sha256:
+            if j.function == function and j.bundle_sha256 in bundles:
                 latest[j.subjects] = j
         return list(latest.values())
 

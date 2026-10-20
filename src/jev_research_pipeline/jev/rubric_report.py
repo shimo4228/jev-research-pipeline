@@ -18,7 +18,7 @@ from jev_research_pipeline.model.nodes import Probability
 from jev_research_pipeline.note_text import DEFAULT_LANG, Lang
 
 from .context import LineContext, line_state
-from .core import Ask, JevClient, JevFailure, Judged, decide, position, threshold
+from .core import Ask, JevClient, JevFailure, Judged, bundles, decide, position, threshold
 
 
 class Readability(UseEnumMemberDocstrings, IntEnum):
@@ -134,7 +134,7 @@ def rule(judged: Judged[Answers]) -> tuple[bool, float]:
 
 
 def decision(result: Judged[Answers] | JevFailure) -> Decision:
-    ask = next((a for a in ASKS.values() if a.sha256 == result.bundle_sha256), ASK)
+    ask = next((a for a in ASKS.values() if result.bundle_sha256 in bundles(a)), ASK)
     return decide(result, ask=ask, thresholds=THRESHOLDS, rule=rule)
 
 
@@ -241,6 +241,6 @@ def fidelity_decision(result: Judged[Fidelity] | JevFailure) -> Decision:
         return p < threshold(FIDELITY_THRESHOLDS, "exceeds_claims"), 1.0 - p
 
     ask = next(
-        (a for a in FIDELITY_ASKS.values() if a.sha256 == result.bundle_sha256), FIDELITY_ASK
+        (a for a in FIDELITY_ASKS.values() if result.bundle_sha256 in bundles(a)), FIDELITY_ASK
     )
     return decide(result, ask=ask, thresholds=FIDELITY_THRESHOLDS, rule=rule)

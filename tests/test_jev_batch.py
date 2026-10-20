@@ -9,10 +9,11 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from jev_research_pipeline.jev import JevClient, JevFailure, Judged, question_screening
+from jev_research_pipeline.jev import JevClient, JevFailure, Judged, judged_of, question_screening
 from jev_research_pipeline.jev.context import LineContext
 from jev_research_pipeline.jev.core import (
     BATCH_STATE_TOKENS,
+    JEV_WIRE,
     JevState,
     batches,
     output_of,
@@ -100,7 +101,7 @@ async def test_every_question_names_its_own_slot(cassette: ClientFactory, casset
     assert set(state["sources"]) == {"s0", "s1"}
     asked = body["questions"]["s1.on_topic"]["instructions"]
     assert "`sources.s1`" in asked["question"] and "`source`" not in asked["question"]
-    assert "`source`" not in asked["instructions"]
+    assert "`source`" not in asked[JEV_WIRE]  # the agent's instructions, under their label
 
 
 async def test_a_batch_of_one_is_the_plain_request(cassette: ClientFactory):
@@ -186,6 +187,26 @@ async def test_a_rerun_finds_batched_answers_and_asks_only_the_new_source():
     assert len(jev.fresh) == 4
 
 
+async def test_a_run_asks_again_over_an_answer_of_the_legacy_rendering():
+    """The cache key pins today's rendering (core.JEV_WIRE): an answer stored under a legacy
+    one stays readable (judged_of) and is never replayed into a run."""
+    counting = Counting(fake_jev())
+    ((subjects, state),) = _items([_source(0)])
+    (legacy,) = ASK.legacy()
+    old = await JevClient(_live(counting), api_key="replay").judge(
+        legacy, subjects, state, now=b.T0
+    )
+    assert isinstance(old, Judged) and judged_of(ASK, old.judgment) is not None
+
+    run = StoredJev(_live(counting), api_key="replay", known={old.judgment.id: old.judgment})
+    again = await run.judge(ASK, subjects, state, now=b.T0)
+
+    assert isinstance(again, Judged)
+    assert len(counting.requests) == 2
+    assert again.judgment.bundle_sha256 == ASK.sha256 != old.judgment.bundle_sha256
+    assert run.fresh == [again.judgment]
+
+
 def test_batches_respect_the_item_cap_and_the_token_budget():
     small = _items([_source(i) for i in range(8 + 3)])
     assert [len(c) for c in batches([s for _, s in small], "source", max_items=8)] == [8, 3]
@@ -203,3 +224,19 @@ def test_batches_respect_the_item_cap_and_the_token_budget():
     cut = batches(big, "source", max_items=8)  # pyright: ignore[reportArgumentType]
     assert cut == [[0, 1], [2, 3]]
     assert batches([], "source") == []
+
+
+def test_a_legacy_batched_answer_keeps_the_batched_policy():
+    """bridges_decision names its policy from the form asked: a batched answer stored under
+    the legacy rendering is still the batched ask's."""
+    (legacy,) = question_screening.BATCH_ASK.legacy()
+    failure = JevFailure(
+        function="question_screening",
+        subjects=(_source(0).id, b.question().id),
+        bundle_sha256=legacy.sha256,
+        reason="timeout",
+        detail="",
+    )
+    d = question_screening.bridges_decision(failure)
+    assert d.policy.startswith(question_screening.BATCH_ASK.policy)
+    assert d.bundle_sha256 == legacy.sha256

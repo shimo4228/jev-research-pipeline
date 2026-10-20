@@ -847,6 +847,8 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
   `gpt-6-luna` (it knows gpt-5.6 and gpt-6-astra), so its requests carry no `reasoning`:
   the thinking policy is a no-op for it and the backend's default effort applies
   (`tests/test_codex.py` pins this).
+  > **注記（2026-10-20, pydantic-ai 2.58）**: 2.48 added gpt-6-luna to the profile: `off`
+  > sends effort `none`, the others `medium` (its default) — "Libraries", 注記 2026-10-20.
 - **`claude-code` backend (author decision 2026-10-01)**: Claude on the author's Claude
   subscription through `claude -p` (`generation/claude_code.py`, a pydantic-ai
   `FunctionModel` around a subprocess). The prose bench writes its drafts with it, because
@@ -872,7 +874,8 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
   New failure names, the same on every backend: an answer cut at `max_tokens` is a failed
   draft (`truncated (max_tokens)`), not prose; a refusal (stop_reason `refusal`, partial
   text or none) is `refusal (<category>)` (pydantic-ai `RaiseContentFilterError`; the
-  refused response is billed, so its tokens are metered from the error's body); a 429,
+  refused response is billed, so it is metered: on 2.58 pydantic-ai records its tokens and
+  `refused()` its request, "Libraries", 注記 2026-10-20); a 429,
   a refused key, spent credits or a reached spend limit is a writer limit the bench stops
   on (`client.writer_limit`). The run's writer allows 1 SDK retry (`PROSE_RETRIES`): a
   timeout is retried in full, and 2 retries of the 900 s call would take 2,700 s of the
@@ -1340,10 +1343,11 @@ LLM-as-judge with another LLM as the truth source.
 
 - `typesafe-sdk`: Pydantic-native; `system_one(state, questions, response_model=…)`;
   `AsyncTypeSafeClient`; `RetryPolicy`; default timeout 10s; `TYPESAFE_API_KEY`.
-- `pydantic-ai` 2.47.0: `OpenAICodexProvider` / `OpenAICodexModel` (ChatGPT/Codex
+- `pydantic-ai` 2.58.0: `OpenAICodexProvider` / `OpenAICodexModel` (ChatGPT/Codex
   subscription OAuth, `openai-codex:` models; added 2026-09-24), `AlibabaProvider`
   (`DASHSCOPE_API_KEY`), `AnthropicProvider` / `AnthropicModel` (`ANTHROPIC_API_KEY`,
-  anthropic SDK 1.15.0; default max_tokens 4096, overridden; added 2026-10-20),
+  anthropic SDK 1.15.0; default max_tokens the model's maximum, streamed, overridden; added
+  2026-10-20),
   `Agent(output_type=…)`
   with no tools = one typed request + `retries={'output': N}`; `pydantic_ai.direct.
   model_request` for no-validation single calls.
@@ -1380,6 +1384,35 @@ LLM-as-judge with another LLM as the truth source.
 >   600 tokens where 2.47 gives 1 and 12,000 / 300 (tests/test_anthropic.py:220).
 > Raise the pin as that change, or sooner when an advisory lands on a path jrp uses. 2.58.0 is
 > the first release clear of all four.
+
+> **注記（2026-10-20, pydantic-ai 2.58）**: raised to 2.58.0, with pydantic-evals 2.58.0,
+> openai 3.35.1 (the `openai` extra now requires >= 3.26) and genai-prices 0.1.13; pip-audit
+> over the lock is clean. What each change of the note above became:
+> - Jev: `Ask.sha256` hashes the rendering (`JEV_WIRE` = `background`, jev/core.py), so a new
+>   answer gets a new bundle id and the run's stage cache never replays a 2.47 answer. The
+>   readers of the store (`judged_of`, `decide`, `bundles`: the weekly review, the gate and
+>   intake evals, reduction/fit, quality) also read the pre-bump bundles as the same questions
+>   (`LEGACY_WIRES`; author decision 2026-10-20: new ids, old ones still read, unless the
+>   measurement put the two renderings apart). Measured first, the same frozen states re-asked
+>   under 2.47 and 2.58 on one day (store copy of 2026-10-20, about 4,400 questions, under
+>   $0.10), each against the stored answer: screening routes flipped 16 vs 13 of 185 (`jrp eval
+>   gate jitter --n 200`; mean |Δ weighted| 0.0072 vs 0.0069), prefilter cuts 4 vs 6 of 600
+>   (`jrp eval intake --jitter 100` on jev and akc; mean |Δp| 0.0114 vs 0.0125), claim decisions
+>   1 vs 2 of 99 (50 states each of jev and akc, a scratch script). The paired difference of
+>   |Δ| had a 95% interval across 0 in each: −0.0003 [−0.0015, +0.0008], +0.0011 [−0.0002,
+>   +0.0023], +0.0034 [−0.0015, +0.0085]. What the new ids cost: a state the run meets again is
+>   asked once more; all 49,134 current-bundle Judgments of the store re-asked would be 137,781
+>   questions (about $2.8 at $0.00002 a question), against 2,000-8,000 a day sent by the runs.
+>   Batched questions (`BATCH_MAX_ITEMS` = 1, so none are sent) also gain a `context` part.
+> - `openai-codex:`: gpt-6-luna gets `reasoning` (effort `none` / `medium`, context
+>   `all_turns`) and encrypted reasoning, the shape gpt-5.6 already had on 2.47, so
+>   `JRP_PROSE_THINKING` takes effect on it (tests/test_codex.py). Not re-recorded live.
+> - `anthropic:`: pydantic-ai meters a refused response's tokens and `refused()` adds its
+>   request (2.58 counts a request when the run commits a response): the meter still reads 1
+>   request and 12,000 / 300 tokens (tests/test_anthropic.py). The writer's request is the same
+>   bytes: `max_tokens` is set, so 2.58's default (the model's maximum, streamed) never applies.
+> - openai 3.35.1 orders the DashScope request body's keys differently (the JSON is equal).
+>   Every changed cassette is synthetic, re-synthesized offline (`JRP_CASSETTE_SYNTHETIC=1`).
 
 ## Build sequence (for implementation-chain, feat chain)
 

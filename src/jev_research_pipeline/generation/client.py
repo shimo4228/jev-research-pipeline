@@ -217,20 +217,22 @@ and no request body would replay from a cassette."""
 
 
 def _codex_settings(*, thinking: bool) -> OpenAIResponsesModelSettings:
-    # The Codex models reason by default; thinking=False sends effort "none". pydantic-ai 2.47
-    # sends no `reasoning` for a model its profile does not know (gpt-6-luna): there neither
-    # setting reaches the wire (tests/test_codex.py pins it).
+    # The Codex models reason by default (medium); thinking=False sends effort "none",
+    # thinking=True the model's default. pydantic-ai sends `reasoning` only for a model its
+    # OpenAI profile knows (gpt-5.6, gpt-6-luna from 2.48); tests/test_codex.py pins both.
     return OpenAIResponsesModelSettings(
         thinking=thinking, openai_prompt_cache_key=CODEX_PROMPT_CACHE_KEY
     )
 
 
 PROSE_MAX_TOKENS: Final = 32_000
-"""The cap on one prose call's output, thinking included. pydantic-ai 2.47 sends 4096 when
-none is set, which a self-check that re-writes a long draft after its thinking reaches: on
+"""The cap on one prose call's output, thinking included. Named rather than left to
+pydantic-ai, whose default moved from 4096 (2.47, which a self-check that re-writes a long
+draft after its thinking reaches) to the model's maximum output, streamed (2.58): on
 claude-code (whose CLI sends 128000) Opus 5.5 calls averaged up to about 6k output tokens
 (2026-10-03..10-19). Billed only as produced; one call costs at most $0.64. Sent without
-streaming: the call's own 900 s timeout keeps the SDK from asking for a stream."""
+streaming: a max_tokens that is set keeps pydantic-ai from streaming it, and the call's own
+900 s timeout keeps the SDK from asking for a stream."""
 
 PROSE_EFFORT: Final = "medium"
 """Named rather than left to the API default: the effort `claude -p` sends for Opus 5.5 with
@@ -311,7 +313,7 @@ class Writer:
             self.spec.name,
             provider=self._provider,
             # kept so the model stays usable for a structured site without re-deriving it
-            # (pydantic-ai 2.47's Qwen profile enables json_schema only for qwen3.5 names)
+            # (pydantic-ai's Qwen profile enables json_schema only for qwen3.5 names, as of 2.58)
             profile=_native_json_schema,
             settings=THINKING if thinking else NO_THINKING,
         )
@@ -320,9 +322,10 @@ class Writer:
 class GenerationMeter:
     """Generation tokens (↓ wanted) and the writer's calls for the operations section
     (`requests` → Operations.writer_calls). Counts every request that came back, including
-    validation retries, rewrites and self-checks; pydantic-ai records a request only after
-    the model answered (2.47.0), so an attempt that raised (timeout, usage limit) is not in
-    `requests` (LineHealth.drafts counts the drafts attempted)."""
+    validation retries, rewrites and self-checks; pydantic-ai counts a request once the run
+    commits its response (a refusal is added by prose.refused), so an attempt that raised
+    with no response (timeout, usage limit) is not in `requests` (LineHealth.drafts counts the
+    drafts attempted)."""
 
     def __init__(self) -> None:
         self.requests = 0

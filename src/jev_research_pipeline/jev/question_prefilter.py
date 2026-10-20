@@ -21,7 +21,6 @@ from jev_research_pipeline.model.nodes import Probability
 from .context import LineContext, line_state, source_state
 from .core import Ask, JevFailure, JevState, Judged, decide, threshold
 
-SUBJECT: Final = "source"
 THRESHOLDS: Final = (Threshold(name="on_topic", value=0.5),)
 """The full screen's own on_topic gate: a pair that would fail it there is not sent there."""
 
@@ -93,10 +92,8 @@ def decision(result: Judged[BaseModel] | JevFailure, n: int) -> Decision:
         best = max(float(getattr(judged.output, field(i))) for i in range(n))
         return best >= threshold(THRESHOLDS, "on_topic"), best
 
-    single = ask(n)
-    batched = single.batched(SUBJECT)
-    asked = batched if result.bundle_sha256 == batched.sha256 else single
-    return decide(result, ask=asked, thresholds=THRESHOLDS, rule=rule)
+    # decide() finds the form the result was asked in: alone or batched, any rendering
+    return decide(result, ask=ask(n), thresholds=THRESHOLDS, rule=rule)
 
 
 ASK: Final = ask(3)

@@ -26,7 +26,7 @@ from jev_research_pipeline.jev import (
     source_support,
     source_trust,
 )
-from jev_research_pipeline.jev.core import choice, noul, score, threshold
+from jev_research_pipeline.jev.core import bundles, choice, noul, score, threshold
 from jev_research_pipeline.model import Judgment, RubricAxis, Threshold
 from jev_research_pipeline.model.jsonld import Value
 
@@ -64,53 +64,53 @@ def _p_choice(key: str, *options: str) -> Callable[[Judgment], float]:
     return feature
 
 
-# (spec, feature, the module's current thresholds). rubric_report has
+# (spec, feature, the module's current thresholds, the bundles its answers carry). rubric_report has
 # no claim-level link and report_ordering has no cut-off, so they are not fitted here.
 SPECS: Final[
-    tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...], str], ...]
+    tuple[tuple[FitSpec, Callable[[Judgment], float], tuple[Threshold, ...], tuple[str, ...]], ...]
 ] = (
     (
         FitSpec(function="relevance_triage", threshold="contains_evidence", accept_if=">="),
         _nou("contains_evidence"),
         relevance_triage.THRESHOLDS,
-        relevance_triage.ASK.sha256,
+        bundles(relevance_triage.ASK),
     ),
     (
         FitSpec(function="relevance_triage", threshold="prompt_injection", accept_if="<"),
         _nou("prompt_injection"),
         relevance_triage.THRESHOLDS,
-        relevance_triage.ASK.sha256,
+        bundles(relevance_triage.ASK),
     ),
     (
         FitSpec(function="claim_detection", threshold="bears_on", accept_if=">="),
         _p_choice("relation", "advances", "contradicts"),
         claim_detection.THRESHOLDS,
-        claim_detection.ASK.sha256,
+        bundles(claim_detection.ASK),
     ),
     (
         FitSpec(function="claim_detection", threshold="checkable", accept_if=">="),
         _nou("checkable"),
         claim_detection.THRESHOLDS,
-        claim_detection.ASK.sha256,
+        bundles(claim_detection.ASK),
     ),
     (
         FitSpec(function="source_support", threshold="supports", accept_if=">="),
         _p_choice("support", "supports"),
         source_support.THRESHOLDS,
-        source_support.ASK.sha256,
+        bundles(source_support.ASK),
     ),
     (
         FitSpec(function="source_trust", threshold="min_trust", accept_if=">="),
         _pos("trust"),
         source_trust.THRESHOLDS,
-        source_trust.ASK.sha256,
+        bundles(source_trust.ASK),
     ),
     *(
         (
             FitSpec(function="rubric_claim", threshold=axis, accept_if=">="),
             _pos(axis),
             rubric_claim.THRESHOLDS,
-            rubric_claim.ASK.sha256,
+            bundles(rubric_claim.ASK),
         )
         for axis in rubric_claim.AXES
     ),
@@ -134,7 +134,7 @@ def _silver(log: DecisionLog, trusted: tuple[RubricAxis, ...]) -> dict[str, Verd
         return {}
     gold = log.gold()
     out: dict[str, Verdict] = {}
-    for j in log.current("rubric_claim", rubric_claim.ASK.sha256):
+    for j in log.current("rubric_claim", bundles(rubric_claim.ASK)):
         if j.subjects[0] in gold:
             continue
         ok = all(
@@ -165,12 +165,12 @@ def fit_thresholds(
     gold = log.gold()
     silver = _silver(log, trusted)
     proposals: list[Proposal] = []
-    for spec, feature, current_thresholds, bundle_sha256 in SPECS:
+    for spec, feature, current_thresholds, asked in SPECS:
         samples: list[tuple[float, bool, float]] = []
         gold_claims: dict[str, Verdict] = {}
         silver_claims: set[str] = set()
         use_silver = spec.function != "rubric_claim"
-        for j in log.current(spec.function, bundle_sha256):
+        for j in log.current(spec.function, asked):
             for claim_id in log.claims_of(j.subjects[0]):
                 if claim_id in gold:
                     samples.append((feature(j), gold[claim_id] == "correct", 1.0))

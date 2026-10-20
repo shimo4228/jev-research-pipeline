@@ -207,7 +207,10 @@ def items(
 
 
 def _ask_of(result: Judged[Answers] | JevFailure) -> Ask[Answers]:
-    return BATCH_ASK if result.bundle_sha256 == BATCH_ASK.sha256 else ASK
+    """The batched or the single ask, in today's rendering or a legacy one: what the
+    policy of a verdict of its own (bridges_decision) names."""
+    batched = {form.sha256 for form in (BATCH_ASK, *BATCH_ASK.legacy())}
+    return BATCH_ASK if result.bundle_sha256 in batched else ASK
 
 
 def gates_pass(a: Answers, thresholds: tuple[Threshold, ...] = THRESHOLDS) -> bool:

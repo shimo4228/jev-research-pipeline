@@ -45,7 +45,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_NOTE_LANG` | no | the note's language: `ja` (default), `en` or `zh` — headings, the operations section and the prose (its prompt and its checks). Anything else stops the run at the start |
 | `JRP_GITHUB_OWNER` | no | derive a line's @id from `github.com/<owner>/<repo name>` (`github.com/<owner>` for a line with no repo) when its `graph.jsonld` names no ResearchLine. Unset, such a line is `<store namespace>line/<slug>`. Set it only to keep the ids a store was built on |
 | `JRP_PROSE_TIMEOUT_S` | no | prose call timeout (default 900 s; prose is written with thinking on) |
-| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default). pydantic-ai 2.47 sends no reasoning setting for `gpt-6-luna`, so there it has no effect |
+| `JRP_PROSE_THINKING` | no | `always` (default) / `rewrite` (second draft only) / `off`; DashScope's thinking flag, or the reasoning effort of an `openai-codex:` model (`off` = none, otherwise the model's default, medium for `gpt-6-luna`) |
 | `JRP_JEV_CONCURRENCY` | no | concurrent Jev requests (default 12; a separate limiter holds 1,200 per minute) |
 | `JRP_PROSE_CONCURRENCY` | no | concurrent prose-model calls (default 3) |
 | `JRP_SLACK_WEBHOOK_URL` | no | a Slack Incoming Webhook that gets each run's result; see [scheduling.md](scheduling.md#notifications) |

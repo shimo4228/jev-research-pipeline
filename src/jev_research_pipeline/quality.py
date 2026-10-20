@@ -29,7 +29,7 @@ from .generation.prose import (
 )
 from .jev import JevClient, Judged, rubric_claim, rubric_report
 from .jev.context import LineContext
-from .jev.core import score
+from .jev.core import bundles, score
 from .model import AxisMeter, Decision, Judgment, Operations, Question, Report, RubricAxis
 from .note_text import DEFAULT_LANG, Lang
 
@@ -39,11 +39,12 @@ def _position(j: Judgment, axis: RubricAxis) -> float:
 
 
 def _current_rubric(judgments: list[Judgment]) -> dict[tuple[str, str], Judgment]:
-    """One rubric_claim judgment per (claim, report): current bundle wording, latest judged.
-    Re-runs and rewordings must not count one claim more than once."""
+    """One rubric_claim judgment per (claim, report): current bundle wording (core.bundles),
+    latest judged. Re-runs and rewordings must not count one claim more than once."""
+    asked = bundles(rubric_claim.ASK)
     latest: dict[tuple[str, str], Judgment] = {}
     for j in sorted(judgments, key=lambda j: (j.judged_at, j.id)):
-        if j.function == "rubric_claim" and j.bundle_sha256 == rubric_claim.ASK.sha256:
+        if j.function == "rubric_claim" and j.bundle_sha256 in asked:
             latest[(j.subjects[0], j.subjects[1])] = j
     return latest
 

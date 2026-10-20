@@ -23,7 +23,7 @@ import json
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 from typing import Annotated, Any, Final, Literal, TypeAliasType, cast, get_args, get_origin
 
@@ -67,6 +67,22 @@ says limits adjust dynamically). The SDK's own retries on 429 are not counted he
 type JevState = dict[str, JsonValue]
 """Named JSON fields (vendor guidance: prefer named fields when state has several parts)."""
 
+JEV_WIRE: Final = "background"
+"""How pydantic-ai renders a question on the wire: the label the agent's instructions go under
+inside each question's labelled parts (`pydantic_ai.models.decision._INSTRUCTIONS_KEY`,
+`background` from 2.50.0). Ask.sha256 hashes it, so an answer asked under another rendering is
+another bundle and the run's stage cache never replays it. Change it when a pydantic-ai upgrade
+changes what a single question carries (the Jev cassettes miss), and put the old value in
+LEGACY_WIRES only when re-asked frozen states show the two renderings within the noise floor."""
+
+LEGACY_WIRES: Final[tuple[str | None, ...]] = (None,)
+"""Earlier renderings whose stored answers still read as today's questions: judged_of(), decide()
+and bundles() accept them, the run never sends or replays them. None = before the rendering was
+hashed, pydantic-ai 2.47's `instructions` label. Measured 2026-10-20, the same frozen states
+re-asked under 2.47 and 2.58 on one day (design "Libraries", 注記 2026-10-20): screening routes
+flipped 16 / 13 of 185 against the stored answers, prefilter cuts 4 / 6 of 600, claim decisions
+1 / 2 of 99, every |Δ| difference's 95% interval across 0."""
+
 
 @dataclass(frozen=True)
 class Ask[OutputT: BaseModel]:
@@ -74,18 +90,21 @@ class Ask[OutputT: BaseModel]:
     instructions that go along with every one of them.
 
     `sha256` covers everything that decides what a stored answer means: the function, the
-    version, the instructions, and the schema pydantic-ai *sends* (plain
-    model_json_schema() drops the member docstrings that become a Score's levels), plus
-    each Score's level names, which the schema renders as bare consts although
-    ScoreAnswer.levels stores them and the accessors look them up by name. Rewording or
-    renaming therefore yields new judgments, never a silent mix of old and new meanings
-    under one id, and never a cached answer whose levels no longer match the code.
+    version, the instructions, the schema pydantic-ai *sends* (plain model_json_schema()
+    drops the member docstrings that become a Score's levels), each Score's level names,
+    which the schema renders as bare consts although ScoreAnswer.levels stores them and the
+    accessors look them up by name, and the rendering the questions travel in (`wire`).
+    Rewording, renaming or a new rendering therefore yields new judgments, never a silent
+    mix of old and new meanings under one id, and never a cached answer whose levels no
+    longer match the code. `wire=None` is the hash before the rendering was part of it: the
+    legacy forms (legacy()) are built that way and only read.
     """
 
     function: JevFunction
     version: Key
     output: type[OutputT]
     instructions: str
+    wire: str | None = JEV_WIRE
 
     @property
     def sha256(self) -> str:
@@ -97,15 +116,16 @@ class Ask[OutputT: BaseModel]:
             for name, field in self.output.model_fields.items()
             if isinstance(field.annotation, type) and issubclass(field.annotation, IntEnum)
         }
-        return input_sha256(
-            {
-                "function": self.function,
-                "version": self.version,
-                "instructions": self.instructions,
-                "schema": schema,
-                "levels": levels,
-            }
-        )
+        hashed: dict[str, JsonValue] = {
+            "function": self.function,
+            "version": self.version,
+            "instructions": self.instructions,
+            "schema": schema,
+            "levels": levels,
+        }
+        if self.wire is not None:
+            hashed["wire"] = self.wire
+        return input_sha256(hashed)
 
     @property
     def policy(self) -> str:
@@ -125,7 +145,13 @@ class Ask[OutputT: BaseModel]:
             instructions=self.instructions.replace(f"`{subject}`", f"every `{subject}s.sN`")
             + "\n\n"
             + _BATCH_NOTE.format(subject=subject),
+            wire=self.wire,
         )
+
+    def legacy(self) -> "tuple[Ask[OutputT], ...]":
+        """This ask under each rendering of LEGACY_WIRES: the forms its older stored answers
+        were asked in. Read only; a request always goes out under JEV_WIRE."""
+        return tuple(replace(self, wire=wire) for wire in LEGACY_WIRES if wire != self.wire)
 
 
 _BATCH_NOTE: Final = (
@@ -346,18 +372,29 @@ def output_of[OutputT: BaseModel](output: type[OutputT], judgment: Judgment) -> 
 
 @functools.cache
 def _forms(ask: Ask[Any], subject: str) -> Mapping[str, Ask[Any]]:
-    """The two forms `ask` is sent in — alone, and batched over `subject` — by wording hash.
-    Cached because a hash renders the JSON schema (about 3 ms), and a reader of the store
-    looks up every stored judgment."""
-    batched = ask.batched(subject)
-    return {ask.sha256: ask, batched.sha256: batched}
+    """The forms `ask`'s answers are stored under, by wording hash: alone and batched over
+    `subject`, today's rendering first, then each legacy one (Ask.legacy). Cached because a
+    hash renders the JSON schema (about 3 ms), and a reader of the store looks up every
+    stored judgment."""
+    out: dict[str, Ask[Any]] = {}
+    for form in (ask, *ask.legacy()):
+        batched = form.batched(subject)
+        out[form.sha256] = form
+        out[batched.sha256] = batched
+    return out
+
+
+def bundles(ask: Ask[Any], *, subject: str = BATCH_SUBJECT) -> tuple[str, ...]:
+    """Every bundle_sha256 a stored answer of `ask` may carry — the ones judged_of() reads —
+    today's single request first. For readers of the store; the run looks up today's only."""
+    return tuple(_forms(ask, subject))
 
 
 def _form_of[OutputT: BaseModel](
     ask: Ask[OutputT], bundle_sha256: str, *, subject: str
 ) -> Ask[OutputT] | None:
-    """The form of `ask` whose wording hash is `bundle_sha256`, or None when neither form
-    has it (another version or wording of the function, or another function)."""
+    """The form of `ask` whose wording hash is `bundle_sha256`, or None when no form has it
+    (another version or wording of the function, or another function)."""
     return _forms(ask, subject).get(bundle_sha256)
 
 
@@ -369,10 +406,11 @@ def judged_of[OutputT: BaseModel](
     read. This is how code outside a run (the weekly review) re-applies today's rules to
     the store.
 
-    None unless `ask` asked it, alone or batched over `subject`: the store keeps the
-    judgments of every earlier version and wording of a function (question_screening v1
-    and v2, a prefilter asked over another number of questions), and reading one of those
-    through today's output model would answer questions it was never asked."""
+    None unless `ask` asked it, alone or batched over `subject`, under today's rendering or
+    a legacy one: the store keeps the judgments of every earlier version and wording of a
+    function (question_screening v1 and v2, a prefilter asked over another number of
+    questions), and reading one of those through today's output model would answer
+    questions it was never asked."""
     if _form_of(ask, judgment.bundle_sha256, subject=subject) is None:
         return None
     return Judged(output=output_of(ask.output, judgment), judgment=judgment)
@@ -779,7 +817,8 @@ def decide[OutputT: BaseModel](
 ) -> Decision:
     """Policy = the asking ask's policy unless a variant policy is named (e.g. a fallback
     rule), and the identity includes its sha256. The result must come from this ask's
-    wording, asked alone or batched over sources (anything else is a wiring error)."""
+    wording, asked alone or batched over sources, under today's rendering or a legacy one
+    (anything else is a wiring error)."""
     asked = _form_of(ask, result.bundle_sha256, subject=BATCH_SUBJECT)
     if asked is None:
         raise ValueError(f"result was produced by another ask than {ask.policy}")
