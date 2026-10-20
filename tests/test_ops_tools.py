@@ -461,3 +461,30 @@ def test_slack_text_is_escaped():
         poster=lambda _u, p: posted.append(p),
     )
     assert posted == [{"text": "*jrp &lt;!channel&gt;*\na &amp; b &lt;https://x|y&gt;"}]
+
+
+def test_the_harness_script_gets_the_slack_escaped_text_too():
+    """notify-slack.sh posts its arguments to Slack as they are (jq --arg): an exception
+    text with <!channel> or <url|label> in it must stay text there too."""
+    from jev_research_pipeline.pipeline.notify import MACOS_ENV, WEBHOOK_ENV
+
+    calls: list[list[str]] = []
+    posted: list[dict[str, str]] = []
+    env = {NOTIFY_ENV: "1", WEBHOOK_ENV: "https://h", MACOS_ENV: "1"}
+    notify(
+        "jrp run FAILED <!channel>",
+        "RuntimeError: a & b <https://x|y> <@U123>",
+        env=env,
+        runner=calls.append,
+        poster=lambda _u, p: posted.append(p),
+    )
+    script, osascript = [c for c in calls if c[0] == "bash"], [c for c in calls if c[0] != "bash"]
+    ((_, _, title, body),) = script
+    assert title == "jrp run FAILED &lt;!channel&gt;"
+    assert body == "RuntimeError: a &amp; b &lt;https://x|y&gt; &lt;@U123&gt;"
+    # the same text the webhook gets, and Notification Center (not Slack) gets it as written
+    assert posted == [{"text": f"*{title}*\n{body}"}]
+    assert osascript[0][-2:] == [
+        "jrp run FAILED <!channel>",
+        "RuntimeError: a & b <https://x|y> <@U123>",
+    ]

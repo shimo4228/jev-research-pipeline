@@ -9,6 +9,8 @@
 `jrp notify <title> <body>` sends one the same way; the launchd wrapper uses it for what
 python cannot report. Commands are argument lists (no shell), the webhook URL is never
 printed, and the runner and the poster are injectable so tests never reach the network.
+Both Slack channels get Slack's escaping (_slack_text): the harness script posts its
+arguments as they are. Notification Center gets the text as written.
 """
 
 import subprocess
@@ -54,7 +56,9 @@ def _post(url: str, payload: dict[str, str]) -> object:
 
 
 def _slack_text(text: str) -> str:
-    """Slack's own escaping: `<!channel>` or `<url|label>` in a failure message stay text."""
+    """Slack's own escaping: `<!channel>` or `<url|label>` in a failure message stay text.
+    For both Slack channels, the webhook and the harness script (which posts its arguments
+    with no escaping of its own)."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -80,5 +84,5 @@ def notify(
         runner(["osascript", *(a for line in OSASCRIPT for a in ("-e", line)), "--", title, body])
     if env.get(NOTIFY_ENV) == "1":
         sent = True
-        runner(["bash", str(SCRIPT), title, body])
+        runner(["bash", str(SCRIPT), _slack_text(title), _slack_text(body)])
     return sent
