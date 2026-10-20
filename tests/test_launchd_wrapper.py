@@ -27,11 +27,33 @@ if [[ " $* " == *" jrp doctor "* ]]; then
 fi
 """
 
+# `jrp wbr` stand-in, after the doctor's: asserts it too sees the stage, prints "fake wbr"
+# and writes the week's note there. $WBR: hang = sleeps in a child first, as HUNG_UV's run;
+# fail = writes the note, then exits 3 (as a review whose weekly.jsonl append failed).
+WBR_NOTE = "2026-09-28_jrp_wbr.md"
+WBR = f"""
+if [[ " $* " == *" jrp wbr "* ]]; then
+  [[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || {{ echo "wbr saw the vault"; exit 8; }}
+  echo "fake wbr"
+  if [[ "${{WBR:-}}" == hang ]]; then
+    sleep 30 &
+    echo $! > "$WBR_PID"
+    wait
+  fi
+  rm -f "$JRP_VAULT_DIR/daily-research/{WBR_NOTE}"
+  echo "review" > "$JRP_VAULT_DIR/daily-research/{WBR_NOTE}"
+  [[ "${{WBR:-}}" != fail ]] || exit 3
+  exit 0
+fi
+"""
+
 # A stand-in for uv: asserts it was pointed at the stage, harvests (reads) a staged note,
-# rewrites one note and writes a new one — what `jrp run` does to the vault dir.
+# rewrites one note and writes a new one — what `jrp run` does to the vault dir — and exits
+# $RUN_STATUS.
 FAKE_UV = f"""#!/usr/bin/env bash
 set -euo pipefail
 {DOCTOR}
+{WBR}
 notes="$JRP_VAULT_DIR/daily-research"
 [[ "$JRP_VAULT_DIR" == "$EXPECT_STAGE" ]] || {{ echo "vault not staged: $JRP_VAULT_DIR"; exit 9; }}
 if [[ -n "${{EXPECT_WORKSPACE:-}}" ]]; then  # Obsidian's list, read from the stage
@@ -51,6 +73,7 @@ if [[ -n "${{WRITE_ANS:-}}" ]]; then  # a note whose vault copy is read-only
   echo "ans" > "$notes/2026-09-24_jrp_ans.md"
 fi
 echo "args: $*"
+exit "${{RUN_STATUS:-0}}"
 """
 
 
@@ -74,6 +97,7 @@ def _setup(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
         "JRP_VAULT_DIR": str(tmp_path / "vault"),
         "JRP_STORE_DIR": str(store),
         "EXPECT_STAGE": str(store / "vault-stage"),
+        "JRP_WBR_DUE": "0",  # not Monday, whatever day the tests run (the review's tests: 1)
     }
     return env, vault, store / "vault-stage" / "daily-research"
 
@@ -107,6 +131,7 @@ def test_other_commands_do_not_stage(tmp_path: Path):
 # a child process, the way uv's python sits under uv.
 HUNG_UV = f"""#!/usr/bin/env bash
 {DOCTOR}
+{WBR}
 echo "partial" > "$JRP_VAULT_DIR/daily-research/2026-09-24_jrp_akc.md"
 ls "$JRP_VAULT_DIR/.obsidian" > "$HUNG_PID.staged" 2>/dev/null
 sleep 30 &
@@ -301,20 +326,28 @@ def test_a_term_to_the_wrapper_reaches_the_run_it_started(tmp_path: Path):
     pytest.fail("the run outlived the wrapper")
 
 
-def test_an_installed_jrp_is_started_directly_and_notifies_through_python(tmp_path: Path):
-    """JRP_BIN (written by `jrp schedule install`): the wrapper starts that jrp, not uv in a
-    checkout, and a webhook / Notification Center message goes through `jrp notify`."""
-    env, vault, _ = _setup(tmp_path)
+def _installed(tmp_path: Path) -> Path:
+    """An installed jrp (JRP_BIN): the fake uv, called as `jrp <args>`; `jrp notify` appends
+    to $NOTIFIED."""
     jrp = tmp_path / "jrp"
-    # the fake uv, called as `jrp <args>`; `jrp notify` appends to $NOTIFIED
     jrp.write_text(
-        FAKE_UV.replace('" jrp doctor "', '" doctor "').replace(
+        FAKE_UV.replace('" jrp doctor "', '" doctor "')
+        .replace('" jrp wbr "', '" wbr "')
+        .replace(
             "set -euo pipefail\n",
             'set -euo pipefail\n[[ "$1" == notify && "$2" == -- ]] && { printf "%s|%s\\n" "$3" "$4" >> "$NOTIFIED"; exit 0; }\n',
             1,
         )
     )
     jrp.chmod(0o755)
+    return jrp
+
+
+def test_an_installed_jrp_is_started_directly_and_notifies_through_python(tmp_path: Path):
+    """JRP_BIN (written by `jrp schedule install`): the wrapper starts that jrp, not uv in a
+    checkout, and a webhook / Notification Center message goes through `jrp notify`."""
+    env, vault, _ = _setup(tmp_path)
+    jrp = _installed(tmp_path)
     notified = tmp_path / "notified"
     env |= {
         "JRP_BIN": str(jrp),
@@ -641,3 +674,172 @@ def test_a_list_that_cannot_be_staged_is_one_log_line_and_the_run_goes_on(tmp_pa
     assert texts[0].startswith(".obsidian/workspace.json not staged: ")
     assert texts[1].startswith(".obsidian/workspace-mobile.json not staged: ")
     assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"  # the run did run
+
+
+# --- Monday's weekly review ---------------------------------------------------------------
+
+# date stand-in: `date +%u` prints $WEEKDAY (1 = Monday), the rest asks the real date.
+FAKE_DATE = """#!/usr/bin/env bash
+if [[ "$*" == "+%u" ]]; then echo "$WEEKDAY"; exit 0; fi
+exec /bin/date "$@"
+"""
+
+
+def _monday(env: dict[str, str]) -> None:
+    env["JRP_WBR_DUE"] = "1"
+
+
+@pytest.mark.parametrize("form", ["uv", "installed"])
+def test_on_monday_the_review_follows_the_morning_notes_into_the_vault(tmp_path: Path, form: str):
+    """The morning's notes reach the vault first; then `jrp wbr` runs on the stage (the fake
+    fails unless it sees the stage) and a second copy takes its note, and only its note: last
+    week's review, staged with the notes, is not copied back."""
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    if form == "installed":
+        env["JRP_BIN"] = str(_installed(tmp_path))
+    last_week = vault / "2026-09-21_jrp_wbr.md"
+    last_week.write_text("last week\n")
+    old = time.time() - 7 * 86400
+    os.utime(last_week, (old, old))
+    _monday(env)
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert (vault / WBR_NOTE).read_text() == "review\n"
+    assert last_week.read_text() == "last week\n"
+    texts = [t for _, t in _timed(out.stdout)]
+    start = texts.index("start jrp wbr")
+    assert re.fullmatch(r"end jrp run status 0 · \d+ s", texts[2])
+    assert sorted(texts[3:start]) == [
+        "vault ← 2026-09-24_jrp_aap.md",
+        "vault ← 2026-09-24_jrp_akc.md",
+    ]
+    assert re.fullmatch(r"end jrp wbr status 0 · \d+ s", texts[start + 1])
+    assert texts[start + 2 :] == [f"vault ← {WBR_NOTE}"]
+    lines = out.stdout.splitlines()
+    morning = max(i for i, ln in enumerate(lines) if "vault ← 2026-09-24_" in ln)
+    assert morning < lines.index("fake wbr")  # delivered before the review started
+    assert _messages(notified) == [] and out.stderr == ""
+
+
+@pytest.mark.parametrize(
+    ("due", "weekday", "called"),
+    [("0", "1", False), ("1", "3", True), (None, "3", False), (None, "1", True)],
+)
+def test_the_review_is_due_on_monday_unless_jrp_wbr_due_says_otherwise(
+    tmp_path: Path, due: str | None, weekday: str, called: bool
+):
+    env, vault, _ = _setup(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "date").write_text(FAKE_DATE)
+    (bin_dir / "date").chmod(0o755)
+    env |= {"PATH": f"{bin_dir}:{env['PATH']}", "WEEKDAY": weekday}
+    if due is None:
+        del env["JRP_WBR_DUE"]
+    else:
+        env["JRP_WBR_DUE"] = due
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=True
+    )
+    assert ("fake wbr" in out.stdout) is called
+    assert ("start jrp wbr" in out.stdout) is called
+    assert (vault / WBR_NOTE).exists() is called
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
+
+
+def test_a_hung_review_is_killed_by_its_own_timeout_after_the_morning_reached_the_vault(
+    tmp_path: Path,
+):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    _monday(env)
+    env |= {"WBR": "hang", "WBR_PID": str(tmp_path / "wbr.pid"), "JRP_WBR_TIMEOUT_S": "1"}
+    started = time.monotonic()
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert time.monotonic() - started < 20  # not the 30 s the child would have slept
+    assert out.returncode == 0  # the run's status: the morning's notes are in the vault
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
+    assert not (vault / WBR_NOTE).exists()
+    ((title, body),) = _messages(notified)
+    assert title == "jrp wbr TIMED OUT"
+    assert "1 s (JRP_WBR_TIMEOUT_S)" in body and "0 note" in body
+    (end,) = [t for _, t in _timed(out.stdout) if t.startswith("end jrp wbr")]
+    assert re.fullmatch(r"end jrp wbr status (?!0 )\d+ · \d+ s", end)
+    child = int((tmp_path / "wbr.pid").read_text())
+    with pytest.raises(ProcessLookupError):  # the whole process group, not only uv
+        os.kill(child, 0)
+
+
+@pytest.mark.parametrize("run_status", [0, 5])
+def test_a_failing_review_is_notified_and_the_job_exits_with_the_runs_status(
+    tmp_path: Path, run_status: int
+):
+    """A run that exited non-zero still gets its review (python reported the run itself),
+    and a note the review wrote before failing still reaches the vault."""
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    _monday(env)
+    env |= {"WBR": "fail", "RUN_STATUS": str(run_status)}
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == run_status
+    assert (vault / WBR_NOTE).read_text() == "review\n"
+    ((title, body),) = _messages(notified)
+    assert title == "jrp wbr FAILED" and body.startswith("exit 3, see the log")
+
+
+def test_a_review_note_that_cannot_reach_the_vault_is_notified(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    blocked = vault / WBR_NOTE
+    blocked.write_text("old\n")
+    blocked.chmod(0o444)  # the vault copy of the review refuses the write
+    _monday(env)
+    try:
+        out = subprocess.run(
+            ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+        )
+    finally:
+        blocked.chmod(0o644)
+    assert out.returncode == 0
+    assert blocked.read_text() == "old\n"
+    ((title, body),) = _messages(notified)
+    assert title == "jrp wbr FAILED" and body.endswith(f"/daily-research): {WBR_NOTE}")
+
+
+def test_a_killed_run_gets_no_weekly_review(tmp_path: Path):
+    env, vault, _ = _setup(tmp_path)
+    (tmp_path / "uv").write_text(HUNG_UV)
+    notified = _with_notify(tmp_path, env)
+    _monday(env)
+    env |= {"JRP_RUN_TIMEOUT_S": "1", "HUNG_PID": str(tmp_path / "hung.pid")}
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 124
+    assert "fake wbr" not in out.stdout and "start jrp wbr" not in out.stdout
+    assert not (vault / WBR_NOTE).exists()
+    assert [title for title, _ in _messages(notified)] == ["jrp run TIMED OUT"]
+
+
+def test_a_review_timeout_that_is_not_a_number_skips_the_review_only(tmp_path: Path):
+    """The run's JRP_RUN_TIMEOUT_S stops the morning before python starts; the review's
+    stops only the review, after the morning's notes reached the vault."""
+    env, vault, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    _monday(env)
+    env["JRP_WBR_TIMEOUT_S"] = "10m"
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0
+    assert (vault / "2026-09-24_jrp_aap.md").read_text() == "new\n"
+    assert "fake wbr" not in out.stdout and not (vault / WBR_NOTE).exists()
+    ((title, body),) = _messages(notified)
+    assert title == "jrp wbr FAILED"
+    assert body.startswith("JRP_WBR_TIMEOUT_S is not a number of seconds: 10m;")

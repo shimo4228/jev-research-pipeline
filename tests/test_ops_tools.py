@@ -106,6 +106,8 @@ def test_cli_parses_subcommands():
     assert p.parse_args(["drift", "--cassettes", "x"]).command == "drift"
     assert p.parse_args(["fit"]).command == "fit"
     assert p.parse_args(["export-cases"]).command == "export-cases"
+    wbr = p.parse_args(["wbr"])  # as the launchd wrapper calls it on Monday
+    assert (wbr.command, wbr.week, wbr.out) == ("wbr", None, None)
 
 
 async def test_drift_counts_failed_replays(tmp_path: Path):

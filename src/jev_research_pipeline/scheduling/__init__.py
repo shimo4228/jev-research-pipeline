@@ -4,7 +4,8 @@ shown, never loaded (loading a job is the user's step; plan productize-en-zh P3)
 It writes two files under ~/.config/jrp/launchd/ (each only if missing):
 - launchd-jrp.sh — the package's copy of scripts/launchd-jrp.sh (tests pin the two
   equal): it stages the vault (the jrp notes, and Obsidian's two recently-opened lists for
-  reduction.opened), runs `jrp doctor` and `jrp run` under a watchdog, starts each line it
+  reduction.opened), runs `jrp doctor` and `jrp run` under a watchdog (on Monday then
+  `jrp wbr` under its own, once the run's notes are in the vault), starts each line it
   logs with the local time, and notifies what python cannot (see its header). Installed, it
   always starts JRP_BIN (its `uv run` fallback needs a checkout around it). A wrapper that
   is already there is kept, so an upgrade reaches it only when it is removed first

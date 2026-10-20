@@ -1,5 +1,5 @@
-"""`jrp` — the pipeline's only entry point (launchd calls `jrp run`; the weekly
-`jrp drift` job is stopped, launchd/README.md).
+"""`jrp` — the pipeline's only entry point (launchd calls `jrp run`, and on Monday `jrp wbr`
+after it; the weekly `jrp drift` job is stopped, launchd/README.md).
 
 jrp run            harvest, then the next lines in rotation (env: pipeline.runner)
 jrp doctor         check what a run needs (env, config, questions, keys, the writer's login)

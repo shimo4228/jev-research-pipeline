@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# launchd entry for `jrp <command>` (run | drift). A human loads the jobs (launchd/README.md).
+# launchd entry for `jrp <command>` (run | drift; `run` also makes Monday's `jrp wbr`). A
+# human loads the jobs (launchd/README.md).
 # Secrets live outside the repo in ~/.config/jrp/env (KEY=value lines: JRP_VAULT_DIR,
 # JRP_STORE_DIR, TYPESAFE_API_KEY, optional JRP_PROSE_MODEL / DASHSCOPE_API_KEY (for a
 # dashscope: model) / TAVILY_API_KEY / GITHUB_TOKEN / JRP_COST_CAP_USD / JRP_SLACK_NOTIFY /
-# JRP_RUN_TIMEOUT_S / JRP_DRIFT_LIVE) and, for the default prose model, the login
-# `jrp codex login` wrote to ~/.config/jrp/codex-auth.json. The repo never holds them.
+# JRP_RUN_TIMEOUT_S / JRP_WBR_TIMEOUT_S / JRP_DRIFT_LIVE) and, for the default prose model,
+# the login `jrp codex login` wrote to ~/.config/jrp/codex-auth.json. The repo never holds
+# them.
 #
 # The vault lives in iCloud Drive, which macOS privacy (TCC) guards per executable. Under
 # launchd, /bin/bash may open it but the uv-managed python may not: its open() waits on an
@@ -36,6 +38,15 @@
 # by a start line and an end line with its exit status and seconds. stdout and stderr stay
 # two streams; python's own lines carry python's own times (cli._run), since python's
 # stdout reaches the log only when its buffer is flushed.
+#
+# On Monday (`date +%u` is 1; JRP_WBR_DUE=1 or 0 decides instead, for the tests) the weekly
+# review follows the morning's notes: once they are in the vault, and only when the run was
+# not killed, `jrp wbr` runs on the stage like the run (python never touches the iCloud
+# path) under its own watchdog, JRP_WBR_TIMEOUT_S (default 600 s), between its own start and
+# end lines, and bash copies its note (*_jrp_wbr.md) to the vault in a second copy. A review
+# that fails, is killed, cannot be copied or has a timeout that is not a number is notified
+# (`jrp wbr FAILED` / `jrp wbr TIMED OUT`) and never stops the morning or changes the job's
+# exit status, which stays the run's.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ENV_FILE="${JRP_ENV_FILE:-${HOME}/.config/jrp/env}"
@@ -125,6 +136,57 @@ limited() {
   local status=$?
   CHILD=""
   return "$status"
+}
+
+# send_back <glob>: stage -> vault, the stage's notes that match <glob> and are newer than
+# the mark (a killed job's too). A copy that fails does not stop the others, and is said by
+# the caller: python already reported its work as done, but the author reads the vault, not
+# the stage. Sets COPIED (how many went) and UNCOPIED (" <name>" for each that did not).
+COPIED=0
+UNCOPIED=""
+send_back() {
+  local note
+  COPIED=0
+  UNCOPIED=""
+  while IFS= read -r -d '' note; do
+    if cp -p "$note" "$VAULT/$NOTES/"; then
+      say "vault ← $(basename "$note")"
+      COPIED=$((COPIED + 1))
+    else
+      UNCOPIED="${UNCOPIED} $(basename "$note")"
+    fi
+  done < <(find "$STAGE/$NOTES" -name "$1" -newer "$MARK" -print0)
+}
+
+# weekly_review: Monday's `jrp wbr` on the stage under its own watchdog, then its note to the
+# vault. The morning's notes are already there, so nothing here stops the wrapper or sets its
+# exit status: each failure is one notice. A timeout that is not a number skips the review
+# only (the run's JRP_RUN_TIMEOUT_S stops the whole morning instead, before python starts).
+weekly_review() {
+  local limit="${JRP_WBR_TIMEOUT_S:-600}" wbr_status wbr_from
+  if [[ ! "$limit" =~ ^[1-9][0-9]*$ ]]; then
+    notify "jrp wbr FAILED" "JRP_WBR_TIMEOUT_S is not a number of seconds: ${limit}; no weekly review this morning, the run's notes are in the vault"
+    return 0
+  fi
+  # the mark renewed: the second copy takes only what wbr writes (its glob alone would, as
+  # long as no line has the slug wbr; config.RESERVED_SLUGS keeps it so)
+  quietly "the run mark not renewed" touch "$MARK"
+  say "start jrp wbr"
+  wbr_from=$SECONDS
+  set +e
+  limited "$limit" env JRP_VAULT_DIR="$STAGE" "${JRP[@]}" wbr
+  wbr_status=$?
+  set -e
+  say "end jrp wbr status ${wbr_status} · $((SECONDS - wbr_from)) s"
+  send_back '*_jrp_wbr.md'
+  if [[ -n "$UNCOPIED" ]]; then
+    notify "jrp wbr FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${UNCOPIED}"
+  fi
+  if ((TIMED_OUT)); then
+    notify "jrp wbr TIMED OUT" "killed after ${limit} s (JRP_WBR_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault, the run's notes are there"
+  elif ((wbr_status != 0)); then
+    notify "jrp wbr FAILED" "exit ${wbr_status}, see the log; the run's notes are in the vault"
+  fi
 }
 
 # A TERM to the wrapper (launchctl, a shutdown) would otherwise orphan the job: it sits in
@@ -245,27 +307,21 @@ unstage_workspaces
 WS_STAGED=0
 
 # stage -> vault: only the notes this run wrote (newer than the mark) — a killed run's too
-# A copy that fails does not stop the others, and is said: python already reported the run
-# as done, but the author reads the vault, not the stage.
-copied=0
-uncopied=""
-while IFS= read -r -d '' note; do
-  if cp -p "$note" "$VAULT/$NOTES/"; then
-    say "vault ← $(basename "$note")"
-    copied=$((copied + 1))
-  else
-    uncopied="${uncopied} $(basename "$note")"
-  fi
-done < <(find "$STAGE/$NOTES" -name '*_jrp_*.md' -newer "$MARK" -print0)
-
-if [[ -n "$uncopied" ]]; then
-  notify "jrp run FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${uncopied}"
+send_back '*_jrp_*.md'
+if [[ -n "$UNCOPIED" ]]; then
+  notify "jrp run FAILED" "not copied to the vault (still in ${STAGE}/${NOTES}):${UNCOPIED}"
 fi
-if ((timed_out)); then
-  notify "jrp run TIMED OUT" "killed after ${TIMEOUT} s (JRP_RUN_TIMEOUT_S); ${copied} note(s) it wrote before the kill copied to the vault"
+if ((timed_out)); then  # a killed run's morning gets no weekly review
+  notify "jrp run TIMED OUT" "killed after ${TIMEOUT} s (JRP_RUN_TIMEOUT_S); ${COPIED} note(s) it wrote before the kill copied to the vault"
   exit 124
 fi
-if [[ -n "$uncopied" ]] && ((status == 0)); then
-  exit 1
+if [[ -n "$UNCOPIED" ]] && ((status == 0)); then
+  status=1
+fi
+
+# Monday, after the morning's notes reached the vault: the weekly review. Its failures are
+# notices only; the job exits with the run's status.
+if [[ "${JRP_WBR_DUE:-$(date +%u)}" == 1 ]]; then
+  weekly_review
 fi
 exit "$status"
