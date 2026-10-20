@@ -180,6 +180,55 @@ def test_a_wrapper_that_fails_before_python_starts_is_notified(tmp_path: Path, s
         assert _messages(notified) == []
 
 
+def test_the_harness_slack_script_gets_the_title_and_body_slack_escaped(tmp_path: Path):
+    """notify-slack.sh posts its arguments as they are, so the wrapper escapes & < > first,
+    as pipeline/notify.py's _slack_text does (& before the others): <!channel> or <url|label>
+    in a path or a reason stays text in Slack. The log keeps the text as written."""
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    env["JRP_UV"] = str(tmp_path / "<!channel> & <x|y> 未取得")  # no "/": one path part
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "<@U123>&"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode != 0
+    ((title, body),) = _messages(notified)
+    assert title == "jrp &lt;@U123&gt;&amp; FAILED"
+    assert body == (
+        "launchd-jrp.sh stopped before jrp started: uv not found at "
+        f"{tmp_path}/&lt;!channel&gt; &amp; &lt;x|y&gt; 未取得 (JRP_UV)"
+    )
+    assert "jrp <@U123>& FAILED: launchd-jrp.sh stopped" in out.stderr
+    assert f"{tmp_path}/<!channel> & <x|y> 未取得 (JRP_UV)" in out.stderr
+
+
+def test_jrp_notify_gets_the_text_as_written(tmp_path: Path):
+    """The webhook and Notification Center go through `jrp notify` (pipeline/notify.py),
+    which escapes for Slack itself: only the harness script gets the wrapper's escaping."""
+    env, _, _ = _setup(tmp_path)
+    notified = _with_notify(tmp_path, env)
+    jrp = tmp_path / "jrp"
+    jrp.write_text(
+        "#!/usr/bin/env bash\n"
+        '[[ "$1" == notify && "$2" == -- ]] && printf "%s|%s\\n" "$3" "$4" >> "$NOTIFIED_PY"\n'
+    )
+    jrp.chmod(0o755)
+    raw = "<!channel> & <https://x|y>"
+    env |= {
+        "JRP_BIN": str(jrp),
+        "JRP_SLACK_WEBHOOK_URL": "https://hooks.example/x",
+        "NOTIFIED_PY": str(tmp_path / "notified-py"),
+        "JRP_RUN_TIMEOUT_S": raw,
+    }
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "run"], env=env, capture_output=True, text=True, check=False
+    )
+    assert out.returncode != 0
+    ((title, body),) = _messages(tmp_path / "notified-py")
+    assert title == "jrp run FAILED" and body.endswith(f"seconds: {raw}")
+    ((_, slack_body),) = _messages(notified)
+    assert slack_body.endswith("seconds: &lt;!channel&gt; &amp; &lt;https://x|y&gt;")
+
+
 def test_a_timeout_that_is_not_a_number_stops_before_python(tmp_path: Path):
     env, _, _ = _setup(tmp_path)
     notified = _with_notify(tmp_path, env)
@@ -469,19 +518,40 @@ def test_a_copy_a_killed_wrapper_left_is_not_read_again(tmp_path: Path):
     assert list(staged.iterdir()) == []
 
 
-@pytest.mark.parametrize("stage", ["vault", "link", "obsidian_link"])
+FIRMLINKED = Path("/System/Volumes/Data")
+"""Where macOS's firmlinks (/usr/share/firmlinks: /Users, /private/var, …) lead: the same
+directory under two paths that are not symlinks, so `pwd -P` keeps them apart."""
+
+
+@pytest.mark.parametrize(
+    "stage", ["vault", "link", "obsidian_link", "case_alias", "case_alias_obsidian", "firmlink"]
+)
 def test_a_stage_that_is_the_vault_stops_before_obsidian_is_touched(tmp_path: Path, stage: str):
     """The vault's workspace lists are never removed: the stage's copies are, so a stage
-    that resolves to the vault (pwd -P) is refused before anything is removed or copied."""
+    that is the vault's directory (-ef: the same device and inode) is refused before
+    anything is removed or copied — whatever path names it: a symlink, a name that differs
+    only in case on case-insensitive APFS, or a firmlink."""
     env, vault, _ = _setup(tmp_path)
     notified = _with_notify(tmp_path, env)
     obsidian = _obsidian(tmp_path)
     before = _snapshot(obsidian)
+    if stage.startswith("case_alias") and not (tmp_path / "VAULT").exists():
+        pytest.skip("a case-sensitive filesystem: VAULT is not vault")
+    if stage == "firmlink" and not (FIRMLINKED / str(tmp_path).lstrip("/")).is_dir():
+        pytest.skip(f"no firmlink to {tmp_path} under {FIRMLINKED}")
     if stage == "vault":
         env["JRP_VAULT_STAGE"] = str(vault.parent)
     elif stage == "link":
         (tmp_path / "link").symlink_to(vault.parent)
         env["JRP_VAULT_STAGE"] = str(tmp_path / "link")
+    elif stage == "case_alias":  # …/VAULT is …/vault on case-insensitive APFS
+        env["JRP_VAULT_STAGE"] = str(tmp_path / "VAULT")
+    elif stage == "case_alias_obsidian":  # a stage of its own, .obsidian a link to …/VAULT's
+        (tmp_path / "stage").mkdir()
+        (tmp_path / "stage" / ".obsidian").symlink_to(tmp_path / "VAULT" / ".OBSIDIAN")
+        env["JRP_VAULT_STAGE"] = str(tmp_path / "stage")
+    elif stage == "firmlink":  # /System/Volumes/Data/private/var/… is /private/var/…
+        env["JRP_VAULT_STAGE"] = str(FIRMLINKED / str(vault.parent).lstrip("/"))
     else:  # a stage of its own whose .obsidian is the vault's
         (tmp_path / "stage").mkdir()
         (tmp_path / "stage" / ".obsidian").symlink_to(obsidian)

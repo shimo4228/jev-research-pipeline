@@ -18,12 +18,14 @@
 # workspace-mobile.json) are staged the same way, nothing else of .obsidian: python records
 # from them which jrp notes were opened (reduction/opened.py). They never go back, and they
 # are in the stage only while `jrp run` runs: they name every recently opened file, jrp's or
-# not, so they are removed when the run returns (or the wrapper is TERMed). A stage that
-# resolves to the vault is refused before anything is removed, and a list iCloud has not
-# downloaded (dataless) is not copied: reading it would wait for the download.
+# not, so they are removed when the run returns (or the wrapper is TERMed). A stage that is
+# the vault's directory (the same inode, whatever path names it) is refused before anything
+# is removed, and a list iCloud has not downloaded (dataless) is not copied: reading it
+# would wait for the download.
 #
 # What python cannot report, this script does (the log always; Slack / Notification Center
-# as pipeline/notify.py sends them, JRP_SLACK_NOTIFY / JRP_SLACK_WEBHOOK_URL / JRP_NOTIFY_MACOS): a run past
+# as pipeline/notify.py sends them, JRP_SLACK_NOTIFY / JRP_SLACK_WEBHOOK_URL / JRP_NOTIFY_MACOS,
+# the harness script with Slack's escaping like the webhook): a run past
 # JRP_RUN_TIMEOUT_S (default 3600 s; a normal run takes ~15-20 min) is killed with its whole
 # process group — the notes it wrote so far are still copied back — and a wrapper that
 # fails before python starts (env, uv missing, staging) says so instead of exiting unseen.
@@ -56,10 +58,16 @@ say() {  # say <text>: one log line after the local time (cli.LOG_TIME_FORMAT); 
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"
 }
 
+slack_text() {  # slack_text <text>: & < > as Slack's entities, & first (notify.py _slack_text)
+  # sed, not ${1//&/…}: bash 5.2's patsub_replacement reads & in the replacement as the match.
+  # LC_ALL=C: bytes, so text that is not UTF-8 still passes through instead of stopping sed.
+  printf '%s' "$1" | LC_ALL=C sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
 notify() {  # notify <title> <body>: the log always, then the channels the env names
   say "$1: $2" >&2
-  if [[ "${JRP_SLACK_NOTIFY:-}" == "1" ]]; then
-    bash "$NOTIFY_SCRIPT" "$1" "$2" || say "slack notify failed" >&2
+  if [[ "${JRP_SLACK_NOTIFY:-}" == "1" ]]; then  # the harness script posts its args as they are
+    bash "$NOTIFY_SCRIPT" "$(slack_text "$1")" "$(slack_text "$2")" || say "slack notify failed" >&2
   fi
   # webhook / Notification Center through python's notify (pipeline/notify.py), the harness
   # script left out there since it was just called; skipped while jrp cannot be started
@@ -77,11 +85,6 @@ die() {  # die <why>: stop before jrp starts; on_exit notifies with the reason
   WHY="$1"
   say "$1" >&2
   exit 1
-}
-
-same_dir() {  # same_dir <a> <b>: both are directories and resolve to one (pwd -P)
-  [[ -d "$1" && -d "$2" ]] || return 1
-  [[ "$(CDPATH='' cd -- "$1" && pwd -P)" == "$(CDPATH='' cd -- "$2" && pwd -P)" ]]
 }
 
 unstage_workspaces() {  # remove the stage's copies of Obsidian's lists; a failure is a log line
@@ -175,10 +178,13 @@ VAULT="${JRP_VAULT_DIR:-}"
 STAGE="${JRP_VAULT_STAGE:-${JRP_STORE_DIR}/vault-stage}"
 mkdir -p "$STAGE/$NOTES" "$VAULT/$NOTES" || die "cannot create ${STAGE}/${NOTES} or ${VAULT}/${NOTES}"
 # The stage's copies of Obsidian's lists are removed before staging and after the run; in the
-# vault that would delete Obsidian's own lists. A stage that resolves to the vault, or whose
-# .obsidian is the vault's, is refused before anything is staged or removed.
-if same_dir "$STAGE" "$VAULT"; then die "the stage is the vault: ${STAGE} (JRP_VAULT_STAGE)"; fi
-if same_dir "$STAGE/.obsidian" "$VAULT/.obsidian"; then
+# vault that would delete Obsidian's own lists. A stage that is the vault, or whose .obsidian
+# is the vault's, is refused before anything is staged or removed. -ef compares the device
+# and the inode, not the path: a symlink, a name that differs only in case (APFS is case-
+# insensitive: …/Vault is …/vault) and a firmlink (/System/Volumes/Data/Users/… is
+# /Users/…) all name the one directory, and `pwd -P` keeps the last two apart.
+if [[ "$STAGE" -ef "$VAULT" ]]; then die "the stage is the vault: ${STAGE} (JRP_VAULT_STAGE)"; fi
+if [[ "$STAGE/.obsidian" -ef "$VAULT/.obsidian" ]]; then
   die "the stage's .obsidian is the vault's: ${STAGE}/.obsidian"
 fi
 

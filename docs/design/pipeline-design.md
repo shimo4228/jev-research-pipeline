@@ -508,7 +508,9 @@ raw (scores, labels, group_id) without a provider key, or per-function label cou
   > key (`Adapter.key_env`: Semantic Scholar, OpenAlex, GitHub, HF daily's `HF_TOKEN`) no
   > longer marks the run DEGRADED: it goes to `NetOutcome.expected_limits`, not `failures`.
   > A rate limit is the status kind at the head of the fetch-failure detail
-  > (`adapters.http_status_kind`), not a "rate_limit" anywhere in the server's message.
+  > (`nets.is_rate_limit`, `adapters.http_status_kind`), not a "rate_limit" anywhere in the
+  > server's message — for the health, the day's quiet set, the RATE_LIMITED line and the
+  > arXiv canary alike.
   > 3 of the 4 DEGRADED runs among the 18 up to 2026-10-20 were this keyless S2 429
   > (`jrp-run.log`). With the key set, a 429 is a failure again. A source with no key to
   > set (HF papers search, the firehose's arXiv RSS) keeps its 429 as a failure. The same

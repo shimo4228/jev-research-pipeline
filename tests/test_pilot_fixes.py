@@ -145,6 +145,33 @@ async def test_a_canary_failure_that_is_not_a_rate_limit_is_a_failure_line():
     assert day.quiet == set()
 
 
+async def test_an_arxiv_canary_500_that_says_rate_limit_leaves_openalex_open():
+    """A rate limit is the kind at the head of the detail (adapters.http_status_kind), as
+    the nets and the health read it, never a "rate_limit" in the server's own message."""
+    from jev_research_pipeline.pipeline.run import fetch_canary
+
+    from . import builders as b
+
+    async def says_rate_limit(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(500, json={"message": "upstream rate_limit store unreachable"})
+
+    day = nets.DayBudget()
+    url = "https://arxiv.org/abs/2609.01234"
+    got = await fetch_canary(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(says_rate_limit)),
+        b.line(),
+        url,
+        label=url,
+        day=day,
+        now=b.T0,
+        env={},
+    )
+    assert got == (
+        f"canary 取得失敗: {url} (http_status 500 error: upstream rate_limit store unreachable)"
+    )
+    assert day.quiet == set()
+
+
 async def test_an_arxiv_canary_comes_back_with_its_abstract():
     from . import builders as b
     from .fakes import inverted

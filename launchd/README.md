@@ -49,14 +49,17 @@ the names of jrp notes, each with the day it was first seen, in
 the lists, so they are in the stage only while `jrp run` runs: the wrapper removes them when the
 run returns, is killed by the timeout or gets a TERM, and before it stages new ones it removes any
 that a killed wrapper (SIGKILL) left. These copies never go back to the vault. A stage that
-resolves to the vault (`pwd -P`), or whose `.obsidian` is the vault's, stops the wrapper before it
-removes or copies anything (`jrp run FAILED`). A list that iCloud has not downloaded to this Mac
+is the vault's directory, or whose `.obsidian` is the vault's, stops the wrapper before it
+removes or copies anything (`jrp run FAILED`). The test is the inode (`-ef`), not the path, so a
+symlink, a name that differs only in case (`…/Vault` on case-insensitive APFS) and a firmlink
+(`/System/Volumes/Data/Users/…`) are all caught. A list that iCloud has not downloaded to this Mac
 (dataless) is not copied that morning, because the copy would wait for the download. A vault
 without `.obsidian` is skipped quietly. A copy that fails, or a list left in iCloud, is one line in
 the log, never a message or a stop.
 
 The wrapper also reports what Python cannot (to the log, and to Slack when `JRP_SLACK_NOTIFY=1`,
-through the same `~/.claude/scripts/notify-slack.sh`). A `jrp run` still going after
+through the same `~/.claude/scripts/notify-slack.sh`, with `&`, `<` and `>` escaped as Python
+escapes its own Slack messages, so a `<!channel>` in a reason stays text). A `jrp run` still going after
 `JRP_RUN_TIMEOUT_S` seconds (default 3600; a normal run takes 15 to 20 minutes) gets SIGTERM
 (Python cancels the run, which also stops a `claude -p` it started), then its whole process group
 is killed 10 s later; the notes it wrote before the kill are copied back, and the message is

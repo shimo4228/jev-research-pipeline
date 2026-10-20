@@ -1483,7 +1483,7 @@ async def fetch_canary(
             return t.CANARY_QUIET(lang, label=label, kind=kind)
         got = await canary.fetch(http, line, url, now=now, env=env)
         if isinstance(got, FetchFailure):
-            if kind == "arxiv" and "rate_limit" in got.detail:
+            if kind == "arxiv" and nets.is_rate_limit(got):
                 day.quiet.add(nets.OPENALEX)
                 return t.CANARY_QUIET(lang, label=label, kind="arxiv")
             why = f"{got.reason} {got.detail}"[:120]

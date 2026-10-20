@@ -17,6 +17,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.providers.openai_codex import CredentialsRefreshError
 
+from jev_research_pipeline import note_text as t
 from jev_research_pipeline.adapters import (
     arxiv,
     firehose,
@@ -215,7 +216,12 @@ def _limited(status: int = 429, headers: dict[str, str] | None = None) -> Handle
 
 
 async def _fetched(
-    tmp_path: Path, request: nets.NetRequest, handler: Handler, env: dict[str, str]
+    tmp_path: Path,
+    request: nets.NetRequest,
+    handler: Handler,
+    env: dict[str, str],
+    *,
+    day: nets.DayBudget | None = None,
 ) -> nets.NetOutcome:
     from dataclasses import replace
 
@@ -230,6 +236,7 @@ async def _fetched(
         now=b.T0,
         env=env,
         config=nets.NetConfig(),
+        day=day,
     )
 
 
@@ -310,18 +317,39 @@ def test_the_key_hf_daily_names_is_the_key_it_sends():
     assert "Authorization" not in firehose.hf_request("2026-09-21", {}).headers
 
 
+async def _says_rate_limit(request: httpx2.Request) -> httpx2.Response:
+    """A 500 whose own message says rate_limit: its kind is error (http_status_detail)."""
+    return httpx2.Response(500, json={"message": "upstream rate_limit store unreachable"})
+
+
 async def test_a_keyless_failure_that_only_mentions_rate_limit_still_fails(tmp_path: Path):
     """Expected means the kind http_status_detail gave the status, not any "rate_limit" in
     the server's own message."""
-
-    async def handler(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(500, json={"message": "upstream rate_limit store unreachable"})
-
-    out = await _fetched(tmp_path, _s2(), handler, {})
+    out = await _fetched(tmp_path, _s2(), _says_rate_limit, {})
     assert out.failures == ["recommendation/semantic_scholar http_status"]
     assert out.expected_limits == []
     health = LineHealth(fetch_failures=tuple(out.failures))
     assert health.reasons() == ["fetch failed: recommendation/semantic_scholar http_status"]
+
+
+@pytest.mark.parametrize(
+    ("handler", "limited"),
+    [(_says_rate_limit, False), (_limited(), True)],
+    ids=["500_saying_rate_limit", "429"],
+)
+async def test_only_a_rate_limit_status_stops_the_source_for_the_day(
+    tmp_path: Path, handler: Handler, limited: bool
+):
+    """The quiet set, rate_limited and the RATE_LIMITED line follow the status kind, like the
+    health (expected_limits): a keyless 500 whose message says rate_limit stops nothing."""
+    source = "recommendation/semantic_scholar"
+    day = nets.DayBudget()
+    out = await _fetched(tmp_path, _s2(), handler, {}, day=day)
+    stopped = t.RATE_LIMITED(out.lang, source=source)
+    assert day.quiet == ({source} if limited else set())
+    assert out.rate_limited == ([source] if limited else [])
+    assert (stopped in out.notes) is limited
+    assert out.expected_limits == ([f"{source} http_status"] if limited else [])
 
 
 @pytest.mark.parametrize(

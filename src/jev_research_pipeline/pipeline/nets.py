@@ -33,11 +33,12 @@ A failed request is an operations line and, for the run's health (pipeline.healt
 entry of NetOutcome.failures — except two that are expected: a skip for an unset required
 key, and a rate limit on a source asked without its optional key (Adapter.key_env:
 Semantic Scholar, OpenAlex, GitHub, HF daily's HF_TOKEN), which goes to
-NetOutcome.expected_limits. A rate limit there is the kind http_status_detail put at the
-head of the detail (adapters.http_status_kind), never a "rate_limit" in the server's own
-message. Both still write their operations lines, and a rate limit quiets its source for
-the day either way. A source with no key to set (HF papers search, the firehose's arXiv
-RSS) has no keyless pool to blame: its 429 stays a failure.
+NetOutcome.expected_limits. A rate limit is the kind http_status_detail put at the head of
+the detail (is_rate_limit), never a "rate_limit" in the server's own message — for the
+health, for the quiet set and for the RATE_LIMITED line alike. Both still write their
+operations lines, and a rate limit quiets its source for the day either way. A source with
+no key to set (HF papers search, the firehose's arXiv RSS) has no keyless pool to blame:
+its 429 stays a failure.
 """
 
 import asyncio
@@ -395,6 +396,13 @@ def _source_key(request: NetRequest) -> str:
     return f"{request.net}/{request.adapter.kind}"
 
 
+def is_rate_limit(failure: FetchFailure) -> bool:
+    """A status http_status_detail called a rate limit (adapters.http_status_kind): the
+    server's message after the colon is never read, so a 500 that says "rate_limit" is not
+    one. The one test the health, the quiet set and the arXiv canary share."""
+    return failure.reason == "http_status" and http_status_kind(failure.detail) == "rate_limit"
+
+
 def _record_failure(
     request: NetRequest,
     failure: FetchFailure,
@@ -416,12 +424,12 @@ def _record_failure(
         )
     )
     entry = f"{_source_key(request)} {failure.reason}"
-    limited = failure.reason == "http_status" and http_status_kind(failure.detail) == "rate_limit"
+    limited = is_rate_limit(failure)
     if keyless and limited:
         outcome.expected_limits.append(entry)
     elif failure.reason != "missing_key":
         outcome.failures.append(entry)
-    if "rate_limit" in failure.detail:
+    if limited:
         # A shared pool answering 429 is a policy signal, not a transient error: that
         # source is done for the day in this net, for every line. The net's other sources
         # are other pools (scratch run 5: one arXiv 429 had silenced GitHub and HF keyword
