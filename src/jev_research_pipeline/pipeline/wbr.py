@@ -18,9 +18,11 @@ from the store later drifts with every upsert, so the row keeps the week as it r
 appends another row. With ANTHROPIC_API_KEY set, the monitoring judge (pipeline.monitor)
 also calls the Claude API on a seeded sample of the week and appends one line per call to
 `<store>/metrics/judge.jsonl`; without it nothing is called and section 1 says 未測定 (key
-なし). The note's body holds no source key (arXiv id, DOI, URL) and no `jrp:`
-mark: free text from the store (DEGRADED reasons, an instrument's broken invariant) has its
-URLs, DOIs and `jrp:` replaced before it is printed.
+なし). The note's body holds no source key (arXiv id, DOI, GitHub owner/repo, URL) and no
+`jrp:` mark, and nothing in it executes or fetches in Obsidian: every string from outside jrp
+it prints (DEGRADED reasons, an instrument's broken invariant; slugs and the note_text Msgs
+are jrp's own) goes through printable, which replaces the keys and the mark, then sanitizes
+(report.markdown.sanitize), then cuts.
 
 Every number is read as of the week's last day: nodes dated later are left out. Numbers
 are compared only where the instrument registry (pipeline.registry) calls them alive:
@@ -106,6 +108,7 @@ from jev_research_pipeline.model import (
 from jev_research_pipeline.note_text import Lang, Msg, note_lang
 from jev_research_pipeline.questions import NoQuestions, open_questions
 from jev_research_pipeline.reduction.used import keys_of_text
+from jev_research_pipeline.report.markdown import sanitize
 from jev_research_pipeline.store import GraphStore
 
 from . import monitor
@@ -152,11 +155,27 @@ INTAKE: Final = ("firehose.arxiv", "firehose.hf")
 """The instruments under N_ot: a failing fetch hides the intake factors of a cohort."""
 OUTPUT: Final = ("o1",)
 
+PRINTABLE_CHARS: Final = 160
+"""The most characters of one outside string the note prints (printable)."""
+
 _PREFILTER: Final = "question_prefilter"
 _SCREENING: Final = "question_screening"
 _WEEK_RE: Final = re.compile(r"^(\d{4})-W(\d{2})$")
 _ON_TOPIC: Final = re.compile(r"^q\d+_on_topic$")
-_SCRUB: Final = re.compile(r"https?://\S+|\b10\.\d{4,9}/\S+")
+_SCRUB: Final = re.compile(
+    r"https?://\S+"
+    r"|\b10\.\d{4,9}/\S+"
+    r"|(?:arxiv(?:\.org)?[:/.\s]*(?:(?:abs|pdf)/)?|/(?:abs|pdf|papers)/)"
+    r"\d{2}(?:0[1-9]|1[0-2])\.\d{4,5}\S*"
+    r"|github\.com/[\w.-]+/[\w.-]+\S*",
+    re.IGNORECASE,
+)
+"""A source key in any case: a URL, a DOI, an arXiv id with the context reduction.used reads
+it by (`arXiv:`, `arxiv.org/abs/`, `/papers/`), a GitHub owner/repo; scheme or none."""
+_MARK: Final = re.compile(r"(jrp):", re.IGNORECASE)
+_HALF: Final = re.compile(r"(?:\\+|&[#\w]*)$")
+"""What a cut can leave half-written at the end: an escape's backslash, an entity before
+its `;`."""
 
 type FactorName = Literal["N_new", "N_ot", "p_sel", "p_ext", "p_wri", "O1_c"]
 type GroupKind = Literal["all", "slot", "supply"]
@@ -308,11 +327,22 @@ def paper_key(source: SourceItem) -> str:
     return f"url:{source.url.lower()}"
 
 
-def _scrub(text: str) -> str:
-    """Free text from the store, printable in the note: no URL, no DOI, no `jrp:` mark, one
-    line of at most 160 characters."""
-    flat = " ".join(_SCRUB.sub("<url>", text).split()).replace("jrp:", "jrp :")
-    return flat[:160]
+def printable(text: str, limit: int = PRINTABLE_CHARS) -> str:
+    """Text from outside jrp (a DEGRADED reason, which may quote an exception about a
+    third-party excerpt; an instrument's broken invariant, which may name a listed note),
+    printable in the note. First every source key becomes `<url>` and a `jrp:` becomes
+    `jrp :`, then report.markdown.sanitize(one_line=True) leaves nothing Obsidian executes or
+    fetches (embed, remote image, HTML and comments, inline Dataview, wikilink, `%%`), then
+    the result is cut to `limit` characters. The cut comes after sanitize and drops an escape
+    or an entity it split, so it cannot reopen what sanitize closed."""
+    scrubbed = _MARK.sub(r"\1 :", _SCRUB.sub("<url>", text))
+    out = sanitize(scrubbed, one_line=True)
+    if len(out) <= limit:
+        return out
+    out = out[:limit]
+    while (shorter := _HALF.sub("", out)) != out:
+        out = shorter
+    return out
 
 
 # ------------------------------------------------------------------------------ the store
@@ -969,7 +999,7 @@ def _delivery(lines: Iterable[_Line], snapshot: Snapshot, week: Week) -> Deliver
     indexed = list(lines)
     runs = [r for r in line_runs(snapshot) if week.holds(r.run_date)]
     reasons = Counter(
-        _scrub(reason)
+        printable(reason)
         for record in _of(snapshot.pipeline, RunRecord)
         if week.holds(record.run_date)
         for reason in record.reasons
@@ -1241,7 +1271,7 @@ def _where(instrument: InstrumentStatus, lang: Lang) -> str:
         return ""
     obs = cell.observation
     where = f"{obs.line or t.WBR_TICK(lang)} {obs.run_date.isoformat()}"
-    return f"{where}: {_scrub(obs.conflict)}" if obs.conflict else where
+    return f"{where}: {printable(obs.conflict)}" if obs.conflict else where
 
 
 def _counts(review: WeeklyReview, lang: Lang) -> str:

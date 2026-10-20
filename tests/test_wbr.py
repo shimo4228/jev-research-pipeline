@@ -62,6 +62,7 @@ from jev_research_pipeline.pipeline.monitor import LEDGER_FILE
 from jev_research_pipeline.pipeline.registry import Snapshot
 from jev_research_pipeline.pipeline.wbr import (
     O2,
+    PRINTABLE_CHARS,
     REASONS_SHOWN,
     WEEKLY_FILE,
     AuthorSignal,
@@ -77,6 +78,7 @@ from jev_research_pipeline.pipeline.wbr import (
     note_name,
     paper_key,
     poisson_interval,
+    printable,
     render,
     shift,
     weekly_review,
@@ -573,7 +575,7 @@ def test_delivery_and_resources(review: WeeklyReview):
     assert (d_.reports, d_.records) == (2, 2)
     assert d_.answers == 3 * len(question_screening.Answers.model_fields)
     assert (d_.writer_calls, d_.tokens_in, d_.tokens_out) == (3, 6000, 300)
-    assert d_.reasons == (("edge: fetch failed: keyword/web_search 503 at <url> jrp :x", 1),)
+    assert d_.reasons == (("edge: fetch failed: keyword/web_search 503 at &lt;url> jrp :x", 1),)
 
 
 def test_the_authors_signal(review: WeeklyReview):
@@ -621,6 +623,52 @@ def test_the_note_holds_no_source_key_and_no_jrp_mark(review: WeeklyReview):
         assert keys_of_text(text) == set(), lang
         assert "jrp:" not in text
         assert "https://" not in text
+
+
+HOSTILE = (
+    "akc: raised (X: ![x](HTTPS://e.example/p.png) `$= dv.view(1)` <img src=x onerror=y> "
+    "[[Secret note]] %%hide <!-- arXiv:2611.12345 github.com/owner/repo 10.1234/abc JRP:z"
+)
+"""A reason quoting an exception about a third-party excerpt: an embed of a remote image, an
+inline DataviewJS query, HTML, a wikilink, an Obsidian comment, an HTML comment left open,
+and source keys with no scheme or in upper case."""
+LIVE = ("![", "`$=", "`=", "<img", "[[", "%%", "<!--", "http", "jrp:")
+"""What would execute, fetch or be read as a mark in Obsidian, in lower case."""
+
+
+def test_a_reason_from_outside_is_printed_but_never_executes_or_fetches():
+    """DEGRADED reasons and a broken invariant (here: a listed note name seen before its own
+    date) reach the note escaped, with their source keys replaced."""
+    bare = inputs()
+    tick = RunRecord.new(started_at=at(d(11, 5)), reasons=(HOSTILE,))
+    early = "2026-11-09_jrp_x<!--[[y]]%%![z](https://e.example/q.png).md"
+    snapshot = replace(
+        bare.snapshot,
+        pipeline={**bare.snapshot.pipeline, tick.id: tick},
+        opened={**bare.snapshot.opened, early: d(11, 5)},
+    )
+    got = weekly_review(replace(bare, snapshot=snapshot), WEEK)
+    assert got.status["opened"] == "contradiction"
+    for lang in ("ja", "en", "zh"):
+        text = render(got, lang)
+        assert [x for x in LIVE if x in text.lower()] == [], lang
+        assert keys_of_text(text) == set(), lang
+    text = render(got, "ja")
+    assert "  - akc: raised (X: !\\[x](&lt;url> \\`$\\= dv.view(1)` &lt;img src=x " in text
+    assert "\\[\\[Secret note]] \\%\\%hide &lt;!-- &lt;url> &lt;url> &lt;url> JRP :z (1)" in text
+    assert "計器 opened: 矛盾 (tick 全体 2026-11-05: 2026-11-09_jrp_x&lt;!--\\[\\[y]]" in text
+
+
+def test_a_cut_never_reopens_what_sanitize_closed():
+    """Cut at every length, the printed reason stays a prefix of the whole, holds no live
+    syntax and ends on no half-written escape or entity."""
+    whole = printable(HOSTILE, limit=10_000)
+    for limit in range(1, len(whole) + 1):
+        cut = printable(HOSTILE, limit)
+        assert len(cut) <= limit and whole.startswith(cut), limit
+        assert [x for x in LIVE if x in cut.lower()] == [], (limit, cut)
+        assert not cut.endswith("\\") and not re.search(r"&[#\w]*$", cut), (limit, cut)
+    assert printable("x" * 200) == "x" * PRINTABLE_CHARS
 
 
 def test_the_note_reads_in_every_language(review: WeeklyReview):
