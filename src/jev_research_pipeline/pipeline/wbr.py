@@ -16,8 +16,9 @@ config.toml. It writes the note `<out>/<Monday after the week>_jrp_wbr.md` (its 
 from the store later drifts with every upsert, so the row keeps the week as it read then
 (v0 writes it and reads nothing back; the six weeks of O1 are recomputed). Rerunning a week
 appends another row. With ANTHROPIC_API_KEY set, the monitoring judge (pipeline.monitor)
-also calls the Claude API on a seeded sample of the week and appends one line per call to
-`<store>/metrics/judge.jsonl`; without it nothing is called and section 1 says 未測定 (key
+also calls the Claude API on a seeded sample of the week and appends two lines per call to
+`<store>/metrics/judge.jsonl` (its reservation at its bound, then its price), under the lock
+file `judge.jsonl.lock` beside it; without it nothing is called and section 1 says 未測定 (key
 なし). The note's body holds no source key (arXiv id, DOI, GitHub owner/repo, URL) and no
 `jrp:` mark, and nothing in it executes or fetches in Obsidian: every string from outside jrp
 it prints (DEGRADED reasons, an instrument's broken invariant; slugs and the note_text Msgs
@@ -1692,8 +1693,8 @@ async def write_weekly_review(
     """Read the store, run the monitoring judge over the week's sample (pipeline.monitor:
     nothing is called without ANTHROPIC_API_KEY), then write `<out>/<note_name(week)>`
     (replacing a note of the same week) and append the week's row to
-    `<store>/metrics/weekly.jsonl`. The judge's calls append to `<store>/metrics/judge.jsonl`;
-    nothing else is written."""
+    `<store>/metrics/weekly.jsonl`. The judge's calls append to `<store>/metrics/judge.jsonl`
+    under its lock file `judge.jsonl.lock`; nothing else is written."""
     lang = note_lang(env)
     inputs = read_inputs(env, now=now)
     indexed = _index(inputs, week.end)
