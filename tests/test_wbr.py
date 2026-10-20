@@ -59,7 +59,7 @@ from jev_research_pipeline.model.jsonld import CONTEXT
 from jev_research_pipeline.pipeline.config import ReservedSlug, load_tracks
 from jev_research_pipeline.pipeline.doctor import doctor
 from jev_research_pipeline.pipeline.monitor import LEDGER_FILE
-from jev_research_pipeline.pipeline.registry import Snapshot
+from jev_research_pipeline.pipeline.registry import REGISTRY, Snapshot, status
 from jev_research_pipeline.pipeline.wbr import (
     O2,
     PRINTABLE_CHARS,
@@ -81,6 +81,7 @@ from jev_research_pipeline.pipeline.wbr import (
     paper_key,
     poisson_interval,
     printable,
+    read_total,
     render,
     shift,
     weekly_review,
@@ -615,18 +616,33 @@ def test_the_instruments_are_shown_by_their_status(review: WeeklyReview):
 
 
 def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_factors():
-    """With akc's firehose on, no akc run left an arXiv listing: missing, in the week and in
-    both cohorts' windows, so the intake factors keep their numbers and name akc."""
-    got = weekly_review(inputs(firehose={"akc": 2, "edge": 0, "ans": 0}), WEEK)
+    """With akc's and edge's firehose on, no run left an arXiv listing: missing, in the week and
+    in the cohorts' windows (edge runs on 11-04 only, inside W44's window). The intake factors
+    keep their numbers. akc's own pairs make N_new 6 and 8, so akc is named as in doubt on some
+    days, though no firehose reading of it is above 0; edge's one paper, first fetched 11-04, is
+    in neither cohort, so edge is named by the word alone."""
+    got = weekly_review(inputs(firehose={"akc": 2, "edge": 1, "ans": 0}), WEEK)
     assert got.status["firehose.arxiv"] == "missing"
-    assert [g.intake for g in got.gates] == [(Doubt("akc", "missing", some=False),)] * 2
+    akc = Doubt("akc", "missing", some=True)
+    assert [g.intake for g in got.gates] == [(akc,), (akc, Doubt("edge", "missing", some=False))]
     text = render(got, "ja")
     assert "- 計器 firehose.arxiv: 欠落 (akc 2026-11-03)" in text
-    assert "| I 入口 | N_ot 問いに合う新規の論文 ※akc は欠落 | 4 | 6 | +0.41 | 0.65 |" in text
+    assert (
+        "| I 入口 | N_ot 問いに合う新規の論文 ※akc は一部の日が欠落、edge は欠落 | 4 | 6 "
+        "| +0.41 | 0.65 |"
+    ) in text
     assert "| X 根拠化 | p_ext claim が載った | 0.67 (2/3) | 0.75 (3/4) | +0.12 | 0.50 |" in text
     assert "firehose.arxiv (I 入口): 欠落 — akc 2026-11-03" in text
     en = render(got, "en")
-    assert "| I intake | N_ot new papers on a question (incl. akc: missing) | 4 | 6 |" in en
+    assert (
+        "| I intake | N_ot new papers on a question (incl. akc: missing on some days; edge: "
+        "missing) | 4 | 6 |"
+    ) in en
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    assert weekly["gates"][1]["intake"] == {
+        "akc": {"status": "missing", "some_days": True},
+        "edge": {"status": "missing", "some_days": False},
+    }
 
 
 def _template(day: date, slug: str = "ans") -> Report:
@@ -793,6 +809,74 @@ def test_a_sum_tells_a_line_in_doubt_on_some_days_from_a_line_shown_as_its_word(
     assert weekly["caveats"]["claims_posted"] == {
         "akc": {"status": "unexplained-zero", "some_days": True},
         "ans": {"status": "unexplained-zero", "some_days": False},
+    }
+
+
+ANS_QUESTION = parse_questions(
+    "<!-- jrp:questions:ans -->\n\n## 答えはどこか\n- slug: ans-q\n- status: dropped\n",
+    line=LINES["ans"],
+    opened_at=at(d(10, 1)),
+)[0]
+"""A question ans wrote under before it was dropped (ans has no open question)."""
+
+
+def with_a_late_citer() -> Inputs:
+    """The scenario, and ans: fetched on 11-04, its source of c1's arXiv paper (which akc first
+    cited on 11-03) is cited [1] in its prose that day; its notes of 11-05 and 11-06 cite
+    nothing, so the second 0 in a row reads unexplained-zero on 11-06."""
+    bare = inputs()
+    ans = Line("ans")
+    late = ans.source("late", _arxiv("2611.00001"), day=d(11, 4))
+    ans.fetch(d(11, 4), [late])
+    ans.day(d(11, 4), [(ANS_QUESTION, ["late"], "同じ論文 [1]。")], writer=1, tokens=800)
+    nodes = _ids([*ans.nodes, _template(d(11, 5)), _template(d(11, 6))])
+    lines = {**bare.snapshot.lines, "ans": nodes}
+    return replace(bare, snapshot=replace(bare.snapshot, lines=lines))
+
+
+def test_a_line_that_adds_0_to_a_sum_is_named_by_the_word_though_its_instrument_read_it():
+    """o1 reads ans 1 source (its own first citation, 11-04) over W44's cohort window, yet ans
+    adds 0 to every sum o1 stands beside: its O1 of W45 is 0 (akc cited the paper first), and
+    its source, first fetched 11-04, is in neither cohort, so it adds 0 to O1_c and to p_wri.
+    Section 1, the breakdown and section 7 all name ans by the word alone, as its cell shows
+    it; section 6, to whose slots ans's claim of 11-04 adds 1, names it as in doubt on some
+    days."""
+    late = with_a_late_citer()
+    o1 = next(i for i in REGISTRY if i.id == "o1")
+    ans_only = replace(late.snapshot, lines={"ans": late.snapshot.lines["ans"]})
+    window = status(o1, ans_only, start=d(10, 26), end=d(11, 8))  # W44 and its 7 days
+    assert (window.status, read_total(window)) == ("unexplained-zero", 1)
+    got = weekly_review(late, WEEK)
+    last = got.o1[-1]
+    assert last.lines["ans"] == (0, "unexplained-zero")
+    word = Doubt("ans", "unexplained-zero", some=False)
+    assert last.caveat == (word,)
+    assert (got.gates[0].output, got.gates[1].output) == ((), (word,))
+    assert got.caveats["claims_posted"] == (Doubt("ans", "unexplained-zero", some=True),)
+    text = render(got, "ja")
+    assert (
+        "| └ ans | データ不足 | データ不足 | データ不足 | データ不足 | データ不足 | 未説明の 0 |"
+        in text
+    )
+    assert "| 2 (0.2-7.2) ※ans は未説明の 0 |" in text
+    breakdown = text.split("## 3.")[1].split("## 4.")[0]
+    everyone = breakdown.split("**全ライン**")[1].split("**枠律速")[0]
+    assert (
+        "| W 執筆 | p_wri [n] で引用された ※ans は未説明の 0 | 0.50 (1/2) | 1.00 (3/3) |"
+        in everyone
+    )
+    assert "| OUT 出力 | O1_c 7 日以内に初めて引用 ※ans は未説明の 0 | 1 | 3 |" in everyone
+    assert "一部の日" not in breakdown
+    assert "- 掲載枠のうち以前に掲載された論文: 3/5 (60%) ※ans は一部の日が未説明の 0\n" in text
+    assert " ※ans の o1 は未説明の 0\n" in text.split("## 7.")[1]
+    en = render(got, "en")
+    assert "| O1_c first cited within 7 days (incl. ans: unexplained zero) | 1 | 3 |" in en
+    assert "on some days" not in en.split("## 3.")[1].split("## 4.")[0]
+    zh = render(got, "zh")
+    assert "| O1_c 7 天内首次引用 ※ans 为未解释的 0 | 1 | 3 |" in zh
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    assert weekly["gates"][1]["output"] == {
+        "ans": {"status": "unexplained-zero", "some_days": False}
     }
 
 

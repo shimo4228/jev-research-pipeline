@@ -38,11 +38,15 @@ instrument's status hides only a 0 of the line it is about:
   in a week of citations never hides the week's count;
 - a number summed over lines prints as a number, followed by the lines in doubt (Caveat:
   each line whose own status over the window is NOTED, with its status word). A line whose
-  own value there is above 0 is named as in doubt on some days (Doubt.some, `jev は一部の日が
-  未説明の 0`): for O1 of all lines, its cell kept its number; for the other sums, the
-  instrument's readings of that line over the window add up above 0. A line whose own value
-  is 0 or unread is named with the status word alone (`ans は未説明の 0`), as its cell shows
-  it. The sums are O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1
+  own part of the sum is above 0 is named as in doubt on some days (Doubt.some, `jev は一部の日が
+  未説明の 0`), as a cell of that part keeps its number; a line whose part is 0 or unread is
+  named with the status word alone (`ans は未説明の 0`), as a cell of it shows it. The part
+  is: for O1 of all lines and section 7's o1, the line's O1 of the week; for a cohort's
+  factors, the line's own pairs of the cohort, its N_new beside the intake factors and its
+  O1_c (p_wri's k) beside the output factors; for the slots of section 6 and section 7's
+  writer_calls and jev_tokens, the instrument's readings of the line over the window, which
+  those sums add.
+  The sums are O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1
   resources of section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake
   factors (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output
   factors (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after.
@@ -210,9 +214,12 @@ class Doubt:
     status: Status
     """Its most severe NOTED status over the sum's window."""
     some: bool
-    """The line's own value over the window is above 0, so the sum counts it and only some
-    of its days are in doubt (WBR_CAVEAT_LINE_SOME). False: its value is 0 or unread, and
-    its own cell shows the status word (WBR_CAVEAT_LINE)."""
+    """The line's own part of the sum is above 0: the sum counts it and the doubt is about
+    some of its days, as a cell of that part keeps its number (WBR_CAVEAT_LINE_SOME). False:
+    its part is 0 or unread, as a cell of it shows the status word (WBR_CAVEAT_LINE). The
+    part is what the line adds to the sum (module docstring), which is not always what the
+    instrument read: o1 reads the sources a line first cites itself, of any week's fetch,
+    while a cohort counts only the pairs first fetched in its week."""
 
 
 type Caveat = tuple[Doubt, ...]
@@ -596,10 +603,20 @@ class _Registry:
         """The line's NOTED cells of the instrument over [start, end]."""
         return noted_days(self.full(ident, start, end, line))
 
-    def caveat(self, idents: Sequence[str], start: date, end: date, lines: Sequence[str]) -> Caveat:
+    def caveat(
+        self,
+        idents: Sequence[str],
+        start: date,
+        end: date,
+        lines: Sequence[str],
+        *,
+        parts: Mapping[str, int] | None = None,
+    ) -> Caveat:
         """Each of `lines` whose own status over [start, end], under any of the instruments,
-        is NOTED, with the most severe such status; `some` when every instrument at that
-        status read the line above 0 over the window (read_total)."""
+        is NOTED, with the most severe such status. `some` when the line's own part of the
+        sum is above 0 (Doubt.some): `parts[line]` when the sum is not what the instruments
+        read (a cohort's factors, _gate); else every instrument at that status read the line
+        above 0 over the window (read_total: sections 6 and 7 add those readings)."""
         out: list[Doubt] = []
         for line in lines:
             found = [self.full(i, start, end, line) for i in idents]
@@ -607,7 +624,10 @@ class _Registry:
             if not noted:
                 continue
             worst = min(noted, key=lambda f: NOTED.index(f.status)).status
-            some = all(read_total(f) > 0 for f in noted if f.status == worst)
+            if parts is not None:
+                some = parts.get(line, 0) > 0
+            else:
+                some = all(read_total(f) > 0 for f in noted if f.status == worst)
             out.append(Doubt(line, worst, some))
         return tuple(out)
 
@@ -905,6 +925,8 @@ class WeeklyReview:
 
 type _Firsts = Mapping[str, tuple[date, Sequence[_Cite]]]
 """Paper key → its first citation day, and that day's citations."""
+type _Parts = Mapping[str, Funnel]
+"""Line slug → its own funnel of one cohort (every configured line, in config order)."""
 
 
 def _first_cites(lines: Iterable[_Line]) -> dict[str, tuple[date, list[_Cite]]]:
@@ -959,29 +981,40 @@ def _earliest[K](pairs: Iterable[tuple[K, date]]) -> dict[K, date]:
     return out
 
 
-def _funnel(lines: Sequence[_Line], cohort: Week) -> Funnel:
-    """The cohort's pairs (line, paper) through the stages, each within COHORT_DAYS of the
-    pair's first fetch and among the pairs of the stage before."""
+def _funnel(line: _Line, cohort: Week) -> Funnel:
+    """The line's pairs (line, paper) of the cohort through the stages, each within
+    COHORT_DAYS of the pair's first fetch and among the pairs of the stage before."""
     counts = [0, 0, 0, 0, 0]
-    for line in lines:
-        posted = _earliest((p.key, p.day) for p in line.posts)
-        cited = _earliest((c.key, c.day) for c in line.cites)
-        for key, first in line.units().items():
-            if not cohort.holds(first):
-                continue
-            until = first + timedelta(days=COHORT_DAYS)
-            reached = (
-                line.on_topic_day(key),
-                line.kept_day(key),
-                posted.get(key, date.max),
-                cited.get(key, date.max),
-            )
-            counts[0] += 1
-            for i, day in enumerate(reached, start=1):
-                if day > until:
-                    break
-                counts[i] += 1
+    posted = _earliest((p.key, p.day) for p in line.posts)
+    cited = _earliest((c.key, c.day) for c in line.cites)
+    for key, first in line.units().items():
+        if not cohort.holds(first):
+            continue
+        until = first + timedelta(days=COHORT_DAYS)
+        reached = (
+            line.on_topic_day(key),
+            line.kept_day(key),
+            posted.get(key, date.max),
+            cited.get(key, date.max),
+        )
+        counts[0] += 1
+        for i, day in enumerate(reached, start=1):
+            if day > until:
+                break
+            counts[i] += 1
     return Funnel(*counts)
+
+
+def _summed(funnels: Iterable[Funnel]) -> Funnel:
+    """Several lines' pairs together: a group's funnel is the sum of its lines' own."""
+    parts = list(funnels)
+    return Funnel(
+        new=sum(f.new for f in parts),
+        on_topic=sum(f.on_topic for f in parts),
+        kept=sum(f.kept for f in parts),
+        posted=sum(f.posted for f in parts),
+        cited=sum(f.cited for f in parts),
+    )
 
 
 def _asked(snapshot: Snapshot) -> dict[str, int]:
@@ -1157,11 +1190,10 @@ def _author(lines: Iterable[_Line], snapshot: Snapshot, week: Week) -> AuthorSig
     )
 
 
-def _groups(
-    indexed: Sequence[_Line], cohorts: tuple[Week, Week], slots: Sequence[Slots]
-) -> tuple[Group, ...]:
+def _groups(parts: tuple[_Parts, _Parts], slots: Sequence[Slots]) -> tuple[Group, ...]:
     """All lines, the slot-bound lines and the supply-bound lines (by the review week's
-    free slots; a line with no note that week is in neither)."""
+    free slots; a line with no note that week is in neither), each the sum of its lines'
+    own funnels of the two cohorts."""
     bound = {s.line for s in slots if s.slot_bound}
     supplied = {s.line for s in slots if s.capacity and not s.slot_bound}
     members: tuple[tuple[GroupKind, Callable[[str], bool]], ...] = (
@@ -1169,25 +1201,37 @@ def _groups(
         ("slot", lambda slug: slug in bound),
         ("supply", lambda slug: slug in supplied),
     )
+    old, new = parts
     out: list[Group] = []
     for kind, member in members:
-        chosen = [line for line in indexed if member(line.slug)]
+        chosen = tuple(slug for slug in old if member(slug))
         out.append(
             Group(
                 kind=kind,
-                lines=tuple(line.slug for line in chosen),
-                old=_funnel(chosen, cohorts[0]),
-                new=_funnel(chosen, cohorts[1]),
+                lines=chosen,
+                old=_summed(old[slug] for slug in chosen),
+                new=_summed(new[slug] for slug in chosen),
             )
         )
     return tuple(out)
 
 
-def _gate(registry: _Registry, cohort: Week, slugs: Sequence[str]) -> Gate:
+def _gate(registry: _Registry, cohort: Week, parts: _Parts) -> Gate:
+    """The lines in doubt over the cohort's week and its COHORT_DAYS after, each `some` by its
+    own part of the cohort (Doubt.some): beside the intake factors its N_new, which is what
+    the fetch instruments read reaching the cohort; beside the output factors its O1_c, which
+    is also p_wri's k. The instruments' own readings are not that part: o1 reads the sources
+    a line first cites itself, of any week's fetch, and a fetch that left no record reads
+    nothing though the line's other fetches fill N_new."""
     end = cohort.end + timedelta(days=COHORT_DAYS)
+    slugs = tuple(parts)
     return Gate(
-        intake=registry.caveat(INTAKE, cohort.start, end, slugs),
-        output=registry.caveat(OUTPUT, cohort.start, end, slugs),
+        intake=registry.caveat(
+            INTAKE, cohort.start, end, slugs, parts={s: f.new for s, f in parts.items()}
+        ),
+        output=registry.caveat(
+            OUTPUT, cohort.start, end, slugs, parts={s: f.cited for s, f in parts.items()}
+        ),
     )
 
 
@@ -1209,6 +1253,10 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
     lines = {line.slug: line for line in indexed}
     firsts = _first_cites(indexed)
     older, newer = week.shifted(-2), week.shifted(-1)
+    parts: tuple[_Parts, _Parts] = (
+        {line.slug: _funnel(line, older) for line in indexed},
+        {line.slug: _funnel(line, newer) for line in indexed},
+    )
     asked = _asked(snapshot)
     open_now = {spec.slug: len(spec.questions or ()) for spec in inputs.lines}
     slots = [_slots(line, week, asked, open_now[line.slug]) for line in indexed]
@@ -1222,8 +1270,8 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         o1=tuple(_o1(first_week.shifted(i), firsts, slugs, registry) for i in range(WEEKS_SHOWN)),
         o2=_o2(snapshot, firsts, as_of),
         cohorts=(older, newer),
-        gates=(_gate(registry, older, slugs), _gate(registry, newer, slugs)),
-        groups=_groups(indexed, (older, newer), slots),
+        gates=(_gate(registry, older, parts[0]), _gate(registry, newer, parts[1])),
+        groups=_groups(parts, slots),
         slots=tuple(s for s in slots if s.capacity),
         questions=tuple(
             _question(lines[spec.slug], q, window, firsts)

@@ -86,8 +86,9 @@ zero, a gap, a contradiction, a stuck value) or a declared zero, the number carr
 calls it alive or expected; otherwise its status word stands in its place (declared
 degenerate, missing, contradiction, and so on). A number summed over lines (O1 of all lines,
 the breakdown, the repeated slots, the resources per O1 paper) stays a number when one line's
-instrument is not alive, and names that line with its status after it: a line whose own number
-is above 0 as in doubt on some days, a line shown as its status word by that word alone
+instrument is not alive, and names that line with its status after it: a line whose own part of
+that sum is above 0 as in doubt on some days, a line whose part is 0 (its cell, where it has
+one, shows the status word) by that word alone
 (`48 (35.4-63.6) (incl. ans: unexplained zero; jev: unexplained zero on some days)`;
 `※ans は未説明の 0、jev は一部の日が未説明の 0` in a Japanese note). Read it as including lines
 you cannot fully trust. Text the review quotes from outside jrp, such as
