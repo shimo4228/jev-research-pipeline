@@ -42,9 +42,10 @@ instrument's status hides only a 0 of the line it is about:
   未説明の 0`), as a cell of that part keeps its number; a line whose part is 0 or unread is
   named with the status word alone (`ans は未説明の 0`), as a cell of it shows it. The part
   is: for O1 of all lines and section 7's o1, the line's O1 of the week; for a factor of the
-  breakdown, the k of the line's own measure of that factor over its own pairs of the cohort
-  (Funnel.measure: the count of N_new, N_ot and O1_c, the numerator of the shares p_sel and
-  p_wri, since a line whose pairs reach none of the stage adds a share of 0), and a row,
+  breakdown, the line's own measure of that factor over its own pairs of the cohort
+  (Funnel.part: the count of N_new, N_ot and O1_c, the denominator of the shares p_sel,
+  p_ext and p_wri, since pairs in the denominator move the share even when none reach the
+  stage), and a row,
   which shows two cohorts, takes the line's part of both columns together (merge); for the
   slots of section 6 and section 7's writer_calls and jev_tokens, the instrument's readings
   of the line over the window, which those sums add.
@@ -225,7 +226,7 @@ class Doubt:
     instrument read: o1 reads the sources a line first cites itself, of any week's fetch,
     while a cohort counts only the pairs first fetched in its week. Each factor of the
     breakdown has its own part (a line can add pairs to N_new and none to N_ot), the part of
-    a share is its numerator, and a row's part is the line's part of both of its columns."""
+    a share is its denominator, and a row's part is the line's part of both of its columns."""
 
 
 type Caveat = tuple[Doubt, ...]
@@ -723,8 +724,10 @@ class Funnel:
 
     def part(self, name: FactorName) -> int:
         """What these pairs add to the factor that a doubt beside it weighs (Doubt.some): the
-        count, or the share's numerator (pairs that reach none of the stage add a share of 0)."""
-        return self.measure(name).k
+        count, or the share's denominator (pairs in the denominator move the share, even
+        those that reach none of the stage)."""
+        m = self.measure(name)
+        return m.k if m.n is None else m.n
 
 
 type _Parts = Mapping[str, Funnel]

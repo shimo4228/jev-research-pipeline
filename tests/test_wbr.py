@@ -1005,8 +1005,9 @@ def test_a_row_names_a_line_in_doubt_on_some_days_by_its_part_of_either_cohort()
 def test_a_line_whose_paper_of_one_cohort_passes_a_question_is_in_the_row_of_n_ot(listed: bool):
     """edge's firehose on, its one-paper run of 10-20 (W43, on a question, never screened) and
     its run of 11-04 (W44's window) leaving no arXiv listing. edge adds 1 to W43's N_new 7 and
-    N_ot 5 and 0 to W44's, so both rows name it as in doubt on some days; to p_sel it adds 0 of
-    1 kept, a share of 0, so that row names it by the word. With the 10-20 listing recorded
+    N_ot 5 and 0 to W44's, so both rows name it as in doubt on some days; to p_sel it adds 1 to
+    the denominator (0 of 1 kept), which moves the share, so that row names it as in doubt on
+    some days too. With the 10-20 listing recorded
     (`listed`), W43's window holds no NOTED day of edge and only W44's gate names it, by the
     word: the rows still count edge's part of W43."""
     base = inputs(firehose={"akc": 0, "edge": 1, "ans": 0})
@@ -1017,10 +1018,13 @@ def test_a_line_whose_paper_of_one_cohort_passes_a_question_is_in_the_row_of_n_o
     everyone = _all_lines(render(got, "ja"))
     assert "| └ N_new 新規の論文 ※edge は一部の日が欠落 | 7 | 8 |" in everyone
     assert "| I 入口 | N_ot 問いに合う新規の論文 ※edge は一部の日が欠落 | 5 | 6 |" in everyone
-    assert "| S 選別 | p_sel keep に届いた ※edge は欠落 | 0.60 (3/5) | 0.67 (4/6) |" in everyone
+    assert (
+        "| S 選別 | p_sel keep に届いた ※edge は一部の日が欠落 | 0.60 (3/5) | 0.67 (4/6) |"
+        in everyone
+    )
     weekly: Any = weekly_row(got, generated_at=NOW)
     caveats = weekly["breakdown"]["all"]["caveats"]
-    assert [caveats[name]["edge"]["some_days"] for name in INTAKE_FACTORS] == [True, True, False]
+    assert [caveats[name]["edge"]["some_days"] for name in INTAKE_FACTORS] == [True, True, True]
 
 
 def test_a_line_that_adds_papers_to_n_new_and_none_to_n_ot_is_named_by_the_word_beside_n_ot():
