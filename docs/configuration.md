@@ -36,7 +36,7 @@ every scheduled run (see [launchd/README.md](../launchd/README.md)).
 | `JRP_CODEX_AUTH` | no | where `jrp codex login` keeps the pipeline's own ChatGPT/Codex login (default `~/.config/jrp/codex-auth.json`); read by the `openai-codex` backend |
 | `DASHSCOPE_API_KEY` | for `dashscope:` | Qwen through the DashScope international endpoint (Alibaba Cloud Model Studio); only needed when `JRP_PROSE_MODEL` names a `dashscope:` model |
 | `ANTHROPIC_API_KEY` | for `anthropic:` | the Claude API, billed per token to the key's Console organization (a Claude Max plan's monthly API credits pay it once that organization is linked to the plan); needed when `JRP_PROSE_MODEL` names an `anthropic:` model. `jrp wbr` uses it too, for the weekly review's monitoring judge (Claude Opus 5.5, up to `JRP_MONITOR_WEEKLY_USD` a week, see [The weekly review](#the-weekly-review)); unset, the review calls nothing and says "not measured (no key)". The `claude-code:` backend never passes it to the CLI |
-| `JRP_MONITOR_WEEKLY_USD` | no | the weekly review's monitoring judge stops starting calls once the calls made in the current ISO week cost this much at API prices (default 5.0; calls already running finish). A value that is not a number of 0 or more turns the judge off for that review |
+| `JRP_MONITOR_WEEKLY_USD` | no | the weekly review's monitoring judge's cap per ISO week, in USD at API prices (default 5.0). Before each call it reserves the most that call can cost and starts it only while the week's calls, reserved and settled, stay within the cap, so calls in flight, calls cut off by the deadline and a second review running at the same time all count toward it. A value that is not a number of 0 or more turns the judge off for that review |
 | `JRP_DAILY_RESEARCH_CONFIG` | no | the `config.toml` with your lines and `[nets]` (default `~/.config/jrp/config.toml`) |
 | `JRP_COST_CAP_USD` | recommended | per-line cost cap; past it the run writes a partial note and moves on. Subscription prose (`openai-codex:`, `claude-code:`) counts 0 toward it; `anthropic:` counts at API prices (about $0.3 to $0.5 a line on Opus 5.5) |
 | `JRP_JEV_USD_PER_QUESTION` | recommended | the Jev price assumed per question, for the note's cost line ("Jev estimated cost" on a subscription writer; "Estimated cost", Jev plus the writer's tokens, on a per-token one); unset, Jev is not counted and the line says the price is not set |
@@ -153,9 +153,12 @@ sample of the week: up to 8 sections with prose, judged pass / fail against the 
 checkout, so an installed copy without `docs/` shows "not measured"), and up to 12 of the week's
 O1 papers, each asked whether its claim moves the question forward. The sample is drawn from the
 week's label, so the same week draws the same sections and papers. Each call is priced at the
-Claude API's rates and appended to `<JRP_STORE_DIR>/metrics/judge.jsonl`; the judge stops at
-`JRP_MONITOR_WEEKLY_USD`, at a 429, at spent credits or a refused key (none of them retried), and
-after 300 s, and the rest of the sample shows as not measured with the reason. Its answers are
+Claude API's rates in `<JRP_STORE_DIR>/metrics/judge.jsonl`: a row reserving the most the call
+can cost before it is sent, then a row with its price once it ends (a call cut off, or one that
+got no answer, keeps the reserved amount). Two reviews at once take turns on
+`metrics/judge.jsonl.lock` beside it. The judge stops at `JRP_MONITOR_WEEKLY_USD`, at a 429, at
+spent credits or a refused key (none of them retried), and after 300 s, and the rest of the
+sample shows as not measured with the reason. Its answers are
 shown in the note only: no gate, threshold or run reads them. Making a week again with the key
 set calls and pays again. What each number means is in
 [how-it-works.md](how-it-works.md#the-weekly-review). On macOS the launchd wrapper

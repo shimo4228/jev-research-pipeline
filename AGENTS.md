@@ -75,14 +75,17 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 uv run jrp run ...
 週報のノートを届ける（失敗は `jrp wbr FAILED` / `jrp wbr TIMED OUT` の通知になり、job の exit は run のまま。
 launchd/README.md）。`uv run jrp wbr --week <YYYY-Www> --out <scratchpad>` で、その週の週報を何度でも作り直せる。store の
 partition は読むだけ。書くのはノート 1 本と `<JRP_STORE_DIR>/metrics/weekly.jsonl` への 1 行の追記。
-`ANTHROPIC_API_KEY` が env にあると、監視 judge（`pipeline/monitor.py`）が Claude API を呼んで課金され
-（週 `JRP_MONITOR_WEEKLY_USD`、既定 $5 まで）、呼び出しごとに `metrics/judge.jsonl` へ 1 行を足す。
-試すときは `JRP_STORE_DIR` を store の写しに向け、`env -u ANTHROPIC_API_KEY uv run jrp wbr …` で回す
-（1. の監視の行は「未測定 (key なし)」になる）。監視 judge の答えは週報に出すだけで、gate・fit・閾値の正解に使わない。読む順は 2.（例外）→
-9.（計器）→ 1.（出力）→ 3.（分解）。比べるのは数値で出ている数だけにする（registry が live と呼ばない数は、
-数値の代わりに状態の語で出る）。止まった問いの段が I 入口ならクエリを skill `jrp-question` で差し替え
-（agent だけで進む）、S 選別か X 根拠化なら問いの文言と `not:` の見直しを著者に渡す。v0 は分解までを出し、
-来週の 1 手は選ばない。数の定義の正本は `src/jev_research_pipeline/pipeline/wbr.py` の docstring。
+`ANTHROPIC_API_KEY` が env にあると、監視 judge（`pipeline/monitor.py`）が Claude API を呼んで課金される。
+上限は ISO 週ごとの `JRP_MONITOR_WEEKLY_USD`（既定 $5）で、呼び出しは送る前に自分の上限額を `metrics/judge.jsonl`
+に予約し、終わったら実費の行で置き換える。打ち切られた呼び出しも、同時に走るもう 1 本の週報も、この予約の合計で
+上限に収まる（隣の `judge.jsonl.lock` で順番に判定する）。試すときは `JRP_STORE_DIR` を store の写しに向け、
+`env -u ANTHROPIC_API_KEY uv run jrp wbr …` で回す（1. の監視の行は「未測定 (key なし)」になる）。監視 judge の答えは
+週報の表示にだけ使う。読む順は 2.（例外）→ 9.（計器）→ 1.（出力）→ 3.（分解）。比べるのは数値で出ている数だけにする。
+registry が live と呼ばないラインのセルは状態の語で出て、全ラインの合計と分解の行は数値のまま、そのラインを
+「※ans は未説明の 0」の形で後ろに添える。注記つきの合計は、名指されたラインの分を割り引いて読む。止まった問いの段が
+I 入口ならクエリを skill `jrp-question` で差し替え（agent だけで進む）、S 選別か X 根拠化なら問いの文言と `not:` の
+見直しを著者に渡す。v0 が出すのは分解まで。来週の 1 手は著者が選ぶ。数の定義の正本は
+`src/jev_research_pipeline/pipeline/wbr.py` の docstring。
 
 ## 触ってはいけないもの
 

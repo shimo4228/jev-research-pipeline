@@ -77,11 +77,17 @@ change in log points with a provisional error, for all lines and split into line
 are full and lines short of supply. It lists the open questions that did not move in 14 days
 with the stage where they stopped, how much of each note repeats earlier ones, the week's runs
 and DEGRADED reasons, Jev answers, writer calls and Jev tokens per O1 paper, and your own
-signals: new ticks, notes first opened, and whether the recommendation net's positives have
-changed. A number is shown only when the instrument registry calls it alive; otherwise its
-status word stands in its place (expected zero, declared degenerate, missing, contradiction,
-and so on). This first version stops at the breakdown: it does not pick the change for next
-week. Each review also appends its numbers as one line to `<store>/metrics/weekly.jsonl`.
+signals: new ticks, notes first opened (the weekly review's own note is not counted), and
+whether the recommendation net's positives have changed. A line's number is shown only when
+the instrument registry calls it alive; otherwise its status word stands in its place
+(declared degenerate, missing, contradiction, and so on). A number summed over lines (O1 of all
+lines, the breakdown, the repeated slots, the resources per O1 paper) stays a number when one
+line's instrument is not alive, and names that line with its status after it
+(`12 (6.2-21.0) (incl. <line>: unexplained zero)`; `※<line> は未説明の 0` in a Japanese note):
+read it as including a line you cannot trust. Text the review quotes from outside jrp, such as
+an error message, is escaped so that Obsidian shows it and runs, embeds or fetches none of it.
+This first version stops at the breakdown: it does not pick the change for next week. Each
+review also appends its numbers as one line to `<store>/metrics/weekly.jsonl`.
 
 With `ANTHROPIC_API_KEY` set, a monitoring judge (Claude Opus 5.5 on the Claude API, at most
 $5 a week by default) adds two lines under O1 and O2. One samples up to 12 of the week's O1

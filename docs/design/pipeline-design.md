@@ -1146,9 +1146,11 @@ LLM-as-judge with another LLM as the truth source.
 > **注記（2026-10-20, plan quality-metrics）**: one monitoring exception to both, outside a run.
 > `jrp wbr` may call Claude Opus 5.5 on the Claude API, only with ANTHROPIC_API_KEY set and up
 > to `JRP_MONITOR_WEEKLY_USD` (default $5) of calls per ISO week, priced by `costs.PRICES` and
-> logged per call in `<store>/metrics/judge.jsonl`. It judges a sample seeded with the week's
-> label: up to 8 sections with prose on the prose rubric (W fidelity) and up to 12 O1 papers,
-> each asked whether its claim moves the question forward (OUT precision). The answers are
+> logged per call in `<store>/metrics/judge.jsonl` (each call reserves its upper bound there
+> before it is sent, under a file lock, so calls in flight, calls cut off and a second review at
+> once stay within the cap). It judges a sample seeded with the week's label: up to 8
+> sections with prose on the prose rubric (W fidelity) and up to 12 O1 papers, each asked
+> whether its claim moves the question forward (OUT precision). The answers are
 > shown in the weekly review only, never used as a gate, as fit's truth or as a threshold,
 > and no run calls the judge. It stops without retrying at a 429, spent credits, a 401 / 403,
 > the cap or its 300 s deadline (a repeated rate limit is a policy signal). Review-when: 30
