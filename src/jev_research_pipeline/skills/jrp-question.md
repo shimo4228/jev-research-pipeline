@@ -101,11 +101,14 @@ drifted.
 
 ## 7. Save and see it
 
-Write the file and show the person the whole block once. If the env file is new, run
-`jrp doctor` first: `jrp try` spends Jev, the prose model and search credits, and needs the
-vault and the key. Then:
+Write the file and show the person the whole block once. Then try the line, in one shell
+with the env file sourced (`jrp questions new` starts this session without the Claude API
+key). If the env file is new, `jrp doctor` goes first: `jrp try` spends Jev, the prose model
+and search credits, and needs the vault and the key.
 
 ```bash
+set -a; source ~/.config/jrp/env; set +a
+jrp doctor   # when the env file is new
 jrp try --line <slug>
 ```
 

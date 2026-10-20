@@ -28,6 +28,11 @@ sit at 0-0.4% (production notes 2026-09-30 / 10-01): 5% is an outage, not noise.
 
 FAILURE_CHARS: Final = 120
 """The first failure is quoted to this length: enough to tell a timeout from a 500."""
+WRITER_REFUSED: Final = (
+    "writer refused its credentials — sign in again, or check the API key and its credits"
+)
+"""A refused login (Codex, Claude Code), a refused API key or spent API credits
+(generation.client.auth_failure): each repeats on every draft until a human acts."""
 
 
 @dataclass(frozen=True)
@@ -71,7 +76,7 @@ class LineHealth:
         """One short phrase per kind of degradation, most actionable first; [] = healthy."""
         out: list[str] = []
         if self.writer_auth:
-            out.append("writer auth failed — sign in again")
+            out.append(WRITER_REFUSED)
         if self.prose_failures:
             first = self.prose_failures[0][:FAILURE_CHARS]
             out.append(f"prose failed {len(self.prose_failures)}/{self.drafts} drafts ({first})")

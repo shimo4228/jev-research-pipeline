@@ -35,7 +35,7 @@ from jev_research_pipeline.generation.claude_code import (
 )
 from jev_research_pipeline.model import LineRecord, QuestionLog, Report
 from jev_research_pipeline.pipeline import nets, run
-from jev_research_pipeline.pipeline.health import UNJUDGED_SHARE, LineHealth
+from jev_research_pipeline.pipeline.health import UNJUDGED_SHARE, WRITER_REFUSED, LineHealth
 from jev_research_pipeline.pipeline.notify import NOTIFY_ENV, notify
 from jev_research_pipeline.pipeline.run import LineOutcome
 from jev_research_pipeline.pipeline.runner import run_summary
@@ -114,7 +114,7 @@ def test_a_refused_writer_is_named_apart_from_a_failed_draft():
         prose_failures=("CredentialsRefreshError: invalid_grant",) * 2,
         writer_auth=True,
     )
-    assert health.reasons()[0] == "writer auth failed — sign in again"
+    assert health.reasons()[0] == WRITER_REFUSED
 
 
 def test_the_unjudged_share_is_degraded_from_five_percent():

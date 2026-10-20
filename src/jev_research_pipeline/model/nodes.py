@@ -577,8 +577,8 @@ class Operations(Value):
     generation_output_tokens: NonNegInt
     writer_calls: NonNegInt | None = None
     """Model requests of the writer (GenerationMeter.requests: drafts, rewrites, validation
-    retries and self-checks that came back). The writer may be Claude (`claude-code:`), so
-    this counts its calls instead of asserting 0."""
+    retries and self-checks that came back). The writer may be Claude (`claude-code:` or
+    `anthropic:`), so this counts its calls instead of asserting 0."""
     claude_calls: Literal[0] = Field(default=0, exclude=True)
     """Read-only: Reports stored before `writer_calls` carry the key (always 0, which never
     measured the writer). Accepted on read, never written; the CONTEXT term stays."""

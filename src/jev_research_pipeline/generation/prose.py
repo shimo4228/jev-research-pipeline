@@ -30,7 +30,9 @@ from importlib.resources import files
 from typing import Final, Literal
 
 from pydantic_ai import Agent
-from pydantic_ai.exceptions import AgentRunError
+from pydantic_ai.capabilities import RaiseContentFilterError
+from pydantic_ai.exceptions import AgentRunError, ContentFilterError, UnexpectedModelBehavior
+from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelResponse
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
@@ -40,7 +42,8 @@ from jev_research_pipeline.model import Decision, Question
 from jev_research_pipeline.model.jsonld import Value
 from jev_research_pipeline.note_text import DEFAULT_LANG, LANGS, Lang, Msg
 
-from .client import GenerationMeter, auth_failure
+from .claude_code import is_usage_limit
+from .client import GenerationMeter, auth_failure, writer_limit
 
 INFERENCE_MARKS: Final[Mapping[Lang, str]] = {
     "ja": "【推論】",
@@ -191,8 +194,16 @@ def prose_agent(
     model: Model, *, timeout_s: float, instructions: str = INSTRUCTIONS
 ) -> Agent[None, str]:
     """`instructions` is overridden only by the prose bench (pipeline.prose_bench), which
-    compares prompt variants on frozen inputs; a run always uses INSTRUCTIONS."""
-    return Agent(model, instructions=instructions, model_settings=ModelSettings(timeout=timeout_s))
+    compares prompt variants on frozen inputs; a run always uses INSTRUCTIONS.
+    RaiseContentFilterError ends the call on a refusal (finish_reason content_filter, the
+    Claude API's stop_reason refusal) even when partial text came back: a refusal that fires
+    mid-answer leaves text that must not be published as a finished draft."""
+    return Agent(
+        model,
+        instructions=instructions,
+        model_settings=ModelSettings(timeout=timeout_s),
+        capabilities=[RaiseContentFilterError()],
+    )
 
 
 class ProseResult(Value):
@@ -205,6 +216,48 @@ class ProseResult(Value):
     """[n]s the model wrote that name no claim of this call; dropped from the text."""
     auth: bool = False
     """The failure was the writer refusing its credentials (generation.client.auth_failure)."""
+
+
+LIMIT_PREFIX: Final = "WriterLimit"
+"""How write_prose names a failure every later call would repeat (generation.client
+.writer_limit): the bench reads it, with the CLI's own ClaudeUsageLimit (is_writer_limit)."""
+
+
+def is_writer_limit(failure: str | None) -> bool:
+    """A ProseResult failure that is a policy signal: the Claude Code CLI's usage limit, or
+    the Claude API's 429 or refused key or credits. The prose bench stops its burst on it."""
+    return is_usage_limit(failure) or (
+        failure is not None and failure.startswith(f"{LIMIT_PREFIX}:")
+    )
+
+
+def refused(error: ContentFilterError, usage: RunUsage) -> str:
+    """`refusal (<category>)` from the response ContentFilterError carries (pydantic-ai keeps
+    the Claude API's stop_details.category in provider_details), not the multi-line JSON its
+    str() spills into the run's notification. The refused response is billed, but pydantic-ai
+    raises before it records the response's tokens: they are added to `usage` here (requests
+    was already counted), so the meter and the cost cap see them."""
+    category: object = None
+    try:
+        messages = ModelMessagesTypeAdapter.validate_json(error.body or "[]")
+    except ValueError:
+        messages = []
+    for response in messages:
+        if isinstance(response, ModelResponse):
+            usage.incr(response.usage)
+            if response.provider_details:
+                category = response.provider_details.get("refusal_category") or category
+    return f"refusal ({category})" if category else "refusal"
+
+
+TRUNCATED: Final = "truncated (max_tokens)"
+"""An answer cut at max_tokens (client.PROSE_MAX_TOKENS), whether text came back or only
+thinking did (pydantic-ai then raises "Model token limit ... exceeded before any response
+was generated")."""
+
+
+def one_line(text: str, limit: int = 200) -> str:
+    return " ".join(text.split())[:limit]
 
 
 class Rendering(Value):
@@ -311,15 +364,26 @@ async def write_prose(
             ),
             usage=usage,
         )
+    except ContentFilterError as e:
+        return ProseResult(prose=None, failure=refused(e, usage), seconds=_since(started))
     except AgentRunError as e:
+        failure = f"{type(e).__name__}: {e}"
+        if writer_limit(e):
+            failure = f"{LIMIT_PREFIX}: {failure}"
+        elif isinstance(e, UnexpectedModelBehavior) and e.message.startswith("Model token limit"):
+            failure = TRUNCATED
         return ProseResult(
             prose=None,
-            failure=f"{type(e).__name__}: {e}"[:200],
+            failure=one_line(failure),
             seconds=_since(started),
             auth=auth_failure(e),
         )
     finally:
         meter.add(usage)
+    if result.response.finish_reason == "length":
+        # cut at max_tokens (client.PROSE_MAX_TOKENS): text that stops mid-sentence is a
+        # failed draft, so the ladder keeps the previous draft or falls back to the template
+        return ProseResult(prose=None, failure=TRUNCATED, seconds=_since(started))
     text, invalid = check_citations(result.output.strip(), len(claims))
     return ProseResult(
         prose=text or None,

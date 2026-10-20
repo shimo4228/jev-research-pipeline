@@ -7,8 +7,9 @@ non-zero exit when any fails.
     typesafe   TYPESAFE_API_KEY is set
     writer     the JRP_PROSE_MODEL writer is reachable: the Codex login file reads (never
                refreshed: a refresh spends the single-use token the next run needs),
-               DashScope's key is set, or the Claude Code CLI is found and
-               `claude auth status` says loggedIn
+               DashScope's or the Claude API's key is set (set, not tried: neither a
+               refused key nor spent credits shows before the first call), or the Claude
+               Code CLI is found and `claude auth status` says loggedIn
 
 Why it exists: the writer's login is the dependency that fails silently (a rejected Codex
 grant turns every section into a template; Claude Code's login lives in the macOS keychain,

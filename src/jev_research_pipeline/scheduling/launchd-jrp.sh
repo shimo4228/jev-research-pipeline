@@ -2,8 +2,9 @@
 # launchd entry for `jrp <command>` (run | drift; `run` also makes Monday's `jrp wbr`). A
 # human loads the jobs (launchd/README.md).
 # Secrets live outside the repo in ~/.config/jrp/env (KEY=value lines: JRP_VAULT_DIR,
-# JRP_STORE_DIR, TYPESAFE_API_KEY, optional JRP_PROSE_MODEL / DASHSCOPE_API_KEY (for a
-# dashscope: model) / TAVILY_API_KEY / GITHUB_TOKEN / JRP_COST_CAP_USD / JRP_SLACK_NOTIFY /
+# JRP_STORE_DIR, TYPESAFE_API_KEY, optional JRP_PROSE_MODEL / ANTHROPIC_API_KEY (for an
+# anthropic: model, and Monday's monitoring judge) / DASHSCOPE_API_KEY (for a dashscope:
+# model) / TAVILY_API_KEY / GITHUB_TOKEN / JRP_COST_CAP_USD / JRP_SLACK_NOTIFY /
 # JRP_RUN_TIMEOUT_S / JRP_WBR_TIMEOUT_S / JRP_DRIFT_LIVE) and, for the default prose model,
 # the login `jrp codex login` wrote to ~/.config/jrp/codex-auth.json. The repo never holds
 # them.

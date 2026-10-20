@@ -11,11 +11,14 @@ JRP_PROSE_MODEL names it as `<backend>:<model>` (design "Prose model"):
                                region-bound), DASHSCOPE_API_KEY. The prose bench tuned the
                                prompt on dashscope:qwen3.7-max (2026-09-23).
     claude-code:<model>        Claude on the author's Claude subscription through `claude -p`
-                               (generation.claude_code): the prose bench's writer, and a
-                               production writer one env var away (author decision 2026-10-01).
+                               (generation.claude_code): the prose bench's writer, and the
+                               production writer 2026-10-03..10-20 (author decision 2026-10-01).
     anthropic:<model>          Claude on the Claude API, ANTHROPIC_API_KEY: per-token billing,
                                which the monthly API credits of a Max plan pay (they do not cover
                                Claude Code, so not claude-code:). Same models as claude-code:.
+                               The production writer from the 2026-10-21 run (author decision
+                               2026-10-20), sent as claude -p sends it: PROSE_MAX_TOKENS, effort
+                               named.
 
 The three HTTP backends go through the run's one injected httpx2 client, so cassettes and OTel
 see them alike; claude-code is a subprocess and sees neither.
@@ -51,9 +54,10 @@ BACKENDS: Final[tuple[Backend, ...]] = ("openai-codex", "dashscope", "claude-cod
 
 PROSE_MODEL_ENV: Final = "JRP_PROSE_MODEL"
 DEFAULT_PROSE_MODEL: Final = "openai-codex:gpt-6-luna"
-"""GPT-6 Luna on the author's Codex subscription: the production writer since 2026-09-27, and
-the model the prompt (v10 + check6) was read on, on the 3 hard bench cases (not yet on holdout;
-design "Prose bench"). Every test that pins it replays a synthetic cassette (tests/fakes.py)."""
+"""GPT-6 Luna on the author's Codex subscription: the code default, the production writer
+2026-09-27..10-02, and the model the prompt (v10 + check6) was read on, on the 3 hard bench
+cases (not yet on holdout; design "Prose bench"). Every test that pins it replays a synthetic
+cassette (tests/fakes.py)."""
 
 DASHSCOPE_BASE_URL: Final = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_KEY_ENV: Final = "DASHSCOPE_API_KEY"
@@ -148,12 +152,31 @@ def _key_env(spec: ModelSpec) -> str | None:
             return None
 
 
+_SPENT_MARKERS: Final = ("credit balance is too low", "api usage limits")
+"""The 400 once the organization's credits are spent, and the 400 once a spend limit the
+author set is reached ("You have reached your specified workspace API usage limits"; platform
+docs "API credits for Max and Team plans" and "Rate limits", as-of 2026-10-20)."""
+
+
 def credit_exhausted(error: ModelHTTPError) -> bool:
-    """The Claude API's answer once the organization's credits are spent: a 400 whose message
-    says so (platform docs "API credits for Max and Team plans", as-of 2026-10-19). It repeats
-    on every call until the next month's credits arrive or a human buys some, so the weekly
-    review's monitoring judge stops on it (pipeline.monitor)."""
-    return error.status_code == 400 and "credit balance is too low" in str(error.body)
+    """The Claude API refusing to spend more: the credits are gone, the workspace's spend limit
+    is reached, or billing failed (402 billing_error). It repeats on every call until next
+    month's credits arrive or a human acts, so the weekly review's monitoring judge stops on it
+    (pipeline.monitor)."""
+    if error.status_code == 402:
+        return True
+    body = str(error.body).lower()
+    return error.status_code == 400 and any(m in body for m in _SPENT_MARKERS)
+
+
+def writer_limit(error: BaseException) -> bool:
+    """A failed prose call that every later call would repeat: a 429 the SDK's retry did not
+    clear, or the writer refusing its credentials or its credits (auth_failure). A policy
+    signal, not a transient error: the prose bench stops its burst on it (harness rule
+    debugging.md), as it does on the Claude Code CLI's usage limit."""
+    if isinstance(error, ModelHTTPError) and error.status_code == 429:
+        return True
+    return auth_failure(error)
 
 
 def auth_failure(error: BaseException) -> bool:
@@ -202,10 +225,31 @@ def _codex_settings(*, thinking: bool) -> OpenAIResponsesModelSettings:
     )
 
 
+PROSE_MAX_TOKENS: Final = 32_000
+"""The cap on one prose call's output, thinking included. pydantic-ai 2.47 sends 4096 when
+none is set, which a self-check that re-writes a long draft after its thinking reaches: on
+claude-code (whose CLI sends 128000) Opus 5.5 calls averaged up to about 6k output tokens
+(2026-10-03..10-19). Billed only as produced; one call costs at most $0.64. Sent without
+streaming: the call's own 900 s timeout keeps the SDK from asking for a stream."""
+
+PROSE_EFFORT: Final = "medium"
+"""Named rather than left to the API default: the effort `claude -p` sends for Opus 5.5 with
+no --effort (captured on the wire 2026-10-20, CLI 2.1.299-2.1.303), the one the author's 5/5
+blind read was written at. Valid while Opus 5.5's default is medium."""
+
+
 def _anthropic_settings(*, thinking: bool) -> AnthropicModelSettings:
-    # As claude-code: thinking=True is the model's default (adaptive thinking on the Claude 5
-    # models), thinking=False asks for low effort rather than no thinking.
-    return AnthropicModelSettings(thinking=True if thinking else "low")
+    # As claude-code: thinking on is adaptive thinking at the CLI's effort, off asks for low
+    # effort rather than no thinking (Opus 5.5 refuses no thinking).
+    return AnthropicModelSettings(
+        thinking=True,
+        anthropic_effort=PROSE_EFFORT if thinking else "low",
+        max_tokens=PROSE_MAX_TOKENS,
+    )
+
+
+PROSE_RETRIES: Final = 1
+"""The SDK retries a run's prose writer allows (Writer, `max_retries`)."""
 
 
 class Writer:
@@ -216,9 +260,12 @@ class Writer:
     refuses a client that already carries one: one Writer per client.
 
     `max_retries` sets how often the Claude API SDK retries a request by itself (a 408, 409,
-    429, 5xx or lost connection; twice when None, the SDK's default), on the `anthropic:`
-    backend only. The weekly review's monitoring judge passes 0, since it stops at the first
-    429 instead (pipeline.monitor)."""
+    429, 5xx, timeout or lost connection; twice when None, the SDK's default), on the
+    `anthropic:` backend only. A run's writer passes 1 (PROSE_RETRIES): a timed-out prose call
+    is sent again in full, so 2 retries of the 900 s call alone would take 2700 s of the
+    launchd watchdog's 3600 s. The prose bench passes the same and stops its burst on a 429
+    that stays (writer_limit); the weekly review's monitoring judge passes 0, since it stops at
+    the first 429 (pipeline.monitor)."""
 
     def __init__(
         self, auth: ProseAuth, http: httpx2.AsyncClient, *, max_retries: int | None = None

@@ -51,7 +51,10 @@ JRP_NOTE_LANG={lang}         # the note's language: ja | en | zh
 # JRP_PROSE_MODEL=openai-codex:gpt-6-luna
 
 # optional
-# JRP_COST_CAP_USD=0.50          # per line per run; past it the note is partial
+# ANTHROPIC_API_KEY=             # for an anthropic: writer, and the weekly review's monitoring
+#                                # judge (jrp wbr); billed per token
+# JRP_COST_CAP_USD=2.00          # per line per run; past it the note is partial (an anthropic:
+#                                # writer counts here: about $0.1-0.85 a line on Opus 5.5)
 # JRP_JEV_USD_PER_QUESTION=      # Jev unit price, for the note's cost line
 # TAVILY_API_KEY=                # web search source (free tier: 1,000 searches a month)
 # GITHUB_TOKEN=                  # raises the GitHub search limit

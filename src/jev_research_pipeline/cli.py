@@ -81,6 +81,7 @@ from .evals.paths import NAME as EVAL_NAME
 from .evals.paths import eval_root
 from .evals.silver import label, labels, ledger_path
 from .generation import (
+    PROSE_RETRIES,
     MissingCredentials,
     ModelSpecError,
     Writer,
@@ -322,7 +323,12 @@ def _questions_new(env: Mapping[str, str], slug: str) -> int:
         sys.stderr.write(f"no Claude Code CLI: install it, or set {CLAUDE_BIN_ENV}\n")
         return 1
     argv = question_session(binary, slug, questions_path(env, slug))
-    return subprocess.run(argv, check=False).returncode
+    # without ANTHROPIC_*: a key sourced from the env file would move the interactive session
+    # off the author's subscription onto API billing once approved. The other keys stay for
+    # the skill's steps; the steps that need the Claude API key (jrp queries check, jrp
+    # doctor, jrp try) source the env file in their own shell
+    session_env = {k: v for k, v in env.items() if not k.startswith("ANTHROPIC_")}
+    return subprocess.run(argv, check=False, env=session_env).returncode
 
 
 def _doctor(env: Mapping[str, str]) -> int:
@@ -558,7 +564,9 @@ async def _prose(env: Mapping[str, str], args: argparse.Namespace) -> int:
                 lines = await pb.run_bench(
                     bench,
                     variant,
-                    writer=Writer(auth, http),
+                    # one retry, as a run's writer: a lone 529 is absorbed; a 429 that
+                    # stays is a writer limit and stops the burst (client.writer_limit)
+                    writer=Writer(auth, http, max_retries=PROSE_RETRIES),
                     split=split,
                     concurrency=prose_concurrency(env),
                     only=_ids(args.cases),

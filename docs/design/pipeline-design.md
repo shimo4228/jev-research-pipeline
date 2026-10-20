@@ -131,8 +131,8 @@ state (filter state in code), adversarial text (treat as data).
    reliability, rubric scores per axis, rubric-vs-gold agreement per axis.
 
    > **注記（2026-10-20, plan quality-metrics）**: "Claude calls (must be 0)" no longer
-   > proves anything. The writer can be Claude (`claude-code:` is the production writer,
-   > AGENTS.md), and the meter was a constant 0 that never counted the writer. Reports now
+   > proves anything. The writer can be Claude (`claude-code:` until 2026-10-20,
+   > `anthropic:` from the 2026-10-21 run; AGENTS.md), and the meter was a constant 0 that never counted the writer. Reports now
    > record `writer_calls` (the writer's model requests that came back,
    > `GenerationMeter.requests`), shown as 書き手の呼び出し in the operations section;
    > `claude_calls` is still read from stored Reports and no longer written. Reports also
@@ -858,11 +858,38 @@ The prose, the one generation site left, moves from `qwen3.7-max` on DashScope t
   loads no settings, no MCP and no tools, replaces the system prompt, sends the prompt on
   stdin, runs in a fresh temp dir (measured: 756 input tokens, no CLAUDE.md). A usage or
   rate limit is its own error (`ClaudeUsageLimit`) so the bench stops the burst on it.
+- **Production on the Claude API (author decision 2026-10-20)**: `JRP_PROSE_MODEL=
+  anthropic:claude-opus-5-5` from the 2026-10-21 run, the same model the author read 5/5 on
+  `claude-code:` (2026-10-03..10-20), billed per token to the Max plan's monthly API credits
+  (they do not cover Claude Code) through a key scoped to a `jrp` workspace (a spend limit
+  can sit on it; the Default Workspace takes none). The request matches what `claude -p`
+  sent, captured on the wire 2026-10-20 (CLI 2.1.299-2.1.303): adaptive thinking at effort
+  `medium` (`PROSE_EFFORT`, named), and `max_tokens` 32,000 (`PROSE_MAX_TOKENS`; the CLI
+  sends 128,000, pydantic-ai 2.47 would send 4,096, and Opus 5.5 counts thinking against
+  it; claude-code calls averaged up to about 6k output tokens). Not copied: the CLI's
+  envelope (an Agent SDK identity line, an environment block with today's date and the
+  knowledge cutoff); in 32 v16o drafts every date or number came from the case material.
+  New failure names, the same on every backend: an answer cut at `max_tokens` is a failed
+  draft (`truncated (max_tokens)`), not prose; a refusal (stop_reason `refusal`, partial
+  text or none) is `refusal (<category>)` (pydantic-ai `RaiseContentFilterError`; the
+  refused response is billed, so its tokens are metered from the error's body); a 429,
+  a refused key, spent credits or a reached spend limit is a writer limit the bench stops
+  on (`client.writer_limit`). The run's writer allows 1 SDK retry (`PROSE_RETRIES`): a
+  timeout is retried in full, and 2 retries of the 900 s call would take 2,700 s of the
+  launchd watchdog's 3,600. Server-side refusal fallbacks stay off: pydantic-ai 2.47 and
+  2.58 assert on the response's `fallback` block and the line would fail. Cost at $4/$20
+  per Mtok over 2026-10-03..10-19: $0.10-0.83 a line-run (mean $0.44), about $0.65 a day at
+  2 lines a day, so `JRP_COST_CAP_USD` (per line-run, now counting the writer) moves from
+  1.00 to 2.00 in the author's env. Report.operations has no writer field: `cost_usd`
+  before 2026-10-21 is Jev alone, from then on Jev plus the writer, and `writer_calls`
+  (stored from 2026-10-21) is the API writer's from its first day.
 Review-when: the author's reading of GPT-5.6 Sol notes is worse than the qwen3.7-max
 baseline, the plan's usage limits cut a morning run short, or OpenAI's terms for
 subscription auth outside the Codex clients change; for claude-code, Claude Code's `-p`
 flags or its terms for subscription use in scripts change, or launchd cannot read its
-keychain login.
+keychain login; for anthropic, the credits run out before the month does, the writer meets
+429s (a run-wide halt would then be worth adding), refusals reach the operations section
+(then consider fallbacks), or Opus 5.5's price or default effort changes.
 
 ### Discovery gaps on ans / desire (2026-10-01, plan daily-tool-hardening G2)
 
@@ -1038,6 +1065,9 @@ carry a judge verdict (c10o / c12o / c14o / c15o / prod / g14; scratch `lab.py`,
 Review-when: the author reads a published section as unfaithful, the 運用 section shows
 templates on more than one section in three for a week, or a launchd run cannot read
 Claude Code's keychain login (jrp doctor's writer line).
+> **注記（2026-10-20, "Prose model" Production on the Claude API）**: production prose
+> moves to `anthropic:claude-opus-5-5` from the 2026-10-21 run, so the keychain trigger no
+> longer applies to production.
 
 ### Note language (2026-10-01, plan productize-en-zh P1)
 
@@ -1312,7 +1342,9 @@ LLM-as-judge with another LLM as the truth source.
   `AsyncTypeSafeClient`; `RetryPolicy`; default timeout 10s; `TYPESAFE_API_KEY`.
 - `pydantic-ai` 2.47.0: `OpenAICodexProvider` / `OpenAICodexModel` (ChatGPT/Codex
   subscription OAuth, `openai-codex:` models; added 2026-09-24), `AlibabaProvider`
-  (`DASHSCOPE_API_KEY`), `Agent(output_type=…)`
+  (`DASHSCOPE_API_KEY`), `AnthropicProvider` / `AnthropicModel` (`ANTHROPIC_API_KEY`,
+  anthropic SDK 1.15.0; default max_tokens 4096, overridden; added 2026-10-20),
+  `Agent(output_type=…)`
   with no tools = one typed request + `retries={'output': N}`; `pydantic_ai.direct.
   model_request` for no-validation single calls.
 - `pydantic-evals`: `Dataset`/`Case` to YAML, pytest integration — the golden layer.

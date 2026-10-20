@@ -9,6 +9,8 @@ Environment (nothing is guessed):
     JRP_CODEX_AUTH         optional path of the pipeline's Codex login
                            (default ~/.config/jrp/codex-auth.json; `jrp codex login`)
     DASHSCOPE_API_KEY      required only for a dashscope: prose model
+    ANTHROPIC_API_KEY      required only for an anthropic: prose model (and the weekly
+                           review's monitoring judge, jrp wbr)
     TAVILY_API_KEY         optional; web_search is skipped without it
     GITHUB_TOKEN           optional; raises the GitHub search limit
     JRP_COST_CAP_USD       optional cost cap per line-run → partial report
@@ -35,6 +37,7 @@ from pydantic import AwareDatetime
 
 from jev_research_pipeline import note_text as t
 from jev_research_pipeline.generation import (
+    PROSE_RETRIES,
     MissingCredentials,
     ModelSpecError,
     ProseAuth,
@@ -259,7 +262,7 @@ async def run_pipeline(
     vault = vault_dir(env)
     api_keys, prose = keys(env)
     # One writer for the whole tick: the lines share its provider (and so the Codex login).
-    writer = Writer(prose, http)
+    writer = Writer(prose, http, max_retries=PROSE_RETRIES)
     cfg = config_path(env)
     tracks = {t.slug: t for t in env_tracks(env)}
     rotation = rotation_config(list(tracks.values()), per_tick=lines_per_day(cfg))

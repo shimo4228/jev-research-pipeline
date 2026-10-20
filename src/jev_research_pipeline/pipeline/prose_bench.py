@@ -15,7 +15,7 @@ Roles (skill author-calibrated-eval): the author reads for readability; a fresh-
 Opus judge (.claude/agents/prose-judge.md) checks fidelity only, one draft at a time, with
 binary checks and a pass / fail verdict (docs/prose-rubric.md) — an Opus judge asked for
 readability picked the more informative draft the author found hard to read (2026-09-23);
-code checks form. Dev time only; no run calls Claude (the weekly review's monitoring judge
+code checks form. Dev time only; no run calls the bench (the weekly review's monitoring judge
 reuses case_of, gate_text and GateVerdict on the Claude API, writing nothing here:
 pipeline.monitor). Everything lives under <JRP_STORE_DIR>/prose_bench/, never in the repo: cases
 carry verbatim third-party text (claims, source excerpts), and the repo is public.
@@ -38,7 +38,6 @@ from typing import Final, Literal
 from pydantic_ai.models import Model
 
 from jev_research_pipeline.generation import GenerationMeter, Writer
-from jev_research_pipeline.generation.claude_code import is_usage_limit
 from jev_research_pipeline.generation.prose import (
     BRIEF_LABEL,
     INFERENCE_MARKS,
@@ -47,6 +46,7 @@ from jev_research_pipeline.generation.prose import (
     PROSE_TIMEOUT_S,
     QUESTION_LABEL,
     SOURCE_EXCERPT_CHARS,
+    is_writer_limit,
     write_prose,
 )
 from jev_research_pipeline.jev.context import LineContext
@@ -404,7 +404,7 @@ async def draft(case: BenchCase, variant: Variant, model: Model, meter: Generati
         )
         seconds += checked.seconds
         prose = checked.prose or prose  # a failed check keeps the first draft
-        if is_usage_limit(checked.failure):
+        if is_writer_limit(checked.failure):
             return Draft(
                 case=case.id,
                 variant=variant.name,
@@ -670,16 +670,19 @@ async def run_bench(
     ]
     slots = asyncio.Semaphore(concurrency)
     limited = asyncio.Event()
+    limits: list[str] = []
 
     async def one(case: BenchCase) -> Draft | None:
-        """None = not attempted, or stopped by a usage limit: nothing is saved, so the
-        next bench run drafts the case again instead of counting it done."""
+        """None = not attempted, or stopped by a writer limit (generation.prose
+        .is_writer_limit): nothing is saved, so the next bench run drafts the case again
+        instead of counting it done."""
         async with slots:
             if limited.is_set():
                 return None
             d = await draft(case, variant, model, meter)
-            if is_usage_limit(d.failure):
+            if is_writer_limit(d.failure):
                 limited.set()  # a policy signal: stop the burst, do not retry
+                limits.append(d.failure or "")
                 return None
             return d
 
@@ -688,7 +691,10 @@ async def run_bench(
         write_draft(bench, d)
     failed = [d for d in drafts if d.gates]
     stopped = (
-        [f"STOPPED: usage limit — {len(todo) - len(drafts)} case(s) not drafted, run again later"]
+        [
+            f"STOPPED: usage limit — {len(todo) - len(drafts)} case(s) not drafted, run again "
+            f"later ({limits[0][:160]})"
+        ]
         if limited.is_set()
         else []
     )

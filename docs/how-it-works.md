@@ -179,9 +179,12 @@ are single-use). How you use a subscription this way is governed by your agreeme
 
 A section costs the writer one draft and one self-check, about 8,000 to 12,000 input and 1,500 to
 4,000 output tokens on `openai-codex:gpt-6-luna`, and about 11,000 input and 5,000 output tokens on
-`claude-code:claude-opus-5-5`; a rejected draft is written once more.
+`claude-code:claude-opus-5-5`; a rejected draft is written once more. On the Claude API
+(`anthropic:claude-opus-5-5`, $4 / $20 per million tokens) a line-run cost $0.10 to $0.83 over
+2026-10-03..10-19 (mean $0.44, priced from the stored tokens).
 
-The prose moved to Claude Opus on 2026-10-02. On my blind reading, Opus with the current prompt wrote
+The prose moved to Claude Opus on 2026-10-02, and from the 2026-10-21 run the same model is called on
+the Claude API (per token) instead of through Claude Code. On my blind reading, Opus with the current prompt wrote
 the best sections. Jev's per-paragraph fidelity check kept sending them back: it judged background
 explained from a source's abstract as going beyond the claims, and on the prose bench it hardly told
 faithful drafts from unfaithful ones. It is now recorded, not a gate; fidelity rests on the prompt,

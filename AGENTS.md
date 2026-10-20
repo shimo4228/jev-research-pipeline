@@ -58,7 +58,8 @@ main の checkout を読むので、次の tick から効く。
 ## 本文を磨く（prose bench）
 
 本文の改善は開発時のループで行う。下書き・判定・読み手シミュレーションは Claude のサブスクリプション
-（`claude -p`）で回し、GPT / Qwen の枠は本番モデルへの転移確認にだけ使う。ループの組み方の正本は
+（`claude -p`）で回す。本番（`anthropic:`）への転移確認は数件だけ `--model anthropic:claude-opus-5-5` で
+草稿を作って行う（1 件約 $0.2、API クレジットから引かれる）。ループの組み方の正本は
 skill: `author-calibrated-eval`、この repo での経緯と決定は design「Prose bench」。材料は非公開の
 `<JRP_STORE_DIR>/prose_bench/` にだけ置く（第三者の原文を含むため）。
 
@@ -68,7 +69,8 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 
 1. `uv run jrp prose export` — 本文のある question-day を固定する（dev / holdout は id で決まる）
 2. `uv run jrp prose bench --variant <name> --prompt bench/prose/prompts/<file> --check bench/prose/prompts/<check> --sources --model claude-code:opus --cases <ids>`
-   — 候補の草稿を作る。`--model` は `JRP_PROSE_MODEL` と同じ形（`claude-code:` / `openai-codex:` / `dashscope:`）
+   — 候補の草稿を作る。`--model` は `JRP_PROSE_MODEL` と同じ形（`claude-code:` / `anthropic:` / `openai-codex:` /
+   `dashscope:`）。省略すると本番の書き手（`anthropic:`、API クレジットで課金）になる
 3. `uv run jrp prose gate --variant <name> --cases <ids>` → `uv run jrp prose judge --variant <name>`
    — 草稿 1 本ごとの gate ファイルを作り、`claude -p` の判定役が verdict を書く（入力が変わった判定は
    自動でやり直す）
@@ -79,14 +81,15 @@ skill: `author-calibrated-eval`、この repo での経緯と決定は design「
 
 ぶれ（2026-10-01 実測、18 件）: 同じ草稿の判定し直しで facts ±0.01・誤解 ±2・止まった箇所 ±0.5、
 **同じプロンプトでの書き直し**で facts ±0.07・誤解 ±7・足切り ±1。18 件の差は足切り以外ほぼ判別できない。
-dev と holdout を合わせた 32 件で比べ、改善は holdout で崩れないことを確かめる。usage limit に当たると
-コマンドは止まる（再試行しない）。
+dev と holdout を合わせた 32 件で比べ、改善は holdout で崩れないことを確かめる。書き手の上限（Claude Code の
+usage limit、API の 429・key の拒否・クレジット切れ）に当たるとコマンドは止まる（再試行しない）。
 
 本番の本文プロンプトは言語ごとに `src/jev_research_pipeline/generation/prompts/` にあり、bench の
 ファイルと同文であることをテストが固定している: ja = `v16.md` + `check10.md`（本番は 2026-10-20 の run から）、en = `en2.md` + `en-check1.md`、
 zh = `zh1.md` + `zh-check1.md`。言語のベンチは `jrp prose bench --lang en|zh`（判定役の rubric と
-読み手の指示文も言語に従う）。本番のモデルは `claude-code:claude-opus-5-5`（2026-10-03 の run から。著者の blind 読み
-5/5）。Jev の claim_fidelity は記録だけで足切りではない（design「Production check vs the prose bench」）。
+読み手の指示文も言語に従う）。本番のモデルは `anthropic:claude-opus-5-5`（2026-10-21 の run から。同じ Opus 5.5 を
+Claude API で、`claude -p` と同じ effort medium で呼ぶ。2026-10-03〜10-20 は `claude-code:claude-opus-5-5` で、
+著者の blind 読み 5/5）。Jev の claim_fidelity は記録だけで足切りではない（design「Production check vs the prose bench」）。
 
 ## 選別と根拠化の候補を比べる（gate eval）
 

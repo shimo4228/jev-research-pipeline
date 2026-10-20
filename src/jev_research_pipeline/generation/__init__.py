@@ -1,10 +1,11 @@
 """The one generation site: the per-question prose, written by the model JRP_PROSE_MODEL
-names (default GPT-6 Luna on the Codex subscription; Qwen on DashScope is the other
-backend). Jev makes every judgment; queries and questions are authored in
+names (openai-codex, claude-code, anthropic or dashscope; the code default is GPT-6 Luna on
+the Codex subscription, generation.client). Jev makes every judgment; queries and questions are authored in
 questions/<slug>.md (design "Authored queries")."""
 
 from .client import (
     DEFAULT_PROSE_MODEL,
+    PROSE_RETRIES,
     GenerationMeter,
     MissingCredentials,
     ModelSpec,
@@ -19,6 +20,7 @@ from .prose import ProseResult, Rendering, render, write_prose
 
 __all__ = [
     "DEFAULT_PROSE_MODEL",
+    "PROSE_RETRIES",
     "GenerationMeter",
     "MissingCredentials",
     "ModelSpec",

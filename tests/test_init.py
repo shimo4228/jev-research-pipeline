@@ -2,8 +2,11 @@
 folder that touches nothing real."""
 
 import stat
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+
+import pytest
 
 from jev_research_pipeline.home import DATA_HOME
 from jev_research_pipeline.init import EXAMPLE_LINE, init, try_line
@@ -82,3 +85,39 @@ def test_the_question_session_carries_the_skill_and_the_file(tmp_path: Path):
     assert "# Questions for a jrp line" in argv[2]
     assert "`memo`" in argv[3] and str(tmp_path / "memo.md") in argv[3]
     assert "does not exist yet" in argv[3]
+
+
+def test_the_question_session_runs_without_the_claude_api_key(monkeypatch: pytest.MonkeyPatch):
+    """An ANTHROPIC_API_KEY sourced from the env file would move the interactive Claude Code
+    session off the author's subscription onto API billing: the session runs without it."""
+    from jev_research_pipeline import cli
+    from jev_research_pipeline.pipeline.config import TrackSpec
+
+    seen: dict[str, object] = {}
+
+    def run(
+        argv: list[str], *, check: bool, env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        seen["env"] = env
+        return subprocess.CompletedProcess(argv, 0)
+
+    def tracks(_env: object) -> list[TrackSpec]:
+        return [TrackSpec(slug="memo", name="memo", repo=None, daily=False)]
+
+    def binary(_env: object) -> Path:
+        return Path("/bin/claude")
+
+    monkeypatch.setattr(cli, "env_tracks", tracks)
+    monkeypatch.setattr(cli, "claude_bin", binary)
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    env = {
+        "ANTHROPIC_API_KEY": "sk-ant-test",
+        "TYPESAFE_API_KEY": "t",
+        "HOME": "/h",
+        "PATH": "/bin",
+    }
+    assert cli._questions_new(env, "memo") == 0  # pyright: ignore[reportPrivateUsage]
+    passed = seen["env"]
+    assert isinstance(passed, dict)
+    assert "ANTHROPIC_API_KEY" not in passed
+    assert passed["TYPESAFE_API_KEY"] == "t" and passed["HOME"] == "/h"  # the skill's steps keep it

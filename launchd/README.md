@@ -27,7 +27,9 @@ Both plists call `scripts/launchd-jrp.sh`, which reads secrets from `~/.config/j
 the repo). The default prose model (`openai-codex:gpt-6-luna`) also needs the pipeline's own
 ChatGPT login: run `uv run jrp codex login` once in a terminal on this Mac before the first
 scheduled run (it writes `~/.config/jrp/codex-auth.json`; without it `jrp run` stops at the
-start and says so). To start the parallel run:
+start and says so). An `anthropic:` writer needs only `ANTHROPIC_API_KEY` in the env file
+(`jrp doctor` checks that it is set; a refused key or spent credits shows at the first
+call, as `writer refused its credentials`). To start the parallel run:
 
 ```bash
 cp launchd/com.shimo4228.jrp.run.plist ~/Library/LaunchAgents/
