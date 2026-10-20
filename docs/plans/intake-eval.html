@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Intake Eval Plan</title>
+<link rel="stylesheet" href="htmlplan.css">
+<script src="htmlplan.js" defer></script>
+<body>
+
+<header>
+  <h1>jrp の入口を凍結した取得で比べる</h1>
+  <doc-changes new="13" changed="6"></doc-changes>
+  <details class="thread"><summary>Why · 4 件</summary>
+    <doc-quote via="prompt" from="著者" at="2026-10-20">2つの実装セッションも実行しといて</doc-quote>
+    <doc-quote via="prompt" from="著者" at="2026-10-20">Planして実装まで進めといて</doc-quote>
+    <doc-quote via="doc" from="依頼（親セッション）">検索の結果は日ごとに変わるので、本番の観測（週報の N_ot と、その内訳の N_new × p_body × p_cap × p_pre）では候補を比べられない。先週の分解で最も下がったのも I 入口だった（N_ot、Δln −0.45）。</doc-quote>
+    <doc-quote via="doc" from="棚卸し" where="docs/plans/research/2026-10-19-quality-metrics-inventory.md" href="research/2026-10-19-quality-metrics-inventory.md">keyword は 76 クエリ中 16 が枯渇し、`hf:` は 53 送信中 46 が新規 0。… firehose arXiv は 13,708 件中 35% しか判定に届いていない（cap）</doc-quote>
+    <doc-quote via="doc" from="外部調査" where="docs/plans/research/2026-10-20-intake-eval.md" href="research/2026-10-20-intake-eval.md">pool の偏り、判定者の揺れ、Chao2 の前提（独立・無作為の unit）、対の差の区間（Smucker 2009）</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 ═════ -->
+<doc-claim>
+  <p>候補と現行の差が、区間と費用つきで出る。</p>
+  <doc-mock frame="terminal" title="jrp eval intake --candidate backlog.toml --line jev" w="480" caption="見本の形。数は実行時に store から出る。"><template><b># jrp eval intake — firehose-backlog-7 と baseline</b>
+<b>## jev</b> <span class="dim">(窓 10-07〜10-20、run 14 日、self-check 14/14)</span>
+| N_ot          | 412 | 489 | <span class="g">+77 [+41, +113] p=0.002</span> |
+| 雑音の床       |     |     | ±2.4 |
+| 判定の数       | 3474 | 4600 | +1126 (+80/run) |
+| 初取得→判定    | 0 日 | 中央値 0.0 (遅れ 96) |
+| Chao2 取りこぼし | 少なくとも 31 [12-96] |
+<span class="dim">判定: 差は区間でも雑音の床の外</span>
+<b>## 費用</b>  Jev 1,126 件 $0.071 (上限 $0.50)</template></doc-mock>
+
+  <doc-claim>
+    <p>1 ラインを 5 段で比べ、bench にだけ書く。</p>
+    <doc-calls title="jrp eval intake" caption="store の partition は読むだけ。">
+<script type="text/plain">
+~ main() / case "eval"                        @ src/jev_research_pipeline/cli.py:356
++   **evaluate_line**()                        @ src/jev_research_pipeline/evals/intake_report.py:1
++     freeze.**freeze**()  (--freeze)          @ src/jev_research_pipeline/evals/freeze.py:1
++     judge.**measure_jitter**()               @ src/jev_research_pipeline/evals/judge.py:1   -- 床を先に測る
++     intake.**replay**() x 2 arms             @ src/jev_research_pipeline/evals/intake.py:1
++     judge.**Judge.verdicts**()               @ src/jev_research_pipeline/evals/judge.py:1
++     intake.**score**() / stats.**paired_diff**()  @ src/jev_research_pipeline/evals/stats.py:1
++     intake.**rotation**()                    @ src/jev_research_pipeline/evals/intake.py:1
++   **render**() / **write_report**()          @ src/jev_research_pipeline/evals/intake_report.py:1
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>差は日ごとの対で、t 区間と符号反転の p。</p>
+    <doc-code title="evals/stats.py · paired_diff · sketch" lang="py">
+<script type="text/plain">
+def paired_diff(deltas):           # 日ごとの (候補 − 現行)。同じ凍結した取得の上の対
+    total = sum(deltas)
+    p = sign_flip_p(deltas)        # 16 日までは全符号を列挙
+    mean, sd = total / n, stdev(deltas)
+    half = t975(n - 1) * sd / sqrt(n)
+    return total, n * (mean - half), n * (mean + half), p
+</script>
+    </doc-code>
+    <doc-note tone="info">bootstrap は単位が少ないと狭く出る（Smucker 2009、FULL）。区間は t、検定は randomization。</doc-note>
+  </doc-claim>
+
+  <doc-claim>
+    <p><code>jrp queries check</code> は形、eval は差を見る。</p>
+    <doc-code title="AGENTS.md · 入口を比べる · sketch" lang="md">
+<script type="text/plain">
+- jrp queries check: 書いたクエリを 1 回ずつ送り、ヒット数と上位の題を見る。
+  クエリが的外れでないかを、書いた直後に確かめる（何も保存しない、判定しない）
+- jrp eval intake: 候補の設定と現行の設定を、同じ凍結した取得の上で比べる。
+  問いに合う新規の論文の数の差・区間・費用を出す（判定は本番の prefilter）
+</script>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 ═════ -->
+<doc-claim>
+  <p>取得は 1 回だけで、凍結した集合を再生する。</p>
+  <doc-calls title="凍結と再生" caption="今日の分は cassette に、過去の分は store にある。">
+<script type="text/plain">
++ freeze.**freeze**(requests)                 @ src/jev_research_pipeline/evals/freeze.py:1
+    collect(adapter, client, snapshot, …)     @ src/jev_research_pipeline/adapters/collect.py:20  -- 本番の取得そのもの
++     **FreezeTransport**                      @ src/jev_research_pipeline/cassette.py:1  -- 無い要求だけ送る
++ intake.**frozen_set**(partition)            @ src/jev_research_pipeline/evals/intake.py:1
+    StageRecord(fetch_*).outputs              @ src/jev_research_pipeline/model/nodes.py:1018  -- cap 前の全件
+</script>
+  </doc-calls>
+
+  <doc-claim>
+    <p>store は cap が切った論文も持っている。</p>
+    <doc-code src="src/jev_research_pipeline/adapters/collect.py" lines="40-45" hl="42-44">
+      <doc-pin line="42" tone="ok" title="全件を保存">cap は fetch_nets の後で切る。</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>現行の再生は、本番が判定した集合と一致する。</p>
+    <doc-code title="2026-10-20 の store の写しで測った self-check" lang="text">
+<script type="text/plain">
+jev   replay 5621  prod 5616  一致 5127   09-27 以降の日は ±1〜2 件
+edge  replay 2520  prod 2518  一致 2388   09-23・09-25 だけ外れ
+aap   replay 2499  prod 2199  一致 1960   09-23・09-24・09-26 だけ外れ
+（外れた日は BM25 の並べ替えが入る前。窓の既定 14 日は 10-07 以降）
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>新規は窓の初日の store に対して数える。</p>
+    <doc-code title="evals/intake.py · score · sketch" lang="py">
+<script type="text/plain">
+known = {key for key, first in frozen.first.items() if first < start}
+# 今日の store で数えると、現行がもう取った論文が「新規でない」になり、
+# 現行と違う候補ほど良く見える（調査 R1）
+</script>
+    </doc-code>
+    <doc-ask id="newness">
+      <p>「新規」をどの store に対して数えるか。</p>
+      <label><input type="radio" name="newness" value="window" checked> 窓の初日の store <small>候補を現行より有利にしない</small></label>
+      <label><input type="radio" name="newness" value="today"> 今日の store <small>簡単だが現行に不利</small></label>
+    </doc-ask>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 ═════ -->
+<doc-claim>
+  <p>判定は本番の prefilter を再生し、無い分だけ聞く。</p>
+  <doc-calls title="Judge.verdicts" caption="Judgment の @id が状態を固定するので、問いが変われば別の id になる。">
+<script type="text/plain">
++ **Judge.verdicts**(sources)                 @ src/jev_research_pipeline/evals/judge.py:1
++   **stored**(source)                         @ src/jev_research_pipeline/evals/judge.py:1  -- store → bench の順
+    question_prefilter.state()                @ src/jev_research_pipeline/jev/question_prefilter.py:64
++   **estimate**() > cap → BudgetExceeded       @ src/jev_research_pipeline/evals/judge.py:1  -- 何も送らない
+    StoredJev.judge()                         @ src/jev_research_pipeline/pipeline/run.py:219
++   bench/judgments/<slug>.jsonld に保存         @ src/jev_research_pipeline/evals/judge.py:1
+</script>
+  </doc-calls>
+  <doc-ask id="replay">
+    <p>保存済みの判定をどう再生するか。</p>
+    <label><input type="radio" name="replay" value="exact" checked> 今日の問いの状態で一致するものだけ <small>実測で jev の判定済み 3474/3474 が一致</small></label>
+    <label><input type="radio" name="replay" value="asof"> 問いの版を問わず最新の判定 <small>候補ごとに物差しが混ざる</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>費用は送る前に見積もり、上限を超えれば止まる。</p>
+    <doc-code title="evals/judge.py · sketch" lang="py">
+<script type="text/plain">
+JEV_USD_PER_INPUT_TOKEN = 42e-9    # README、as-of 2026-10-07
+DEFAULT_MAX_USD = 0.50             # 1 回の jrp eval intake の上限（--max-usd）
+estimate = Σ estimated_tokens(state) × price   # 高めの見積もり（3 byte で 1 token）
+if spent + estimate > cap: raise BudgetExceeded   # 一部だけ聞くことはしない
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>prefilter の cut は物差しで、候補にしない。</p>
+    <doc-code src="src/jev_research_pipeline/jev/question_prefilter.py" lines="25-26"></doc-code>
+    <doc-ask id="cut">
+      <p>prefilter の cut や版を、この eval の候補に入れるか。</p>
+      <label><input type="radio" name="cut" value="no" checked> 入れない <small>物差しを変えると N_ot が比べられない。S の eval の範囲</small></label>
+      <label><input type="radio" name="cut" value="yes"> 入れる <small>著者のラベルが要る</small></label>
+    </doc-ask>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 4 ═════ -->
+<doc-claim>
+  <p>雑音の床と取りこぼしの下限を、差に添える。</p>
+  <doc-code title="evals/stats.py · Chao2（Chao &amp; Colwell 2017 eq. 2b）· sketch" lang="py">
+<script type="text/plain">
+A = (T - 1) / T
+S = S_obs + A * Q1**2 / (2 * Q2)        if Q2 > 0
+S = S_obs + A * Q1 * (Q1 - 1) / 2       if Q2 == 0
+# 区間は Chao 1987 の log-normal（下端は S_obs 以上）
+# golden: Bron 2024（A = 1）n=92, f1=40, f2=33 → 116.24, var 100.82, [103.11, 144.88]
+</script>
+  </doc-code>
+
+  <doc-claim>
+    <p>床は、同じ状態を聞き直した揺れから出す。</p>
+    <doc-code title="evals/stats.py · expected_flips · sketch" lang="py">
+<script type="text/plain">
+# 片方の候補だけが届いた source が、差を決める（共有の source は同じ判定で打ち消す）
+floor = Σ_i P(|Δp| ≥ margin_i)      # P は jitter.jsonl の |Δp| の経験分布
+# margin_i: 判定が反対側に移るまでの距離（|最大の on_topic − 0.5|）
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Chao2 の単位は、query net の要求 × 日。</p>
+    <doc-code title="evals/intake.py · _incidence · sketch" lang="py">
+<script type="text/plain">
+units = [f for f in fetches if f.net in QUERY_NETS and f.day in window]
+# firehose は論文を 1 度しか告知しないので、日が反復にならない（単位から外す）
+# seed の net（recommendation・citation）あり / なしの 2 本を出す（正の依存で過小）
+</script>
+    </doc-code>
+    <doc-ask id="unit">
+      <p>Chao2 の単位を何にするか。</p>
+      <label><input type="radio" name="unit" value="request-day" checked> query net の要求 × 日 <small>単位が 10 以上になる</small></label>
+      <label><input type="radio" name="unit" value="net"> net <small>5 つで、10 に届かない</small></label>
+    </doc-ask>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 5 ═════ -->
+<doc-claim>
+  <p>最初の 2 候補を、基準と比べた結果で渡す。</p>
+  <doc-code title="2026-10-20 の store の写しで先に見た事実" lang="text">
+<script type="text/plain">
+jev firehose arXiv（10-06〜10-19）: 0 件の日が 4 日（日・月・休日明け）→ 300 枠が空く
+                                    10-15 は 1621 件中 274 件だけ判定
+hf: クエリ: 初回の送信で 20 件、その後はほぼ毎回 新規 0
+  aap 3 本・authorship 3 本・desire 3 本・ans 3 本は直近 5 送信がすべて新規 0
+</script>
+  </doc-code>
+
+  <doc-claim>
+    <p>cap の候補は、空いた枠を前日までの溢れで埋める。</p>
+    <doc-code title="bench/candidates/firehose-backlog-7.toml · sketch" lang="toml">
+<script type="text/plain">
+name = "firehose-backlog-7"
+[firehose]
+backlog_days = 7     # その日の一覧が枠を余らせたら、過去 7 日の未判定の溢れを BM25 順で足す
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>クエリの候補は、枯渇した hf: を外す。</p>
+    <doc-code title="bench/candidates/drop-exhausted-hf.toml · sketch" lang="toml">
+<script type="text/plain">
+name = "drop-exhausted-hf"
+[queries.aap]
+drop = ["hf: agents violating their own rules", "hf: autonomous agents legal responsibility",
+        "hf: agent accountability traceability"]
+# 他のラインも、直近 3 送信が新規 0 の hf: を同じ形で列挙する
+</script>
+    </doc-code>
+    <doc-note tone="warn">本番に入れるかは著者が決める。questions/*.md は変えない。</doc-note>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared ═════ -->
+<doc-claim aux="shared">
+  <p>共有: evals/ の置き場と区間（S・X の eval と共用）。</p>
+  <doc-tree caption="bench は非公開の store 配下（JRP_EVAL_DIR で移せる）。repo には合成データだけ。">
+<script type="text/plain">
+src/jev_research_pipeline/evals/
+  + __init__.py
+  + paths.py         # <JRP_STORE_DIR>/evals/<kind>/
+  + stats.py         # wilson・poisson（wbr の再公開）、chao2、paired_diff、expected_flips
+  + intake.py        # 候補の設定、凍結した集合、再生、採点
+  + judge.py         # prefilter の再生と、上限つきの質問、jitter
+  + freeze.py        # 今日の取得を 1 回だけ
+  + intake_report.py # 1 ラインの比較と表示
+<JRP_STORE_DIR>/evals/intake/
+  + snapshots/<date>/{<slug>.jsonld, cassette.json}
+  + judgments/<slug>.jsonld   jitter.jsonl   reports/   candidates/
+</script>
+  </doc-tree>
+</doc-claim>
+
+<!-- ═════ scope ═════ -->
+<doc-claim aux="scope">
+  <p>変えないもの: 本番の run、問いの文言、prefilter。</p>
+  <ul>
+    <li>本番の run の挙動は変えない。nets.py は cap の切り方を関数に出すだけ（同じ結果をテストで固定）。</li>
+    <li>questions/*.md は著者のもの。候補のクエリは eval の TOML にだけ書く。</li>
+    <li>prefilter の cut・版、screening 以降（S・X）は jrp-gate-eval の範囲。</li>
+    <li>recommendation・citation・exploration は今日の取得を凍結しない。seed は store の採用済みの論文で、履歴にその日の seed での結果がある。</li>
+    <li>skill jrp-question の文面は変えない（著者に渡す）。</li>
+  </ul>
+  <doc-ask id="executor">
+    <p>実行者の決定: 誰が実装するか。</p>
+    <label><input type="radio" name="executor" value="self" checked> このセッション <small>著者の明示指示（「実装まで進めといて」）</small></label>
+    <label><input type="radio" name="executor" value="dispatch"> build-tier の新しいセッションに渡す</label>
+  </doc-ask>
+  <doc-note tone="warn"><strong>本番の窓</strong> 05:00 の run は main の checkout を読む。作業は worktree の branch で行い、取り込みは ff-only で 05–06 時を避ける。push は著者に確かめてから。</doc-note>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>
