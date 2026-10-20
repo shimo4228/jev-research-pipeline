@@ -43,12 +43,11 @@ instrument's status hides only a 0 of the line it is about:
   named with the status word alone (`ans は未説明の 0`), as a cell of it shows it. The part
   is: for O1 of all lines and section 7's o1, the line's O1 of the week; for a factor of the
   breakdown, the line's own measure of that factor over its own pairs of the cohort
-  (Funnel.part: the count of N_new, N_ot and O1_c, the denominator of the shares p_sel,
-  p_ext and p_wri, since pairs in the denominator move the share even when none reach the
-  stage), and a row,
-  which shows two cohorts, takes the line's part of both columns together (merge); for the
-  slots of section 6 and section 7's writer_calls and jev_tokens, the instrument's readings
-  of the line over the window, which those sums add.
+  (Funnel.part: the count of N_new, N_ot and O1_c, the denominator of the shares p_sel and
+  p_wri, since pairs in the denominator move the share even when none reach the stage), and
+  a row, which shows two cohorts, takes the line's part of both columns together (merge); for
+  the slots of section 6 and section 7's writer_calls and jev_tokens, the instrument's
+  readings of the line over the window, which those sums add.
   The sums are O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1
   resources of section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake
   factors (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output
@@ -1252,9 +1251,9 @@ def _gate(registry: _Registry, cohort: Week, parts: _Parts) -> Gate:
     """The lines in doubt over the cohort's week and its COHORT_DAYS after, beside each gated
     factor, each `some` by its own part of that factor in the cohort (Funnel.part,
     Doubt.some): a line whose new papers are all off the questions adds to N_new and adds 0
-    to N_ot and to p_sel's k. The instruments' own readings are not that part: o1 reads the
-    sources a line first cites itself, of any week's fetch, and a fetch that left no record
-    reads nothing though the line's other fetches fill N_new."""
+    to N_ot, which is also p_sel's denominator. The instruments' own readings are not that
+    part: o1 reads the sources a line first cites itself, of any week's fetch, and a fetch
+    that left no record reads nothing though the line's other fetches fill N_new."""
     end = cohort.end + timedelta(days=COHORT_DAYS)
     slugs = tuple(parts)
     return Gate(

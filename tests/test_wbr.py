@@ -629,7 +629,7 @@ def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_f
     assert got.status["firehose.arxiv"] == "missing"
     akc = Doubt("akc", "missing", some=True)
     edge = Doubt("edge", "missing", some=False)
-    for name in INTAKE_FACTORS:  # akc's own N_ot 4, 6 and kept 3, 4 are above 0 too
+    for name in INTAKE_FACTORS:  # akc's own N_ot 4, 6, also p_sel's denominator, is above 0 too
         assert [g.of(name) for g in got.gates] == [(akc,), (akc, edge)], name
     assert [g.of(name) for g in got.gates for name in OUTPUT_FACTORS] == [()] * 4
     text = render(got, "ja")
@@ -790,7 +790,7 @@ def test_a_sum_tells_a_line_in_doubt_on_some_days_from_a_line_shown_as_its_word(
     akc = Doubt("akc", "unexplained-zero", some=True)
     ans = Doubt("ans", "unexplained-zero", some=False)
     assert last.caveat == (akc, ans)
-    for name in OUTPUT_FACTORS:  # akc's own O1_c (p_wri's k) of W44 is 3
+    for name in OUTPUT_FACTORS:  # akc adds 3 to W44's O1_c and 3 posted to p_wri's denominator
         assert (got.gates[0].of(name), got.gates[1].of(name)) == ((), (akc, ans))
     assert got.caveats["claims_posted"] == (akc, ans)  # akc posted 3 claims on 11-03
     text = render(got, "ja")
@@ -962,7 +962,7 @@ def test_a_row_names_a_line_in_doubt_on_some_days_by_its_part_of_either_cohort()
     window (to 11-08) holds edge's missing day too: W44's gate names edge by the word and
     W45's as in doubt on some days. The N_new row counts edge in its W45 column, so it names
     edge as in doubt on some days; N_ot and p_sel, to which edge adds 0 in both columns, by the
-    word. akc adds 8 and 2 to N_new, 6 and 0 to N_ot, 4 and 0 kept to p_sel."""
+    word. akc adds 8 and 2 to N_new, and 6 and 0 to N_ot, which is also p_sel's denominator."""
     got = weekly_review(inputs(firehose={"akc": 2, "edge": 1, "ans": 0}), WEEK.shifted(1))
     assert [c.short for c in got.cohorts] == ["W44", "W45"]
     akc = Doubt("akc", "missing", some=True)
@@ -1055,6 +1055,43 @@ def test_a_line_that_adds_papers_to_n_new_and_none_to_n_ot_is_named_by_the_word_
         {"status": "missing", "some_days": True},
         missing,
         missing,
+    ]
+
+
+def test_a_line_that_posts_a_paper_of_the_cohort_and_cites_none_is_in_the_row_of_p_wri():
+    """ans fetches x1 on 10-27 (W44), keeps it and posts its claim that day in prose that cites
+    nothing; its template note of 10-28 cites nothing again, so o1 reads unexplained-zero on
+    ans on 10-28, inside both cohorts' windows. ans adds 1 posted and 0 cited to W44: 1 to
+    p_wri's denominator, which moves the share 3/3 to 3/4, so the p_wri row names ans as in
+    doubt on some days; 0 to O1_c, so that row names it by the word alone. p_ext, between keep
+    and posted, is no gated factor and names no line."""
+    bare = inputs()
+    ans = Line("ans")
+    x1 = ans.source("x1", _arxiv("2610.09101"), day=d(10, 27))
+    ans.fetch(d(10, 27), [x1])
+    ans.prefilter(d(10, 27), x1, 0.9)
+    ans.screen(d(10, 27), x1, ANS_QUESTION, KEEP)
+    ans.day(d(10, 27), [(ANS_QUESTION, ["x1"], "引用のない本文。")], writer=1, tokens=800)
+    lines = {**bare.snapshot.lines, "ans": _ids([*ans.nodes, _template(d(10, 28))])}
+    got = weekly_review(replace(bare, snapshot=replace(bare.snapshot, lines=lines)), WEEK)
+    assert got.funnels[1]["ans"] == Funnel(new=1, on_topic=1, kept=1, posted=1, cited=0)
+    some = Doubt("ans", "unexplained-zero", some=True)
+    word = Doubt("ans", "unexplained-zero", some=False)
+    assert [g.of("p_wri") for g in got.gates] == [(word,), (some,)]
+    assert [g.of("O1_c") for g in got.gates] == [(word,), (word,)]
+    everyone = _all_lines(render(got, "ja"))
+    assert "| X 根拠化 | p_ext claim が載った | 0.67 (2/3) | 0.80 (4/5) |" in everyone
+    assert (
+        "| W 執筆 | p_wri [n] で引用された ※ans は一部の日が未説明の 0 | 0.50 (1/2) | 0.75 (3/4) |"
+        in everyone
+    )
+    assert "| OUT 出力 | O1_c 7 日以内に初めて引用 ※ans は未説明の 0 | 1 | 3 |" in everyone
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    caveats = weekly["breakdown"]["all"]["caveats"]
+    assert [caveats[name]["ans"]["some_days"] for name in OUTPUT_FACTORS] == [True, False]
+    assert [weekly["gates"][1][name]["ans"]["some_days"] for name in OUTPUT_FACTORS] == [
+        True,
+        False,
     ]
 
 
