@@ -41,15 +41,18 @@ instrument's status hides only a 0 of the line it is about:
   own part of the sum is above 0 is named as in doubt on some days (Doubt.some, `jev は一部の日が
   未説明の 0`), as a cell of that part keeps its number; a line whose part is 0 or unread is
   named with the status word alone (`ans は未説明の 0`), as a cell of it shows it. The part
-  is: for O1 of all lines and section 7's o1, the line's O1 of the week; for a cohort's
-  factors, the line's own pairs of the cohort, its N_new beside the intake factors and its
-  O1_c (p_wri's k) beside the output factors; for the slots of section 6 and section 7's
-  writer_calls and jev_tokens, the instrument's readings of the line over the window, which
-  those sums add.
+  is: for O1 of all lines and section 7's o1, the line's O1 of the week; for a factor of the
+  breakdown, the k of the line's own measure of that factor over its own pairs of the cohort
+  (Funnel.measure: the count of N_new, N_ot and O1_c, the numerator of the shares p_sel and
+  p_wri, since a line whose pairs reach none of the stage adds a share of 0), and a row,
+  which shows two cohorts, takes the line's part of both columns together (merge); for the
+  slots of section 6 and section 7's writer_calls and jev_tokens, the instrument's readings
+  of the line over the window, which those sums add.
   The sums are O1 of all lines (o1), the slots of section 6 (claims_posted), the per-O1
   resources of section 7 (o1, writer_calls, jev_tokens), and a cohort's factors, whose intake
   factors (N_new, N_ot, p_sel) name the lines of a failing firehose instrument and output
-  factors (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after.
+  factors (p_wri, O1_c) those of a failing o1, over the cohort's week and its 7 days after
+  (a row of the breakdown: over both cohorts' windows, at the worse status).
   One broken line never hides the other lines' sum; only a sum that no line has readings for
   (insufficient-n) prints the status word.
 Exceptions (section 2): the instruments whose status over the week is a failure
@@ -212,14 +215,17 @@ class Doubt:
 
     line: str
     status: Status
-    """Its most severe NOTED status over the sum's window."""
+    """Its most severe NOTED status over the sum's window (a row of the breakdown: over both
+    cohorts' windows)."""
     some: bool
     """The line's own part of the sum is above 0: the sum counts it and the doubt is about
     some of its days, as a cell of that part keeps its number (WBR_CAVEAT_LINE_SOME). False:
     its part is 0 or unread, as a cell of it shows the status word (WBR_CAVEAT_LINE). The
     part is what the line adds to the sum (module docstring), which is not always what the
     instrument read: o1 reads the sources a line first cites itself, of any week's fetch,
-    while a cohort counts only the pairs first fetched in its week."""
+    while a cohort counts only the pairs first fetched in its week. Each factor of the
+    breakdown has its own part (a line can add pairs to N_new and none to N_ot), the part of
+    a share is its numerator, and a row's part is the line's part of both of its columns."""
 
 
 type Caveat = tuple[Doubt, ...]
@@ -615,8 +621,8 @@ class _Registry:
         """Each of `lines` whose own status over [start, end], under any of the instruments,
         is NOTED, with the most severe such status. `some` when the line's own part of the
         sum is above 0 (Doubt.some): `parts[line]` when the sum is not what the instruments
-        read (a cohort's factors, _gate); else every instrument at that status read the line
-        above 0 over the window (read_total: sections 6 and 7 add those readings)."""
+        read (one factor of a cohort, _gate); else every instrument at that status read the
+        line above 0 over the window (read_total: sections 6 and 7 add those readings)."""
         out: list[Doubt] = []
         for line in lines:
             found = [self.full(i, start, end, line) for i in idents]
@@ -644,18 +650,21 @@ def read_total(instrument: InstrumentStatus) -> int:
     return sum(c.observation.value or 0 for c in instrument.cells)
 
 
-def merge(*caveats: Caveat, lines: Sequence[str]) -> Caveat:
-    """Each of `lines` (in that order) that any caveat names, with the most severe status they
-    give it; `some` only when every doubt at that status says some."""
-    worst: dict[str, Doubt] = {}
+def merge(*caveats: Caveat, lines: Sequence[str], parts: Mapping[str, int]) -> Caveat:
+    """One row over several columns (a factor of the breakdown over its two cohorts): each of
+    `lines` (in that order) that a column's caveat names, with the most severe status they
+    give it, and `some` when `parts[line]`, the line's part of all the columns together, is
+    above 0 (Doubt.some). A column's own `some` speaks for that column alone, and a column
+    whose window holds no NOTED day of the line does not name it, though its part is there."""
+    worst: dict[str, Status] = {}
     for caveat in caveats:
         for doubt in caveat:
             known = worst.get(doubt.line)
-            if known is None or NOTED.index(doubt.status) < NOTED.index(known.status):
-                worst[doubt.line] = doubt
-            elif doubt.status == known.status and not doubt.some:
-                worst[doubt.line] = doubt
-    return tuple(worst[line] for line in lines if line in worst)
+            if known is None or NOTED.index(doubt.status) < NOTED.index(known):
+                worst[doubt.line] = doubt.status
+    return tuple(
+        Doubt(line, worst[line], some=parts.get(line, 0) > 0) for line in lines if line in worst
+    )
 
 
 # ------------------------------------------------------------------------------ results
@@ -712,6 +721,14 @@ class Funnel:
             case "O1_c":
                 return Measure(self.cited)
 
+    def part(self, name: FactorName) -> int:
+        """What these pairs add to the factor that a doubt beside it weighs (Doubt.some): the
+        count, or the share's numerator (pairs that reach none of the stage add a share of 0)."""
+        return self.measure(name).k
+
+
+type _Parts = Mapping[str, Funnel]
+"""Line slug → its own funnel of one cohort (every configured line, in config order)."""
 
 FACTORS: Final[tuple[tuple[Part, FactorName], ...]] = (
     ("I", "N_new"),
@@ -734,15 +751,14 @@ _GATED: Final[Mapping[FactorName, Literal["intake", "output"]]] = {
 
 @dataclass(frozen=True)
 class Gate:
-    """The lines in doubt beside a cohort's factors: those whose intake (firehose) or output
-    (o1) instruments are NOTED over the cohort's window."""
+    """One cohort's lines in doubt beside each gated factor (_GATED): those whose intake
+    (firehose) or output (o1) instruments are NOTED over the cohort's window, each `some` by
+    its own part of that factor in this cohort (_gate)."""
 
-    intake: Caveat = ()
-    output: Caveat = ()
+    factors: Mapping[FactorName, Caveat]
 
     def of(self, name: FactorName) -> Caveat:
-        which = _GATED.get(name)
-        return () if which is None else (self.intake if which == "intake" else self.output)
+        return self.factors.get(name, ())
 
 
 @dataclass(frozen=True)
@@ -762,7 +778,8 @@ class Row:
     old: Measure
     new: Measure
     caveat: Caveat = ()
-    """The group's lines in doubt beside the values (the two cohorts' gates)."""
+    """The group's lines in doubt beside the values: the two cohorts' gates of this factor,
+    each line `some` by its part of either cohort (WeeklyReview.rows, merge)."""
 
     @property
     def shift(self) -> tuple[float, float] | None:
@@ -866,6 +883,9 @@ class WeeklyReview:
     cohorts: tuple[Week, Week]
     """(older, newer): the two latest mature cohorts."""
     gates: tuple[Gate, Gate]
+    funnels: tuple[_Parts, _Parts]
+    """(older, newer): each line's own funnel of the cohort. A group's funnel is the sum of
+    its lines' (_groups), and a line in doubt beside a row is `some` by its own (rows)."""
     groups: tuple[Group, ...]
     slots: tuple[Slots, ...]
     questions: tuple[QuestionState, ...]
@@ -884,14 +904,25 @@ class WeeklyReview:
     None, and the note then has no monitor lines; write_weekly_review always sets it."""
 
     def rows(self, group: Group) -> tuple[Row, ...]:
+        """The group's factors over the two cohorts. A line in doubt beside a factor is named
+        as in doubt on some days when its own part of that factor (Funnel.part) is above 0
+        in either column (merge), whichever column's window holds its NOTED days."""
         old_gate, new_gate = self.gates
+        old_parts, new_parts = self.funnels
         return tuple(
             Row(
                 part=part,
                 name=name,
                 old=group.old.measure(name),
                 new=group.new.measure(name),
-                caveat=merge(old_gate.of(name), new_gate.of(name), lines=group.lines),
+                caveat=merge(
+                    old_gate.of(name),
+                    new_gate.of(name),
+                    lines=group.lines,
+                    parts={
+                        s: old_parts[s].part(name) + new_parts[s].part(name) for s in group.lines
+                    },
+                ),
             )
             for part, name in FACTORS
         )
@@ -925,8 +956,6 @@ class WeeklyReview:
 
 type _Firsts = Mapping[str, tuple[date, Sequence[_Cite]]]
 """Paper key → its first citation day, and that day's citations."""
-type _Parts = Mapping[str, Funnel]
-"""Line slug → its own funnel of one cohort (every configured line, in config order)."""
 
 
 def _first_cites(lines: Iterable[_Line]) -> dict[str, tuple[date, list[_Cite]]]:
@@ -1217,21 +1246,25 @@ def _groups(parts: tuple[_Parts, _Parts], slots: Sequence[Slots]) -> tuple[Group
 
 
 def _gate(registry: _Registry, cohort: Week, parts: _Parts) -> Gate:
-    """The lines in doubt over the cohort's week and its COHORT_DAYS after, each `some` by its
-    own part of the cohort (Doubt.some): beside the intake factors its N_new, which is what
-    the fetch instruments read reaching the cohort; beside the output factors its O1_c, which
-    is also p_wri's k. The instruments' own readings are not that part: o1 reads the sources
-    a line first cites itself, of any week's fetch, and a fetch that left no record reads
-    nothing though the line's other fetches fill N_new."""
+    """The lines in doubt over the cohort's week and its COHORT_DAYS after, beside each gated
+    factor, each `some` by its own part of that factor in the cohort (Funnel.part,
+    Doubt.some): a line whose new papers are all off the questions adds to N_new and adds 0
+    to N_ot and to p_sel's k. The instruments' own readings are not that part: o1 reads the
+    sources a line first cites itself, of any week's fetch, and a fetch that left no record
+    reads nothing though the line's other fetches fill N_new."""
     end = cohort.end + timedelta(days=COHORT_DAYS)
     slugs = tuple(parts)
     return Gate(
-        intake=registry.caveat(
-            INTAKE, cohort.start, end, slugs, parts={s: f.new for s, f in parts.items()}
-        ),
-        output=registry.caveat(
-            OUTPUT, cohort.start, end, slugs, parts={s: f.cited for s, f in parts.items()}
-        ),
+        {
+            name: registry.caveat(
+                INTAKE if which == "intake" else OUTPUT,
+                cohort.start,
+                end,
+                slugs,
+                parts={s: f.part(name) for s, f in parts.items()},
+            )
+            for name, which in _GATED.items()
+        }
     )
 
 
@@ -1271,6 +1304,7 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         o2=_o2(snapshot, firsts, as_of),
         cohorts=(older, newer),
         gates=(_gate(registry, older, parts[0]), _gate(registry, newer, parts[1])),
+        funnels=parts,
         groups=_groups(parts, slots),
         slots=tuple(s for s in slots if s.capacity),
         questions=tuple(
@@ -1831,7 +1865,10 @@ def _caveat_row(caveat: Caveat) -> dict[str, JsonValue]:
 
 def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonValue]:
     """The week's line of metrics/weekly.jsonl: every number of the note, raw. Rerunning a
-    week appends another line; a reader takes the latest line of a week."""
+    week appends another line; a reader takes the latest line of a week. `gates` holds each
+    cohort's lines in doubt by gated factor, `some_days` by the line's part of that cohort;
+    `breakdown.<group>.caveats` what the note prints beside each of the group's rows (merge:
+    `some_days` by the line's part of both cohorts)."""
     d, author = review.delivery, review.author
     return {
         "week": review.week.label,
@@ -1852,11 +1889,16 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
         ],
         "o2": {"k": review.o2.k, "n": review.o2.n},
         "cohorts": [c.label for c in review.cohorts],
-        "gates": [
-            {"intake": _caveat_row(g.intake), "output": _caveat_row(g.output)} for g in review.gates
-        ],
+        "gates": [{name: _caveat_row(g.of(name)) for name in _GATED} for g in review.gates],
         "breakdown": {
-            g.kind: {"lines": list(g.lines), "old": _funnel_row(g.old), "new": _funnel_row(g.new)}
+            g.kind: {
+                "lines": list(g.lines),
+                "old": _funnel_row(g.old),
+                "new": _funnel_row(g.new),
+                "caveats": {
+                    r.name: _caveat_row(r.caveat) for r in review.rows(g) if r.name in _GATED
+                },
+            }
             for g in review.groups
         },
         "slots": {s.line: {"free": s.free, "capacity": s.capacity} for s in review.slots},

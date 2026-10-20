@@ -68,6 +68,7 @@ from jev_research_pipeline.pipeline.wbr import (
     AuthorSignal,
     Delivery,
     Doubt,
+    FactorName,
     Funnel,
     Group,
     Inputs,
@@ -105,6 +106,9 @@ GOLDEN_ENV = "JRP_GOLDEN_UPDATE"
 LINES = {s: f"https://example.org/line/{s}" for s in ("akc", "edge", "ans")}
 LONG = "Agents remember what they were told, and this measured effect is large. " * 4
 SHORT = "A one-line abstract."
+INTAKE_FACTORS: tuple[FactorName, ...] = ("N_new", "N_ot", "p_sel")
+OUTPUT_FACTORS: tuple[FactorName, ...] = ("p_wri", "O1_c")
+"""The breakdown's factors a failing firehose / o1 names its lines beside (p_ext: none)."""
 
 QUESTION_FILES = {
     "akc": (
@@ -624,7 +628,10 @@ def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_f
     got = weekly_review(inputs(firehose={"akc": 2, "edge": 1, "ans": 0}), WEEK)
     assert got.status["firehose.arxiv"] == "missing"
     akc = Doubt("akc", "missing", some=True)
-    assert [g.intake for g in got.gates] == [(akc,), (akc, Doubt("edge", "missing", some=False))]
+    edge = Doubt("edge", "missing", some=False)
+    for name in INTAKE_FACTORS:  # akc's own N_ot 4, 6 and kept 3, 4 are above 0 too
+        assert [g.of(name) for g in got.gates] == [(akc,), (akc, edge)], name
+    assert [g.of(name) for g in got.gates for name in OUTPUT_FACTORS] == [()] * 4
     text = render(got, "ja")
     assert "- 計器 firehose.arxiv: 欠落 (akc 2026-11-03)" in text
     assert (
@@ -639,10 +646,13 @@ def test_a_failing_instrument_is_an_exception_and_its_line_is_named_beside_the_f
         "missing) | 4 | 6 |"
     ) in en
     weekly: Any = weekly_row(got, generated_at=NOW)
-    assert weekly["gates"][1]["intake"] == {
+    both = {
         "akc": {"status": "missing", "some_days": True},
         "edge": {"status": "missing", "some_days": False},
     }
+    assert [weekly["gates"][1][name] for name in INTAKE_FACTORS] == [both] * 3
+    assert weekly["breakdown"]["all"]["caveats"]["N_ot"] == both
+    assert weekly["breakdown"]["all"]["caveats"]["p_wri"] == {}
 
 
 def _template(day: date, slug: str = "ans") -> Report:
@@ -677,8 +687,9 @@ def test_one_broken_line_hides_its_own_cell_and_is_named_beside_the_sums():
     }
     ans = Doubt("ans", "unexplained-zero", some=False)  # its O1 is 0: its cell shows the word
     assert last.caveat == (ans,)
-    assert got.gates[1].output == (ans,)  # W44's window reaches 11-08
-    assert got.gates[0].output == ()
+    for name in OUTPUT_FACTORS:
+        assert got.gates[1].of(name) == (ans,)  # W44's window reaches 11-08
+        assert got.gates[0].of(name) == ()
     assert got.caveats == {
         "claims_posted": (ans,),
         "writer_calls": (),
@@ -716,9 +727,10 @@ def test_one_broken_line_hides_its_own_cell_and_is_named_beside_the_sums():
     zh = render(got, "zh")
     assert "| 2 (0.2-7.2) ※ans 为未解释的 0 |" in zh
     weekly = weekly_row(got, generated_at=NOW)
+    word = {"ans": {"status": "unexplained-zero", "some_days": False}}
     assert weekly["gates"] == [
-        {"intake": {}, "output": {}},
-        {"intake": {}, "output": {"ans": {"status": "unexplained-zero", "some_days": False}}},
+        {"N_new": {}, "N_ot": {}, "p_sel": {}, "p_wri": {}, "O1_c": {}},
+        {"N_new": {}, "N_ot": {}, "p_sel": {}, "p_wri": word, "O1_c": word},
     ]
     assert weekly["caveats"] == {
         "claims_posted": {"ans": {"status": "unexplained-zero", "some_days": False}},
@@ -760,9 +772,8 @@ def test_a_template_day_in_a_week_of_citations_keeps_the_weeks_number_and_names_
         "status": "unexplained-zero",
         "noted": {"2026-11-01": "unexplained-zero"},
     }
-    assert weekly["gates"][0]["output"] == {
-        "akc": {"status": "unexplained-zero", "some_days": True}
-    }
+    some = {"akc": {"status": "unexplained-zero", "some_days": True}}
+    assert [weekly["gates"][0][name] for name in OUTPUT_FACTORS] == [some, some]
 
 
 def test_a_sum_tells_a_line_in_doubt_on_some_days_from_a_line_shown_as_its_word():
@@ -779,7 +790,8 @@ def test_a_sum_tells_a_line_in_doubt_on_some_days_from_a_line_shown_as_its_word(
     akc = Doubt("akc", "unexplained-zero", some=True)
     ans = Doubt("ans", "unexplained-zero", some=False)
     assert last.caveat == (akc, ans)
-    assert (got.gates[0].output, got.gates[1].output) == ((), (akc, ans))
+    for name in OUTPUT_FACTORS:  # akc's own O1_c (p_wri's k) of W44 is 3
+        assert (got.gates[0].of(name), got.gates[1].of(name)) == ((), (akc, ans))
     assert got.caveats["claims_posted"] == (akc, ans)  # akc posted 3 claims on 11-03
     text = render(got, "ja")
     assert "| └ akc | データ不足 | データ不足 | データ不足 | 1 | 4 | 2 ※ |" in text
@@ -851,7 +863,8 @@ def test_a_line_that_adds_0_to_a_sum_is_named_by_the_word_though_its_instrument_
     assert last.lines["ans"] == (0, "unexplained-zero")
     word = Doubt("ans", "unexplained-zero", some=False)
     assert last.caveat == (word,)
-    assert (got.gates[0].output, got.gates[1].output) == ((), (word,))
+    for name in OUTPUT_FACTORS:
+        assert (got.gates[0].of(name), got.gates[1].of(name)) == ((), (word,))
     assert got.caveats["claims_posted"] == (Doubt("ans", "unexplained-zero", some=True),)
     text = render(got, "ja")
     assert (
@@ -875,9 +888,9 @@ def test_a_line_that_adds_0_to_a_sum_is_named_by_the_word_though_its_instrument_
     zh = render(got, "zh")
     assert "| O1_c 7 天内首次引用 ※ans 为未解释的 0 | 1 | 3 |" in zh
     weekly: Any = weekly_row(got, generated_at=NOW)
-    assert weekly["gates"][1]["output"] == {
-        "ans": {"status": "unexplained-zero", "some_days": False}
-    }
+    words = {"ans": {"status": "unexplained-zero", "some_days": False}}
+    assert [weekly["gates"][1][name] for name in OUTPUT_FACTORS] == [words, words]
+    assert weekly["breakdown"]["all"]["caveats"]["O1_c"] == words
 
 
 def test_a_tick_number_above_0_keeps_its_number_and_names_its_day_in_doubt():
@@ -892,24 +905,153 @@ def test_a_tick_number_above_0_keeps_its_number_and_names_its_day_in_doubt():
     assert "jrp notes first opened this week 3 (incl. contradiction on 2026-11-05) ·" in en
 
 
-def test_a_sum_names_each_line_in_doubt_with_its_worst_status():
+def test_a_row_names_each_line_with_its_worst_status_and_its_part_of_both_columns():
+    """merge: each line a column names, at the most severe status the columns give it, in doubt
+    on some days when its part of the columns together is above 0. A column's own `some`
+    speaks for that column alone."""
     caveat = merge(
         (Doubt("edge", "unexplained-zero", some=False),),
         (Doubt("ans", "declared-degenerate", some=True), Doubt("edge", "contradiction", some=True)),
         lines=("akc", "edge", "ans"),
+        parts={"akc": 0, "edge": 1, "ans": 2},
     )
     assert caveat == (
         Doubt("edge", "contradiction", some=True),
         Doubt("ans", "declared-degenerate", some=True),
     )
-    assert merge((Doubt("ans", "missing", some=False),), lines=("akc", "edge")) == ()
-    # a line wholly in doubt over one cohort's window is wholly in doubt at that status
-    both = merge(
-        (Doubt("akc", "missing", some=True),),
-        (Doubt("akc", "missing", some=False),),
-        lines=("akc",),
+    assert merge((Doubt("ans", "missing", some=False),), lines=("akc", "edge"), parts={}) == ()
+    akc, word = Doubt("akc", "missing", some=True), Doubt("akc", "missing", some=False)
+    # its part is in one column: the row counts it, so it is in doubt on some days
+    assert merge((akc,), (word,), lines=("akc",), parts={"akc": 3}) == (akc,)
+    # the column that holds its part has no NOTED day of it, and names it not
+    assert merge((), (word,), lines=("akc",), parts={"akc": 1}) == (akc,)
+    assert merge((word,), (word,), lines=("akc",), parts={"akc": 0}) == (word,)
+
+
+def with_an_edge_paper(base: Inputs, day: date, q0: float, *, run: bool, listed: bool) -> Inputs:
+    """`base`, and edge's x1 (arXiv 2610.09001) first fetched on `day` with a prefilter of q0
+    (0.9 passes a question, 0.1 none) and no screening; with `run`, a template note of edge
+    that day, and with `listed`, that run's arXiv listing returned x1 (firehose.arxiv reads 1:
+    the day is live)."""
+    edge = Line("edge")
+    x1 = edge.source("x1", _arxiv("2610.09001"), day=day)
+    edge.fetch(day, [x1])
+    edge.prefilter(day, x1, q0)
+    if run:
+        edge.day(day, [], writer=0, tokens=300)
+    if listed:
+        edge.nodes.append(
+            StageRecord.new(
+                stage="fetch_firehose_arxiv",
+                input_sha256=sha256_hex(f"firehose edge {day}"),
+                outputs=(x1.id,),
+                completed_at=at(day),
+            )
+        )
+    lines = {**base.snapshot.lines, "edge": {**base.snapshot.lines["edge"], **_ids(edge.nodes)}}
+    return replace(base, snapshot=replace(base.snapshot, lines=lines))
+
+
+def _all_lines(text: str) -> str:
+    return text.split("**全ライン**")[1].split("**枠律速")[0]
+
+
+def test_a_row_names_a_line_in_doubt_on_some_days_by_its_part_of_either_cohort():
+    """W46's review (cohorts W44 → W45), akc's and edge's firehose on and never recorded. edge's
+    e1, fetched 11-04 with no prefilter, is 1 of W45's N_new 3 and nothing of W44's, whose
+    window (to 11-08) holds edge's missing day too: W44's gate names edge by the word and
+    W45's as in doubt on some days. The N_new row counts edge in its W45 column, so it names
+    edge as in doubt on some days; N_ot and p_sel, to which edge adds 0 in both columns, by the
+    word. akc adds 8 and 2 to N_new, 6 and 0 to N_ot, 4 and 0 kept to p_sel."""
+    got = weekly_review(inputs(firehose={"akc": 2, "edge": 1, "ans": 0}), WEEK.shifted(1))
+    assert [c.short for c in got.cohorts] == ["W44", "W45"]
+    akc = Doubt("akc", "missing", some=True)
+    edge_some, edge_word = Doubt("edge", "missing", some=True), Doubt("edge", "missing", some=False)
+    assert [g.of("N_new") for g in got.gates] == [(akc, edge_word), (akc, edge_some)]
+    assert [g.of("N_ot") for g in got.gates] == [
+        (akc, edge_word),
+        (Doubt("akc", "missing", some=False), edge_word),
+    ]
+    everyone = _all_lines(render(got, "ja"))
+    assert "| └ N_new 新規の論文 ※akc は一部の日が欠落、edge は一部の日が欠落 | 8 | 3 |" in everyone
+    assert (
+        "| I 入口 | N_ot 問いに合う新規の論文 ※akc は一部の日が欠落、edge は欠落 | 6 | 0 |"
+        in everyone
     )
-    assert both == (Doubt("akc", "missing", some=False),)
+    assert (
+        "| S 選別 | p_sel keep に届いた ※akc は一部の日が欠落、edge は欠落 | 0.67 (4/6) | — (0/0) |"
+        in everyone
+    )
+    en = render(got, "en")
+    assert (
+        "| └ N_new new papers (incl. akc: missing on some days; edge: missing on some days) "
+        "| 8 | 3 |"
+    ) in en
+    assert (
+        "| I intake | N_ot new papers on a question (incl. akc: missing on some days; edge: missing) | 6 | 0 |"
+        in en
+    )
+    zh = render(got, "zh")
+    assert "| └ N_new 新论文 ※akc 部分日期为缺失，edge 部分日期为缺失 | 8 | 3 |" in zh
+    assert "| I 入口 | N_ot 切题的新论文 ※akc 部分日期为缺失，edge 为缺失 | 6 | 0 |" in zh
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    caveats = weekly["breakdown"]["all"]["caveats"]
+    assert caveats["N_new"]["edge"] == {"status": "missing", "some_days": True}
+    assert caveats["N_ot"]["edge"] == {"status": "missing", "some_days": False}
+    assert [g["N_new"]["edge"]["some_days"] for g in weekly["gates"]] == [False, True]
+
+
+@pytest.mark.parametrize("listed", [False, True])
+def test_a_line_whose_paper_of_one_cohort_passes_a_question_is_in_the_row_of_n_ot(listed: bool):
+    """edge's firehose on, its one-paper run of 10-20 (W43, on a question, never screened) and
+    its run of 11-04 (W44's window) leaving no arXiv listing. edge adds 1 to W43's N_new 7 and
+    N_ot 5 and 0 to W44's, so both rows name it as in doubt on some days; to p_sel it adds 0 of
+    1 kept, a share of 0, so that row names it by the word. With the 10-20 listing recorded
+    (`listed`), W43's window holds no NOTED day of edge and only W44's gate names it, by the
+    word: the rows still count edge's part of W43."""
+    base = inputs(firehose={"akc": 0, "edge": 1, "ans": 0})
+    got = weekly_review(with_an_edge_paper(base, d(10, 20), 0.9, run=True, listed=listed), WEEK)
+    word = Doubt("edge", "missing", some=False)
+    old = () if listed else (Doubt("edge", "missing", some=True),)
+    assert [g.of("N_ot") for g in got.gates] == [old, (word,)]
+    everyone = _all_lines(render(got, "ja"))
+    assert "| └ N_new 新規の論文 ※edge は一部の日が欠落 | 7 | 8 |" in everyone
+    assert "| I 入口 | N_ot 問いに合う新規の論文 ※edge は一部の日が欠落 | 5 | 6 |" in everyone
+    assert "| S 選別 | p_sel keep に届いた ※edge は欠落 | 0.60 (3/5) | 0.67 (4/6) |" in everyone
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    caveats = weekly["breakdown"]["all"]["caveats"]
+    assert [caveats[name]["edge"]["some_days"] for name in INTAKE_FACTORS] == [True, True, False]
+
+
+def test_a_line_that_adds_papers_to_n_new_and_none_to_n_ot_is_named_by_the_word_beside_n_ot():
+    """edge's firehose on and its run of 11-04 leaving no arXiv listing; edge fetches one paper
+    off every question on 10-27 (W44). W44's N_new goes 8 → 9 with edge's 1, but its N_ot stays
+    6 and p_sel 4/6: edge adds 0 to N_ot and 0 of 0 to p_sel. Beside N_new edge is in doubt on
+    some days; beside N_ot and p_sel it is named by the word alone, in the gate of W44, in the
+    row and in the weekly row."""
+    base = inputs(firehose={"akc": 0, "edge": 1, "ans": 0})
+    got = weekly_review(with_an_edge_paper(base, d(10, 27), 0.1, run=False, listed=False), WEEK)
+    some, word = Doubt("edge", "missing", some=True), Doubt("edge", "missing", some=False)
+    old, new = got.gates
+    assert [old.of(name) for name in INTAKE_FACTORS] == [(), (), ()]
+    assert [new.of(name) for name in INTAKE_FACTORS] == [(some,), (word,), (word,)]
+    everyone = _all_lines(render(got, "ja"))
+    assert "| └ N_new 新規の論文 ※edge は一部の日が欠落 | 6 | 9 |" in everyone
+    assert "| I 入口 | N_ot 問いに合う新規の論文 ※edge は欠落 | 4 | 6 |" in everyone
+    assert "| S 選別 | p_sel keep に届いた ※edge は欠落 | 0.75 (3/4) | 0.67 (4/6) |" in everyone
+    en = render(got, "en")
+    assert "| └ N_new new papers (incl. edge: missing on some days) | 6 | 9 |" in en
+    assert "| I intake | N_ot new papers on a question (incl. edge: missing) | 4 | 6 |" in en
+    assert "| S screening | p_sel reached keep (incl. edge: missing) | 0.75 (3/4) |" in en
+    zh = render(got, "zh")
+    assert "| I 入口 | N_ot 切题的新论文 ※edge 为缺失 | 4 | 6 |" in zh
+    weekly: Any = weekly_row(got, generated_at=NOW)
+    missing = {"status": "missing", "some_days": False}
+    assert [weekly["gates"][1][name]["edge"] for name in INTAKE_FACTORS] == [
+        {"status": "missing", "some_days": True},
+        missing,
+        missing,
+    ]
 
 
 # ------------------------------------------------------------------------------ the note
