@@ -105,6 +105,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Final, Literal
+from urllib.parse import urlsplit
 
 import httpx2
 from pydantic import AwareDatetime, JsonValue
@@ -374,11 +375,17 @@ def shift(old: Measure, new: Measure) -> tuple[float, float] | None:
 
 def paper_key(source: SourceItem) -> str:
     """One key per source (module docstring): the first of arXiv id, DOI, GitHub
-    owner/repo and normalized URL that keys_of_text finds in its URL."""
+    owner/repo and normalized URL that keys_of_text finds in its URL. A feed item that is an
+    #anchor on a shared page (a changelog version, a Platform release note) keeps its anchor:
+    the normalized URL drops it, and every item of the page would be one paper, its first
+    cite the only one ever counted (2026-10-22)."""
     keys = keys_of_text(source.url)
     for prefix in PAPER_PREFIXES:
         found = sorted(k for k in keys if k.startswith(prefix))
         if found:
+            anchor = urlsplit(source.url).fragment
+            if prefix == "url:" and source.adapter == "feed" and anchor:
+                return f"{found[0]}#{anchor.lower()}"
             return found[0]
     return f"url:{source.url.lower()}"
 

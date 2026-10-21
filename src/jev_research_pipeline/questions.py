@@ -33,7 +33,7 @@ Search queries are written into the same block, one line per query, keyed by ada
     - hf: long-term memory for LLM agents
     - web: agent memory evaluation
     - feed: https://code.claude.com/docs/en/changelog/rss.xml
-    - sitemap: https://www.anthropic.com/engineering/
+    - sitemap: https://support.claude.com/en/articles/
 
 `feed:` and `sitemap:` read a listing rather than a search (adapters.feed, adapters.sitemap):
 their text is a URL, not keywords.

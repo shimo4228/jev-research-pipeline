@@ -3,7 +3,7 @@
 
 For a site with no feed whose sitemap dates its pages — anthropic.com, measured 2026-10-20:
 no RSS (/rss.xml and /news/rss.xml answer 404), and https://www.anthropic.com/sitemap.xml
-carries a lastmod on 536 of its 566 URLs. The query `https://www.anthropic.com/engineering/`
+carries a lastmod on 536 of its 566 URLs. The query `https://www.anthropic.com/news/`
 asks for `https://www.anthropic.com/sitemap.xml` and keeps the URLs below that prefix (the
 prefix's own listing page is not one of them) whose lastmod falls in the window; each page
 is then fetched (base.Follow), since a sitemap entry has no text. A lastmod is the page's
@@ -50,16 +50,23 @@ def _below(url: str, prefix: str) -> bool:
 
 
 def parse(body: str, *, prefix: str, today: date) -> list[RawDraft]:
+    """The pages under `prefix` changed in the window, newest first: Follow's limit takes
+    them in this order, and a sitemap lists its pages in its own (anthropic.com by name,
+    support.claude.com by article id), which spent the limit on old pages and cut the new
+    ones (2026-10-22: 25 cut, among them new Claude Code help articles). Ties keep the
+    sitemap's order; the raw lastmod string orders pages of one day by time."""
     root = ElementTree.fromstring(body, forbid_dtd=True)
     since = today - timedelta(days=WINDOW_DAYS)
-    out: list[RawDraft] = []
+    found: list[tuple[date, str, str]] = []
     for entry in root.iter(f"{_NS}url"):
         loc = (entry.findtext(f"{_NS}loc") or "").strip()
-        changed = iso_date((entry.findtext(f"{_NS}lastmod") or "").strip())
+        stamp = (entry.findtext(f"{_NS}lastmod") or "").strip()
+        changed = iso_date(stamp)
         if not _below(loc, prefix) or changed is None or changed < since:
             continue
-        out.append(RawDraft(url=loc, title=loc, text="", published_at=changed))
-    return out
+        found.append((changed, stamp, loc))
+    found.sort(key=lambda f: (f[0], f[1]), reverse=True)
+    return [RawDraft(url=loc, title=loc, text="", published_at=d) for d, _, loc in found]
 
 
 def adapter(today: date, prefix: str) -> Adapter:

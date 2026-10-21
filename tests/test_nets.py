@@ -598,3 +598,17 @@ def test_openalex_credits_get_a_line_only_when_spent(lang: Lang):
     assert meters.lines({}, {}, openalex_credits=3)[-1] == "openalex credit (tick 累計の途中値): 3"
     lines = meters.lines({}, {}, openalex_credits=0, lang=lang)
     assert not any("openalex" in line for line in lines)
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_results_past_the_follow_limit_are_said_apart_from_failed_validation(lang: Lang):
+    """2026-10-22 counted 25 sitemap pages past the page limit as '検証落ち': a page that was
+    never asked for is not one that failed."""
+    from jev_research_pipeline.adapters import FetchOutcome, sitemap
+
+    request = nets.NetRequest("keyword", sitemap.adapter(b.T0.date(), "https://x.org/a/"), "q")
+    out = FetchOutcome(adapter="sitemap", query="q", sources=(), failure=None, skipped=2, capped=25)
+    assert nets._fetch_notes(request, out, lang) == [  # pyright: ignore[reportPrivateUsage]
+        t.VALIDATION_SKIPPED(lang, source="keyword/sitemap", n=2),
+        t.FOLLOW_CAPPED(lang, source="keyword/sitemap", n=25),
+    ]

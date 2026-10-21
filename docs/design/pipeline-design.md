@@ -1310,6 +1310,40 @@ Review-when: the community scrape goes stale (no claude.com article for two week
 claude.com/resources shows new ones), Anthropic publishes a feed for anthropic.com or
 claude.com (replace the sitemap / scrape with it), or the release-notes feed changes host.
 
+> **注記（2026-10-22, the claude-code line's coverage）**: the author saw official items in
+> Anthropic's YouTube channel that no note carried. Diagnosis (store and live fetches,
+> 2026-10-22): Claude Duet was fetched (the claude.com scrape) and rejected by the prefilter
+> at 0.10, since every question was about Claude Code; Duet, Docs, Dashboards/Motion and
+> Security are Claude apps. Real misses: `sitemap: https://www.anthropic.com/engineering/`
+> matched nothing (engineering posts moved to /research/<slug>), Follow refused the 308 of
+> a moved post ("Redesigning source control at Anthropic", tagged Claude Code), and the
+> 10-page limit took sitemap entries in the sitemap's own order (by name on anthropic.com,
+> by article id on support.claude.com), cutting new Claude Code help articles. Changed:
+> - Follow follows one redirect on the page's own host (https, a named public host) to the
+>   same last path segment (a moved post, not the site's root or a sign-in page) and stores
+>   the result under the URL that answered; any other redirect, or a Location that is not a
+>   URL, is still no page. Two results that land on one page are one source (a stage's
+>   outputs are unique ids). Cassettes keep `location`, so a frozen fetch replays it.
+> - sitemap results come newest first (lastmod), so the limit cuts the oldest.
+> - a feed item whose page Follow cannot read takes its summary as its text: an #anchor on
+>   a shared page (each Claude Platform release note) and a video of the YouTube channel
+>   the feed is (`yt:channelId` must match the feed's `channel_id`; a watch page is a
+>   script shell of 139-163 characters).
+> - the operations section names results past the page limit apart from failed
+>   validation (`ページ取得の上限で N 件 未取得`, FetchOutcome.capped).
+> - the line (author decisions 2026-10-22): a 4th question on Claude app launches, the 1st
+>   widened to API / SDK / Platform changes that affect Claude Code (version 2) with the
+>   Platform release-notes feed, the YouTube channel feed, and the community engineering
+>   and news feeds in place of the two anthropic.com sitemaps. 11 query lines against the
+>   keyword budget of 10: one sits out per run in rotation, inside the 3-day window. Not
+>   read: X (@ClaudeDevs; X's terms bar scraping, a non-goal) and the email newsletter. No
+>   backfill of items from before the line's first run (author).
+> - the weekly review's paper key keeps a feed item's #anchor (wbr.paper_key): each
+>   changelog version and Platform release note was one paper of its page, cited first once
+>   and never again. Weeks reviewed before 2026-10-22 counted them collapsed.
+> - cc-official-changes version 2 is a new question: its first reviews start empty, and
+>   v1's cites (2026-10-21..22) stay with v1.
+
 ### Non-goals (explicit)
 
 ReAct / supervisor loops; local models; Grok in v1; X adapter in v1; writing into

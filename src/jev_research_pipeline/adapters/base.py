@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from ipaddress import ip_address
 from typing import Final, Literal, Self, TypedDict
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 from xml.etree.ElementTree import ParseError
 
 import httpx2
@@ -128,7 +128,11 @@ class FetchOutcome(Value):
     failure: FetchFailure | None
     cached: bool = False
     skipped: int = 0
-    """Results dropped individually for failing validation (empty text, non-http URL)."""
+    """Results dropped individually for failing validation (empty text, non-http URL, a
+    followed page that could not be read)."""
+    capped: int = 0
+    """Results without text past the listing's Follow limit: not asked for, so not counted
+    in `skipped` (the operations section names the two apart)."""
     credits: int = 0
     """OpenAlex credits this fetch spent: the response's CREDITS_HEADER, or the adapter's
     declared credit_cost when the header is absent (a cassette recorded before it kept
@@ -190,6 +194,29 @@ def _public_https(url: str) -> bool:
     return False
 
 
+REDIRECTS: Final = frozenset({301, 302, 303, 307, 308})
+
+
+def _same_host_redirect(url: str, location: str) -> str | None:
+    """Where a redirect from `url` points, when that is the same page moved: https on the
+    same host (_public_https) and the same last path segment (anthropic.com's
+    /engineering/<slug> → /research/<slug>). None for another host, a scheme change, a
+    landing page that is not the post (the site's root, a sign-in page), a Location that is
+    not a URL, or none. A listing's link can come from a third party: a redirect it leads to
+    is followed only where the link itself was already allowed to go."""
+    if not location:
+        return None
+    try:
+        target = urljoin(url, location)
+        before, after = urlsplit(url), urlsplit(target)
+        same = (after.hostname or "").lower() == (before.hostname or "").lower()
+    except ValueError:  # "https://[x" and the like: a server's header, not ours to trust
+        return None
+    slug = before.path.rstrip("/").rsplit("/", 1)[-1]
+    moved = bool(slug) and after.path.rstrip("/").rsplit("/", 1)[-1] == slug
+    return target if same and moved and _public_https(target) else None
+
+
 @dataclass(frozen=True)
 class Follow:
     """Fetch the page of each result that came back with no text, and use the page.
@@ -198,14 +225,17 @@ class Follow:
     feed item that carries only a summary has a teaser the screen cannot judge (claude.dev's
     run 64 to 231 characters; the screen skips a source under 200). The listing's parser leaves
     such a result's text empty and Follow fills it from the page. Only https pages on a named
-    public host are asked for (_public_https); a page that cannot be fetched or read, or answers anything but 2xx (a redirect's
-    body is not the page), leaves the text empty, so validation skips the result and the
+    public host are asked for (_public_https). A redirect is followed once when it stays on
+    the page's host (a moved post: anthropic.com's /engineering/<slug> answers 308 to
+    /research/<slug>, 2026-10-21), and the result is stored under the page it landed on; any
+    other answer but 2xx leaves the text empty, so validation skips the result and the
     operations section counts it — a missed item is never silent."""
 
     parse: Callable[[str, str], list[RawDraft]]
     """(page URL, page body) → the page as one draft (adapters.page.page_parse)."""
     limit: int
-    """Pages one fetch may ask for; results past it are skipped and counted."""
+    """Pages one fetch may ask for; results past it are not asked for and are counted apart
+    (FetchOutcome.capped)."""
 
 
 @dataclass
@@ -293,11 +323,31 @@ class Adapter:
             raws = self.parse(response.text)
         except (ValueError, ValidationError, ParseError, KeyError, TypeError) as e:
             return fail("parse", type(e).__name__)
+        capped = 0
         if self.follow is not None:
-            raws = await self._follow(client, raws, self.follow)
+            raws, capped = await self._follow(client, raws, self.follow)
+        sources = self._sources(raws, line, now)
+        return FetchOutcome(
+            adapter=self.kind,
+            query=query,
+            sources=tuple(sources),
+            failure=None,
+            skipped=len(raws) - len(sources) - capped,
+            capped=capped,
+            credits=self._credits(response),
+        )
+
+    def _sources(self, raws: list[RawDraft], line: Line, now: AwareDatetime) -> list[SourceItem]:
+        """One SourceItem per result that passes validation, and one per URL: two results
+        that landed on one page (a redirect) are one source, since a stage's outputs are
+        unique ids; the second, like a failed one, is counted in `skipped` by the caller."""
         sources: list[SourceItem] = []
+        urls: set[str] = set()
         for raw in raws:
-            try:
+            if raw["url"] in urls:
+                continue
+            urls.add(raw["url"])
+            try:  # the draft and the stored node both validate (a javascript: URL fails the node)
                 d = Draft.model_validate(raw)
                 sources.append(
                     SourceItem.new(
@@ -313,52 +363,61 @@ class Adapter:
                 )
             except ValidationError:
                 continue
-        return FetchOutcome(
-            adapter=self.kind,
-            query=query,
-            sources=tuple(sources),
-            failure=None,
-            skipped=len(raws) - len(sources),
-            credits=self._credits(response),
-        )
+        return sources
 
     async def _follow(
         self, client: httpx2.AsyncClient, raws: list[RawDraft], follow: Follow
-    ) -> list[RawDraft]:
-        """Each result without text, with its page's title and text (Follow)."""
+    ) -> tuple[list[RawDraft], int]:
+        """Each result without text, with its page's title and text (Follow), and how many
+        were past the limit and not asked for. The listing decides the order the limit
+        takes them in (a sitemap puts the newest first)."""
         out: list[RawDraft] = []
-        asked = 0
+        asked = capped = 0
         for raw in raws:
             if raw["text"]:
                 out.append(raw)
                 continue
             page = None
-            if asked < follow.limit and _public_https(raw["url"]):
+            if not _public_https(raw["url"]):
+                pass  # never asked for: a failed validation, counted in skipped
+            elif asked >= follow.limit:
+                capped += 1
+            else:
                 asked += 1
                 page = await self._page(client, raw["url"], follow)
             out.append(
                 RawDraft(
-                    url=raw["url"],
+                    url=page["url"] if page else raw["url"],
                     title=(page["title"] if page else "") or raw["title"],
                     text=page["text"] if page else "",
                     published_at=raw["published_at"],
                 )
             )
-        return out
+        return out, capped
 
     async def _page(self, client: httpx2.AsyncClient, url: str, follow: Follow) -> RawDraft | None:
-        request = httpx2.Request("GET", url, headers={"User-Agent": USER_AGENT})
-        try:
-            response = await self._paced(client, request)
-        except httpx2.RequestError:
-            return None
-        if not 200 <= response.status_code < 300:  # redirects are not followed (httpx default)
+        """The page at `url` as one draft under the URL that answered: one redirect on the
+        same host is followed (Follow), anything else but 2xx is no page."""
+        response = await self._get(client, url)
+        if response is not None and response.status_code in REDIRECTS:
+            moved = _same_host_redirect(url, response.headers.get("location", ""))
+            url, response = (moved, await self._get(client, moved)) if moved else (url, None)
+        if response is None or not 200 <= response.status_code < 300:
             return None
         try:
             drafts = follow.parse(url, response.text)
         except (ValueError, KeyError, TypeError):
             return None
         return drafts[0] if drafts else None
+
+    async def _get(self, client: httpx2.AsyncClient, url: str) -> httpx2.Response | None:
+        """The page's answer, or None when it cannot be asked for or does not answer (a link
+        that is not a URL httpx accepts counts as no page, never as a failed line)."""
+        try:
+            request = httpx2.Request("GET", url, headers={"User-Agent": USER_AGENT})
+            return await self._paced(client, request)  # httpx follows no redirect itself
+        except (httpx2.RequestError, httpx2.InvalidURL, ValueError):
+            return None
 
     def _credits(self, response: httpx2.Response) -> int:
         if not self.credit_cost:

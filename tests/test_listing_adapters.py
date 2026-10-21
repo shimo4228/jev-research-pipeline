@@ -184,8 +184,8 @@ async def test_only_https_pages_are_followed_and_at_most_the_limit():
     limited = replace(adapter, follow=replace(adapter.follow, limit=1))
     out = await limited.fetch(client, b.line(), FEED_URL, now=b.T0, env=NO_ENV)
     assert [s.url for s in _ok(out)] == ["https://blog.example.org/p1"]
-    assert out.skipped == 2  # the http one is never asked for; p2 is past the limit
-    assert asked == [FEED_URL, "https://blog.example.org/p1"]
+    assert (out.skipped, out.capped) == (1, 1)  # the http one is never asked for; p2 is past
+    assert asked == [FEED_URL, "https://blog.example.org/p1"]  # the limit and said apart
 
 
 def test_html_lines_puts_each_block_on_its_own_line():
@@ -203,6 +203,20 @@ def test_sitemap_keeps_changed_pages_under_the_prefix():
     assert [(d["url"], d["published_at"], d["text"]) for d in drafts] == [
         ("https://www.example.org/engineering/new-post", date(2026, 10, 19), "")
     ]  # not the listing page, a sibling path, an old post, another section or an undated one
+
+
+def test_sitemap_pages_come_newest_first_whatever_the_sitemaps_order():
+    """Follow's limit takes them in this order: a sitemap listed by name or id spent it on
+    old pages and cut the new ones (2026-10-22)."""
+    body = SITEMAP.replace(
+        "</urlset>",
+        "<url><loc>https://www.example.org/engineering/a-older</loc>"
+        "<lastmod>2026-10-18T08:00:00.000Z</lastmod></url>"
+        "<url><loc>https://www.example.org/engineering/z-newest</loc>"
+        "<lastmod>2026-10-19T20:00:00.000Z</lastmod></url></urlset>",
+    )
+    drafts = sitemap.parse(body, prefix="https://www.example.org/engineering/", today=TODAY)
+    assert [d["url"].rsplit("/", 1)[1] for d in drafts] == ["z-newest", "new-post", "a-older"]
 
 
 def test_sitemap_prefix_without_its_trailing_slash_means_the_same():
@@ -311,20 +325,116 @@ def test_web_search_reads_tavilys_published_dates(value: str | None, expected: d
     assert web_search.published(value) == expected
 
 
-async def test_a_redirect_is_not_the_page():
+async def test_a_redirect_on_the_same_host_is_followed_once_and_stored_where_it_landed():
+    """anthropic.com/engineering/<slug> answers 308 to /research/<slug> (2026-10-21): a moved
+    post is read, under the URL that served it."""
     client = _client(
         {
             FEED_URL: httpx2.Response(200, text=RSS),
             "https://blog.example.org/team-post/": httpx2.Response(
-                307, text="Redirecting", headers={"location": "https://blog.example.org/new/"}
+                308, text="Redirecting", headers={"location": "/research/team-post"}
             ),
+            "https://blog.example.org/research/team-post": httpx2.Response(200, text=ARTICLE),
         }
+    )
+    out = await feed.adapter(TODAY, FEED_URL).fetch(
+        client, b.line(), FEED_URL, now=b.T0, env=NO_ENV
+    )
+    moved = next(s for s in _ok(out) if s.title == "How the team does code review")
+    assert moved.url == "https://blog.example.org/research/team-post"
+    assert out.skipped == 0
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://elsewhere.example.net/team-post",  # another host
+        "http://blog.example.org/team-post",  # off https
+        "https://127.0.0.1/team-post",  # an address
+        "/",  # the site's root: the post is gone, not moved
+        "/login?next=/team-post/",  # a sign-in page
+        "https://[blog.example.org/team-post",  # not a URL: no page, never a failed line
+        "",  # no Location
+    ],
+)
+async def test_a_redirect_off_the_pages_host_or_https_is_not_followed(location: str):
+    asked: list[str] = []
+    headers = {"location": location} if location else {}
+    client = _client(
+        {
+            FEED_URL: httpx2.Response(200, text=RSS),
+            "https://blog.example.org/team-post/": httpx2.Response(
+                307, text="Redirecting", headers=headers
+            ),
+            location or "x": httpx2.Response(200, text=ARTICLE),
+        },
+        asked,
     )
     out = await feed.adapter(TODAY, FEED_URL).fetch(
         client, b.line(), FEED_URL, now=b.T0, env=NO_ENV
     )
     assert [s.title for s in _ok(out)] == ["2.1.304"]
     assert out.skipped == 1
+    assert asked == [FEED_URL, "https://blog.example.org/team-post/"]
+
+
+async def test_a_redirect_is_followed_at_most_once():
+    client = _client(
+        {
+            FEED_URL: httpx2.Response(200, text=RSS),
+            "https://blog.example.org/team-post/": httpx2.Response(301, headers={"location": "/a"}),
+            "https://blog.example.org/a": httpx2.Response(301, headers={"location": "/b"}),
+            "https://blog.example.org/b": httpx2.Response(200, text=ARTICLE),
+        }
+    )
+    out = await feed.adapter(TODAY, FEED_URL).fetch(
+        client, b.line(), FEED_URL, now=b.T0, env=NO_ENV
+    )
+    assert [s.title for s in _ok(out)] == ["2.1.304"] and out.skipped == 1
+
+
+YOUTUBE_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id=UCchannel"
+YOUTUBE = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+<title>Claude</title>
+<entry><id>yt:video:v1</id><yt:videoId>v1</yt:videoId><yt:channelId>UCchannel</yt:channelId>
+<title>Introducing Claude Duet</title>
+<link rel="alternate" href="https://www.youtube.com/watch?v=v1"/>
+<published>2026-10-19T16:00:00+00:00</published>
+<media:group><media:title>Introducing Claude Duet</media:title>
+<media:description>Claude Duet is a research preview: two people and Claude work in one conversation, available by waitlist today.</media:description></media:group></entry>
+<entry><id>yt:video:v2</id><yt:videoId>v2</yt:videoId><yt:channelId>UCother</yt:channelId>
+<title>Someone else's video</title>
+<link rel="alternate" href="https://www.youtube.com/watch?v=v2"/>
+<published>2026-10-19T16:00:00+00:00</published>
+<media:group><media:description>Not this channel's.</media:description></media:group></entry>
+</feed>"""
+
+
+def test_a_channel_video_is_read_from_its_description_not_its_watch_page():
+    """A watch page is a script shell (139-163 characters of footer, 2026-10-21): the
+    channel's own video carries its description as text, and nothing is followed."""
+    drafts = feed.parse(YOUTUBE, feed_url=YOUTUBE_FEED, today=TODAY)
+    assert [(d["title"], d["text"]) for d in drafts] == [
+        (
+            "Introducing Claude Duet",
+            "Claude Duet is a research preview: two people and Claude work in one conversation,"
+            " available by waitlist today.",
+        ),
+        ("Someone else's video", ""),  # another channel's: no description taken, Follow decides
+    ]
+
+
+def test_an_anchor_item_is_read_from_its_own_summary():
+    """Each Claude Platform release note is an #anchor on one overview page: Follow would
+    give every item the same page."""
+    body = RSS.replace(
+        "<description>A short teaser the screen cannot judge.</description>",
+        "<description>&lt;p&gt;We launched the Files API.&lt;/p&gt;</description>",
+    ).replace("https://blog.example.org/team-post/", "https://code.example.org/notes#october-18")
+    drafts = feed.parse(body, feed_url=FEED_URL, today=TODAY)
+    (note,) = [d for d in drafts if d["url"].endswith("#october-18")]
+    assert note["text"] == "We launched the Files API."
 
 
 def test_an_item_with_empty_content_is_left_out_not_followed():
@@ -398,3 +508,44 @@ def test_follow_asks_only_named_public_https_hosts(url: str, followed: bool):
     )
 
     assert _public_https(url) is followed
+
+
+async def test_two_results_that_land_on_one_page_are_one_source():
+    """A stage's outputs are unique ids: a moved page listed under its old and new URL is
+    stored once, the second counted."""
+    body = SITEMAP.replace(
+        "</urlset>",
+        "<url><loc>https://www.example.org/engineering/old/new-post</loc>"
+        "<lastmod>2026-10-19T12:00:00.000Z</lastmod></url></urlset>",
+    )
+    client = _client(
+        {
+            "https://www.example.org/sitemap.xml": httpx2.Response(200, text=body),
+            "https://www.example.org/engineering/new-post": httpx2.Response(200, text=ARTICLE),
+            "https://www.example.org/engineering/old/new-post": httpx2.Response(
+                308, headers={"location": "/engineering/new-post"}
+            ),
+        }
+    )
+    prefix = "https://www.example.org/engineering/"
+    adapter = make_adapter("sitemap", today=TODAY, query=prefix)
+    out = await adapter.fetch(client, b.line(), prefix, now=b.T0, env=NO_ENV)
+    assert [s.url for s in _ok(out)] == ["https://www.example.org/engineering/new-post"]
+    assert out.skipped == 1
+
+
+def test_a_video_or_anchor_with_no_summary_is_left_out_not_followed():
+    video = YOUTUBE.replace(
+        "<media:description>Claude Duet is a research preview: two people and Claude work in one"
+        " conversation, available by waitlist today.</media:description>",
+        "",
+    )
+    assert [d["title"] for d in feed.parse(video, feed_url=YOUTUBE_FEED, today=TODAY)] == [
+        "Someone else's video"
+    ]
+
+
+def test_a_cassette_keeps_a_redirects_location():
+    from jev_research_pipeline.cassette import KEPT_HEADERS
+
+    assert "location" in KEPT_HEADERS

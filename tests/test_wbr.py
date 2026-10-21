@@ -56,6 +56,7 @@ from jev_research_pipeline.model import (
     sha256_hex,
 )
 from jev_research_pipeline.model.jsonld import CONTEXT
+from jev_research_pipeline.model.nodes import AdapterKind
 from jev_research_pipeline.pipeline.config import ReservedSlug, load_tracks
 from jev_research_pipeline.pipeline.doctor import doctor
 from jev_research_pipeline.pipeline.monitor import LEDGER_FILE
@@ -469,6 +470,29 @@ def test_a_paper_key_takes_arxiv_then_doi_then_github_then_the_url(url: str, key
         line=LINES["akc"], adapter="arxiv", url=url, title="t", text="x", fetched_at=NOW
     )
     assert paper_key(source) == key
+
+
+def test_a_feed_items_anchor_keeps_it_one_paper_of_its_own():
+    """Each Platform release note and changelog version is an #anchor on one page: without
+    the anchor they were one paper, cited first once and never again (2026-10-22)."""
+
+    def key(url: str, adapter: AdapterKind = "feed") -> str:
+        return paper_key(
+            SourceItem.new(
+                line=LINES["akc"], adapter=adapter, url=url, title="t", text="x", fetched_at=NOW
+            )
+        )
+
+    page = "https://platform.claude.com/docs/en/release-notes/overview"
+    assert (
+        key(f"{page}#October-21-2026")
+        == "url:platform.claude.com/docs/en/release-notes/overview#october-21-2026"
+    )
+    assert key(f"{page}#october-21-2026") != key(f"{page}#october-20-2026-2")
+    assert (
+        key(f"{page}#top", adapter="web_search")
+        == "url:platform.claude.com/docs/en/release-notes/overview"
+    )
 
 
 # ------------------------------------------------------------------------------ numbers

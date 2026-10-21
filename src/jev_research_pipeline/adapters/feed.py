@@ -10,8 +10,11 @@ github.com/Olshansk/rss-feeds feeds/feed_claude.xml, summaries only).
   date is left out: the window cannot place it, and every feed above dates its items.
 - Text: the item's full content (RSS content:encoded, Atom content), each block on its own
   line (page.html_lines). An item with only a summary gets its page fetched instead
-  (base.Follow): a summary is a teaser the screen cannot judge. An item whose content is
-  empty is left out (a release-notes link is an anchor on one long page, not its own page).
+  (base.Follow): a summary is a teaser the screen cannot judge. Two items keep their summary
+  instead, since Follow cannot read their page (_summary_is_the_item): an #anchor on a
+  shared page (each Claude Platform release note) and a video of the YouTube channel the
+  feed is; with no summary either they are left out. An item whose content is empty is
+  left out (a release-notes link is an anchor on one long page, not its own page).
   Full content is screened at any length (jev.question_screening: a one-line release is
   complete, not a cut abstract).
 - Attribution: a feed's content is kept only for items on the feed's own host. An item that
@@ -33,7 +36,7 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from time import struct_time
 from typing import Final, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import feedparser  # pyright: ignore[reportMissingTypeStubs]
 import httpx2
@@ -72,6 +75,22 @@ def _text(entry: Mapping[str, object]) -> str:
     return "\n".join(html_lines(v) for v in values if isinstance(v, str) and v.strip())
 
 
+def _summary_is_the_item(entry: Mapping[str, object], url: str, feed_url: str) -> bool:
+    """An item whose own page Follow cannot read, so its summary is its text: an #anchor on
+    a shared page (each Claude Platform release note is one, and Follow would give every item
+    the same page), or a video of the YouTube channel the feed is (its watch page is a script
+    shell: 139-163 characters of footer, measured 2026-10-21)."""
+    if urlsplit(url).fragment:
+        return True
+    channel = parse_qs(urlsplit(feed_url).query).get("channel_id", [""])[0]
+    return bool(channel) and entry.get("yt_channelid") == channel and "yt_videoid" in entry
+
+
+def _summary(entry: Mapping[str, object]) -> str:
+    summary = entry.get("summary")
+    return html_lines(summary) if isinstance(summary, str) else ""
+
+
 def _entries(body: str) -> list[Mapping[str, object]]:
     """feedparser's entries, typed at the boundary (feedparser ships no type information)."""
     parsed = cast(
@@ -98,6 +117,9 @@ def parse(body: str, *, feed_url: str, today: date) -> list[RawDraft]:
             text = ""  # another host's page: read it there, never take the feed's word for it
         elif not (text := _text(entry)) and "content" in entry:
             continue  # content with nothing in it: its link is not a page of its own
+        elif not text and _summary_is_the_item(entry, url, feed_url):
+            if not (text := _summary(entry)):
+                continue  # no summary either: nothing to read, and its page is not the item
         out.append(
             RawDraft(
                 url=url,

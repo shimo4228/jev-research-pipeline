@@ -35,8 +35,15 @@ RECORD_ENV: Final = "JRP_CASSETTE_RECORD"
 # Query parameters that carry credentials in some APIs. Dropped from key and file.
 SECRET_PARAMS: Final = frozenset({"api_key", "apikey", "key", "token", "access_token"})
 DEFAULT_TIMEOUT: Final = 30.0
-KEPT_HEADERS: Final = ("retry-after", "x-ratelimit-remaining", "x-ratelimit-reset", CREDITS_HEADER)
-"""Response headers a cassette keeps and replays. None of them carries a credential."""
+KEPT_HEADERS: Final = (
+    "retry-after",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    CREDITS_HEADER,
+    "location",
+)
+"""Response headers a cassette keeps and replays. None of them carries a credential: a
+public page's redirect target (`location`, read by base.Follow) is a URL of that site."""
 
 
 class CassetteMiss(LookupError):

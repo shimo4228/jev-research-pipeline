@@ -273,6 +273,11 @@ VALIDATION_SKIPPED: Final = Msg(
     "{source}: {n} skipped (failed validation)",
     "{source}: {n} 条未通过校验，跳过",
 )
+FOLLOW_CAPPED: Final = Msg(
+    "{source}: ページ取得の上限で {n} 件 未取得",
+    "{source}: {n} not fetched (page limit reached)",
+    "{source}: 已达页面获取上限，{n} 条未获取",
+)
 OPENALEX_CAP: Final = Msg(
     "openalex: 1 日の credit 上限に達したため以降を省略",
     "openalex: the daily credit cap was reached, the rest skipped",

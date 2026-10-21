@@ -373,10 +373,14 @@ class NetOutcome:
 
 
 def _fetch_notes(request: NetRequest, out: FetchOutcome, lang: Lang) -> list[str]:
-    """Operations lines of one successful fetch: dropped results."""
+    """Operations lines of one successful fetch: results dropped for failing validation, and
+    results past the listing's Follow limit (not asked for), each said apart."""
+    lines: list[str] = []
     if out.skipped:
-        return [t.VALIDATION_SKIPPED(lang, source=_source_key(request), n=out.skipped)]
-    return []
+        lines.append(t.VALIDATION_SKIPPED(lang, source=_source_key(request), n=out.skipped))
+    if out.capped:
+        lines.append(t.FOLLOW_CAPPED(lang, source=_source_key(request), n=out.capped))
+    return lines
 
 
 def _held_back(

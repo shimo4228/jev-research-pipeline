@@ -139,8 +139,9 @@ repo the question must always keep: if no search brings it in, it is fetched and
 dropped canary shows up in the note as a sign that screening drifted. The `arxiv:`, `github:`, `hf:`
 and `web:` lines are this question's search queries, sent as written; `feed:` (an RSS or Atom feed's
 URL) and `sitemap:` (a URL prefix on a site whose sitemap.xml dates its pages) read a source that
-publishes a listing instead of a search, keeping what is new in the last 3 days and fetching an
-item's page when the listing carries no text. `jrp queries check --line
+publishes a listing instead of a search, keeping what is new in the last 3 days (a sitemap's newest
+first) and fetching an item's page when the listing carries no text (a video or an #anchor item
+keeps its own summary instead). `jrp queries check --line
 <slug>` sends each one once and prints the first hits, storing nothing. A run never edits this file.
 
 ## Source nets

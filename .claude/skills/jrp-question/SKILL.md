@@ -67,11 +67,13 @@ at the line's vocabulary in general. Words of a `not:` topic stay out.
   recent posts only sets `web_time_range = "week"` (or `"day"` / `"month"` / `"year"`) in
   its `[tracks.<slug>]` of config.toml.
 - `- feed:` the https URL of an RSS or Atom feed, for a source that publishes a feed and no
-  search (release notes, a team blog). Its items of the last 3 days come in; one that has
-  only a summary is read from its page.
+  search (release notes, a team blog, a YouTube channel's
+  `feeds/videos.xml?channel_id=…`). Its items of the last 3 days come in; one that has only
+  a summary is read from its page, except a video or an #anchor item, which keeps its summary.
 - `- sitemap:` an https URL prefix, for a site with no feed whose sitemap.xml dates its
-  pages (`<lastmod>`): the pages below the prefix changed in the last 3 days. Open
-  `<site>/sitemap.xml` first; without lastmod it finds nothing.
+  pages (`<lastmod>`): the pages below the prefix changed in the last 3 days, newest first, 10
+  read a run. Open `<site>/sitemap.xml` first; without lastmod, or with no URL under the
+  prefix, it finds nothing.
 
 Search before writing a `feed:` line too: a site's feed is often not linked from its pages
 (look for `<link rel="alternate" type="application/rss+xml">`, `/rss.xml`, `/feed.xml`).
