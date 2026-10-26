@@ -20,7 +20,7 @@ Each morning:
 4. Jev screens each (source, question) pair: a cheap on-topic check first, then hard gates as yes/no
    questions and weighted scores. Code applies the thresholds and routes the pair to Keep, Review
    (borderline), Drop, Incomplete (the source had no abstract to judge) or Unjudged (the Jev request
-   failed).
+   failed; the next runs ask again for 14 days).
 5. Kept sources are cut into verbatim sentences, and Jev picks out the sentences that advance or
    contradict the question. A claim is a sentence, never a paraphrase, so citations always resolve.
 6. The writing model writes one short section per question that got new evidence today, from those
@@ -126,6 +126,7 @@ procedure is the skill [`jrp-question`](../.claude/skills/jrp-question/SKILL.md)
 - method: benchmark comparisons with the answering model held fixed
 - evidence: measured results; a claim without a number is not enough
 - not: prompt techniques in general
+- stance: [memory notes](https://github.com/<you>/<notes>/blob/main/memory.md#evaluation)
 - canary: https://arxiv.org/abs/2608.20664
 - arxiv: agent memory benchmark
 - github: agent memory
@@ -134,7 +135,11 @@ procedure is the skill [`jrp-question`](../.claude/skills/jrp-question/SKILL.md)
 
 `slug` and `version` identify the question: change the wording, bump the version. `brief`, `method`
 and `evidence` go into what Jev sees for every (source, question) pair; `not:` lines give Jev's
-yes/no checks the neighbouring topics that would otherwise pass every day. `canary:` names a paper or
+yes/no checks the neighbouring topics that would otherwise pass every day. `stance:` links a section
+of your own notes that the question stands on; the note shows it under the question and no judge reads
+it. `trust: personal` lets the question take a named author's own writing (a blog, an essay, a post),
+which the trust check otherwise drops; leave it out when the question asks for measured results.
+`canary:` names a paper or
 repo the question must always keep: if no search brings it in, it is fetched and screened anyway, and a
 dropped canary shows up in the note as a sign that screening drifted. The `arxiv:`, `github:`, `hf:`
 and `web:` lines are this question's search queries, sent as written; `feed:` (an RSS or Atom feed's

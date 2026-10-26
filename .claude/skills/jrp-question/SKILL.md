@@ -38,6 +38,12 @@ much / under what conditions" over "is X good". For each:
 - `not:` the neighbouring topics that look relevant but are not — the screen drops them,
   and a missing `not:` is the most common cause of a noisy note
 - `slug:`, `version: 1`, `status: open`, `opened: <today>`, `retire:` (when to close it)
+- `stance:` (optional, one per line) `[label](url)` of a section in the person's own
+  research notes that the question stands on. The note shows it under the question; no
+  judge reads it, so a hypothesis or counter-model the question weighs goes in `brief`
+- `trust: personal` (optional) when the answer lives in people's own writing — a named
+  author's blog, essay or post. The question then takes sources the trust check ranks as
+  personal; a question that asks for measured results keeps the default
 
 Read the questions back to the person and let them cut or merge. Two sharp questions find
 more than four broad ones.

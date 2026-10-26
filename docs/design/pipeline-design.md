@@ -200,6 +200,9 @@ state (filter state in code), adversarial text (treat as data).
 ### Failure policy, testing
 
 8. Jev timeout/error → item to an "unjudged" section (no fail-open into the body).
+   > **注記（2026-10-26, plan desire-loop）**: a source left unjudged at the prefilter, triage,
+   > trust or the screen is asked again by the next runs for 14 days (run.retry_sources,
+   > "First-person questions" below).
    Qwen query candidates fail validation N times → that adapter runs this line-run on
    code-built fallback queries (line concept names / alternateName), flagged in the
    operations section. Qwen synthesis fails → template report always written. Cost cap →
@@ -1196,8 +1199,10 @@ novelty, the slot order) against today's run on a frozen set, dev and holdout ap
 `docs/plans/research/2026-10-20-sx-eval-loop.md`. Code: `src/jev_research_pipeline/evals/`.
 
 - **The set** (`jrp eval gate freeze`, from a store copy): every (source, question) pair a
-  current prefilter judged since screening v3 (2026-10-02), with its triage, trust and
-  screening Judgments; every line-day's claim pool (claims novelty judged that day and no
+  current prefilter judged since `--since`, with its triage, trust and the screening
+  Judgments of today's wording (`question_screening.ASK`; v4 from the 2026-10-27 run, so a
+  pair screened only under v3 counts as unasked and a set frozen before v4 had runs keeps
+  v3); every line-day's claim pool (claims novelty judged that day and no
   earlier note showed). Written under `<store>/evals/gate/<name>/` (third-party text, so never
   in the repo). As built on the 2026-10-20 store: 41,379 pairs, 52 line-days, 2,777 pool claims;
   the prefilter's question order rebuilt for 99%, the screening state for 95% (sha256 match),
@@ -1356,6 +1361,54 @@ claude.com (replace the sitemap / scrape with it), or the release-notes feed cha
 >   and never again. Weeks reviewed before 2026-10-22 counted them collapsed.
 > - cc-official-changes version 2 is a new question: its first reviews start empty, and
 >   v1's cites (2026-10-21..22) stay with v1.
+
+### First-person questions (plan desire-loop, author decisions 2026-10-26)
+
+desire's open question had no moving week in five: the three on-topic sources it was fetched
+(personal blogs and an essay site) were all dropped by source_trust (personal sits at 1/3,
+`min_trust` is 0.5), and the screen rated first-person accounts `anecdote`. Research and the
+probes on frozen states: `docs/plans/research/2026-10-26-desire-loop.md`; the plan:
+`docs/plans/desire-loop.html`. What was built:
+- **stance** (`- stance: [label](url)` lines in a question): the sections of the author's
+  research record the question stands on (desire-frontier's concepts.md). Stored raw on the
+  Question (`stance`), shown as `立場: …` under the question's heading in the note; no judge
+  and no writer reads them — the counter-model a question weighs goes in its `brief`, which
+  the prefilter, the screen and the writer already read.
+- **A trust floor per question** (`- trust: personal`, Question.trust_level): such a
+  question also takes a named author's own writing. source_trust gains `min_trust_personal`
+  = 1/6, midway between anonymous (0) and personal (1/3); `source_trust.floor` gives a
+  personal question min(min_trust, min_trust_personal), so it never takes less than a report
+  question. The stored Decision stays question-free at `min_trust`; LineRun._safe_sources
+  narrows each source's passing questions to the ones whose floor it clears and the
+  operations section counts the sources passed that way. The gate eval replays the same
+  floor (SPair.trust_level from the frozen Question).
+- **The screen's first-person sentence** is question_screening v4 (the bullet under
+  "Discovery gaps on ans / desire" above), added after the gate eval kept every line's
+  keeps within the noise floor.
+- **Unjudged sources are asked again** (run.retry_sources): sources fetched within 14 days
+  and not today, with an unjudged Decision of the prefilter, triage, trust or the screen
+  that has no judged twin (same function and subjects) in today's bundle form, and whose
+  questions are all open, join today's prefilter after the fetch — oldest first, at most 40
+  a line-run (the store copy of 2026-10-26 held 3-14 such sources a line). A judged retry
+  has the unjudged Decision's @id and replaces it; after a rewording the old wording's
+  unjudged Decision stays and its judged twin stops further retries. They are not counted as
+  fetched today; the operations section says how many were asked again and how many are
+  unjudged again.
+- **The weekly review names a question stopped by triage or trust "T 安全"** instead of
+  "I 入口": a question's chain starts with the sources the prefilter passed for it (through
+  the day's LineRecord order, united with the ones screened for it). I sends an agent to
+  rewrite queries; T goes to the author (sources and `trust:`).
+- **desire's questions** (author decisions): after-exhaustion-firsthand version 2 (stock vs
+  flow in the brief, `trust: personal`), two new questions (Japanese exhaustion vs
+  withholding, `trust: personal`; AI disclosure and the maker's desire), the two old
+  questions dropped. desire runs daily for the trial week (`daily = true` in the
+  daily-research config.toml, removed after the 2026-11-03 run).
+
+Review-when: the trial week's weekly review (2026-W45) and the author's reading of desire's
+notes (a first-person source reached the note body, its claim was faithful, the prose read
+it as an account, not a measurement); `min_trust_personal` lets in anonymous pages (an
+anonymous source above 1/6 in a personal question's note); a retried source is unjudged on
+three runs in a row.
 
 ### Non-goals (explicit)
 
