@@ -547,11 +547,12 @@ class _Line:
         return out
 
     def route(self, judgment: Judgment) -> question_screening.Route | None:
-        """Today's route over a stored screening Judgment; None for one asked by another
-        version of the screen, or whose source is not in the partition (a canary probe)."""
+        """Today's route over a stored screening Judgment of today's wording or an earlier one
+        with the same questions (question_screening.judged_any); None for any other version
+        of the screen, or when its source is not in the partition (a canary probe)."""
         if judgment.id not in self._routes:
             source = self.sources.get(judgment.subjects[0])
-            judged = judged_of(question_screening.ASK, judgment)
+            judged = question_screening.judged_any(judgment)
             self._routes[judgment.id] = (
                 None
                 if judged is None or source is None

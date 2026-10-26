@@ -80,6 +80,7 @@ from jev_research_pipeline.pipeline.wbr import paper_key
 from jev_research_pipeline.questions import parse_questions, questions_path
 from jev_research_pipeline.store import GraphStore, input_sha256
 from jev_research_pipeline.store.graph import Partition
+from jev_research_pipeline.store.migrate import read_lifted
 
 from .gate_policy import (
     BASELINE,
@@ -777,7 +778,8 @@ def load(env: Mapping[str, str], name: str) -> GateSet:
         raise NoSet(f"no gate eval set {name!r} at {root}: run `jrp eval gate freeze` first")
     judgments = {
         i: n
-        for i, n in Partition(root / "judgments.jsonld").load().items()
+        # a set frozen before an additive schema change reads as it would after one
+        for i, n in read_lifted(root / "judgments.jsonld").items()
         if isinstance(n, Judgment)
     }
     sample_raw = json.loads((root / "sample.json").read_text(encoding="utf-8"))

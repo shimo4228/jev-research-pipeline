@@ -624,6 +624,28 @@ def test_a_question_whose_sources_stopped_at_triage_or_trust_is_t_not_i():
     )
 
 
+def test_a_screen_asked_under_the_earlier_wording_still_counts(review: WeeklyReview):
+    """A rewording (question_screening v3 → v4) does not empty the weeks before it: the
+    review reads a stored v3 Judgment through the same output model. Another version (other
+    questions) is not read."""
+    base = inputs()
+
+    def rebundled(bundle: str) -> WeeklyReview:
+        akc = {
+            i: n.model_copy(update={"bundle_sha256": bundle})
+            if isinstance(n, Judgment) and n.function == "question_screening"
+            else n
+            for i, n in base.snapshot.lines["akc"].items()
+        }
+        lines = {**base.snapshot.lines, "akc": akc}
+        return weekly_review(replace(base, snapshot=replace(base.snapshot, lines=lines)), WEEK)
+
+    v3 = rebundled(question_screening.EARLIER[0].batched("source").sha256)
+    assert (v3.funnels, v3.questions) == (review.funnels, review.questions)
+    other = rebundled("0" * 64)
+    assert other.funnels != review.funnels
+
+
 def test_repetition_and_novelty(review: WeeklyReview):
     # slots: a1 (posted 10-21) and e1 (a1's paper) of 4; Review: b5 shown on 10-28 again;
     # keyword results: c1, d1, e1 are new, a1 is not

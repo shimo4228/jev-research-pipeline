@@ -393,6 +393,18 @@ def gs(env: dict[str, str]) -> gate_set.GateSet:
     return gate_set.load(env, "t")
 
 
+def test_a_set_frozen_before_an_additive_schema_change_still_loads(
+    env: dict[str, str], gs: gate_set.GateSet
+):
+    path = gs.root / "judgments.jsonld"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    older = {k: v for k, v in doc["@context"].items() if k not in ("stance", "trust_level")}
+    path.write_text(json.dumps({**doc, "@context": older}), encoding="utf-8")
+    again = gate_set.load(env, "t")
+    assert again.judgments == gs.judgments
+    assert json.loads(path.read_text(encoding="utf-8"))["@context"] == older  # read, not rewritten
+
+
 def _pair(gs: gate_set.GateSet, name: str, q: Any) -> SPair:
     source = SourceItem.id_for(LINE, _url(name))
     return next(p for p in gs.pairs if p.question == q.id and p.source == source)

@@ -939,6 +939,19 @@ third question (the arXiv-heavy one); its first-person question never got a pair
   screening routes: the only flips (MedRSI review → keep, jev-the-spire2 keep → review) also
   flip with the unchanged ask, so none is attributable (noise floor with unchanged asks:
   0/40 triage, 2–3/40 screening). Desire's routes moved within that floor.
+- **A dated first-person account counts as `measured` when the question asks for one**
+  (question_screening v4, plan desire-loop, 2026-10-26): one sentence in the instructions —
+  when `question.evidence` asks for a first-person account, a source whose author describes
+  in the first person, with dates or concrete events, what happened to them is the primary
+  record of that account. Measured before it went in with the gate eval
+  (`bench/gate/candidates/screen-firsthand.toml`) on a set frozen from a store copy: 99
+  labelled pairs asked again (65 dev / 34 holdout), keeps 22 → 22 and 7 → 7, routes swapped
+  +5 / −5 in dev and none in holdout, silver precision and recall unchanged; the unchanged
+  ask flips 2 of 39 routes [1%, 17%]. On frozen desire states the Gizmodo first-person
+  article went review 0.55 (trust floor alone) → keep 0.66. The weekly review reads v3's
+  stored Judgments as well (`question_screening.judged_any`: EARLIER keeps the wordings with
+  the same output model), so the version change does not empty its cohort and 14-day
+  windows; a run, the gate eval and its jitter read v4 alone.
 - **Tried and not kept: widening triage's `contains_evidence`** ("an explicit formal model
   (its variables or equations), or an argument developed step by step from stated
   premises"). ans triage accepts rose 5 → 12 of 20 prefilter passes, but jev flipped 3 of 20
