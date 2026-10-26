@@ -553,6 +553,18 @@ def today_bundles(n_questions: int) -> frozenset[str]:
     return frozenset(single | {question_screening.ASK.sha256, question_screening.BATCH_ASK.sha256})
 
 
+@dataclass(frozen=True)
+class Retry:
+    """A stored source the run asks about again, and the questions it is asked for."""
+
+    source: SourceItem
+    questions: frozenset[str] | None
+    """The question @ids of its unanswered screening pairs, or None when a check before
+    screening (prefilter, triage, trust) is unanswered and every question is open to it.
+    A pair already screened stays answered: asked again, its evidence set would hold the
+    source's own claims and it could reach the note twice."""
+
+
 def retry_sources(
     known: Mapping[str, GraphNodeType],
     *,
@@ -560,7 +572,7 @@ def retry_sources(
     bundles: Collection[str],
     today: Collection[str],
     now: AwareDatetime,
-) -> list[SourceItem]:
+) -> list[Retry]:
     """The stored sources the run asks about again: fetched within RETRY_DAYS and not today,
     with an unjudged Decision of a RETRIED function that has no judged twin (same function
     and subjects) asked in today's form (`bundles`), and whose questions are all still open.
@@ -575,20 +587,39 @@ def retry_sources(
         for d in decisions
         if d.outcome != "unjudged" and d.bundle_sha256 in bundles
     }
-    ids = {
-        d.subjects[0]
-        for d in decisions
-        if d.outcome == "unjudged"
-        and (d.function, d.subjects) not in judged
-        and all(q in open_questions for q in d.subjects[1:])
-    }
+    open_pairs: dict[str, set[str] | None] = {}
+    for d in decisions:
+        if (
+            d.outcome != "unjudged"
+            or (d.function, d.subjects) in judged
+            or not all(q in open_questions for q in d.subjects[1:])
+        ):
+            continue
+        sid = d.subjects[0]
+        if d.function != "question_screening":
+            open_pairs[sid] = None
+        elif (qs := open_pairs.setdefault(sid, set())) is not None:
+            qs.update(d.subjects[1:])
     since = now - timedelta(days=RETRY_DAYS)
     out = [
-        s
-        for i in ids - set(today)
-        if isinstance(s := known.get(i), SourceItem) and s.fetched_at >= since
+        Retry(s, None if qs is None else frozenset(qs))
+        for i, qs in open_pairs.items()
+        if i not in today and isinstance(s := known.get(i), SourceItem) and s.fetched_at >= since
     ]
-    return sorted(out, key=lambda s: (s.fetched_at, s.id))[:RETRY_MAX]
+    return sorted(out, key=lambda r: (r.source.fetched_at, r.source.id))[:RETRY_MAX]
+
+
+def _narrow_retries(
+    passing: dict[str, list[int]], retries: Iterable[Retry], questions: Sequence[Question]
+) -> None:
+    """Keep a retried source's passing questions to its unanswered screening pairs."""
+    for r in retries:
+        if r.questions is None or r.source.id not in passing:
+            continue
+        if only := [i for i in passing[r.source.id] if questions[i].id in r.questions]:
+            passing[r.source.id] = only
+        else:
+            del passing[r.source.id]
 
 
 class LineRun:
@@ -868,13 +899,14 @@ class LineRun:
         with self._stage("fetch", queries=len(queries)):
             try:
                 sources = await self._fetch(queries, on_sources=start)
-                retried = retry_sources(
+                retries = retry_sources(
                     self.known,
                     open_questions={q.id for q in self.questions},
                     bundles=today_bundles(n),
                     today={s.id for s in sources},
                     now=self.now,
                 )
+                retried = [r.source for r in retries]
                 if retried:
                     start(retried)
             except BaseException:
@@ -893,6 +925,7 @@ class LineRun:
                         self.st.failed_pairs += n
                     if hits := question_prefilter.passing(result, n):
                         passing[s.id] = hits
+            _narrow_retries(passing, retries, self.questions)
         self.st.incomplete = sum(1 for s in sources if not self._screenable(s))
         self.st.fetched = {s.url for s in sources}
         self.st.retried = [s.id for s in retried if self._screenable(s)]

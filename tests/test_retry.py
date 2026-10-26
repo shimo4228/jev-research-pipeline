@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from jev_research_pipeline.jev import question_screening, relevance_triage
 from jev_research_pipeline.model import Decision, GraphNodeType, SourceItem
-from jev_research_pipeline.pipeline.run import RETRY_MAX, retry_sources, today_bundles
+from jev_research_pipeline.pipeline.run import RETRY_MAX, Retry, retry_sources, today_bundles
 
 from . import builders as b
 
@@ -43,8 +43,8 @@ def _decision(
 
 def _retried(nodes: list[GraphNodeType], *, today: tuple[str, ...] = ()) -> list[str]:
     return [
-        s.id
-        for s in retry_sources(
+        r.source.id
+        for r in retry_sources(
             {n.id: n for n in nodes},
             open_questions={QUESTION.id},
             bundles=today_bundles(1),
@@ -107,3 +107,25 @@ def test_oldest_first_and_at_most_retry_max():
     assert len(got) == RETRY_MAX
     assert got[0] == sources[-1].id  # the oldest first
     assert sources[0].id not in got  # the newest wait for the next run
+
+
+def test_a_retry_after_screening_asks_only_the_unanswered_pairs():
+    s = _source(0, age_days=3)
+    other = b.question(version=2)
+    screen = question_screening.BATCH_ASK.sha256
+    kept = _decision("question_screening", (s.id, other.id), screen, judged=True)
+    unjudged = _decision("question_screening", (s.id, QUESTION.id), screen)
+    open_questions = {QUESTION.id, other.id}
+
+    def retry(known: dict[str, GraphNodeType]) -> list[Retry]:
+        return retry_sources(
+            known, open_questions=open_questions, bundles=today_bundles(2), today=(), now=NOW
+        )
+
+    known: dict[str, GraphNodeType] = {n.id: n for n in (s, kept, unjudged)}
+    [got] = retry(known)
+    assert got.questions == {QUESTION.id}  # the kept pair is not screened again
+    triage = _decision("relevance_triage", (s.id,), relevance_triage.ASK.batched("source").sha256)
+    known[triage.id] = triage
+    [got] = retry(known)
+    assert got.questions is None  # nothing was screened yet: every question is open to it
