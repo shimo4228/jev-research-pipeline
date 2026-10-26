@@ -590,18 +590,23 @@ WBR_QUESTIONS: Final = Msg(
     "5. 问题 (最近 14 天推进的问题 {k}/{n})",
 )
 WBR_HEAD_QUESTIONS: Final = Msg(
-    "| ライン | 問い | 止まった段 | screening → keep → claim → 引用 (14 日) |",
-    "| Line | Question | Stopped at | screening → keep → claim → cited (14 days) |",
-    "| 线 | 问题 | 停在 | screening → keep → claim → 引用 (14 天) |",
+    "| ライン | 問い | 止まった段 | prefilter → screening → keep → claim → 引用 (14 日) |",
+    "| Line | Question | Stopped at | prefilter → screening → keep → claim → cited (14 days) |",
+    "| 线 | 问题 | 停在 | prefilter → screening → keep → claim → 引用 (14 天) |",
 )
 WBR_ALL_MOVING: Final = Msg("動かない問いは無い", "Every open question moved", "所有问题都有推进")
 WBR_NO_QUESTIONS: Final = Msg(
     "問い未設定: {lines}", "No open question: {lines}", "未设置问题: {lines}"
 )
-STAGE_SCREENING: Final = Msg(
-    "I 入口 (screening に届いた対が 0)",
-    "I intake (no pair reached screening)",
-    "I 入口 (没有进入 screening 的对)",
+STAGE_INTAKE: Final = Msg(
+    "I 入口 (prefilter を通った資料が 0)",
+    "I intake (the prefilter passed no source)",
+    "I 入口 (没有通过 prefilter 的资料)",
+)
+STAGE_SAFE: Final = Msg(
+    "T 安全 (triage・trust を通った資料が 0)",
+    "T safety (no source passed triage and trust)",
+    "T 安全 (没有通过 triage・trust 的资料)",
 )
 STAGE_KEEP: Final = Msg("S 選別 (keep 0)", "S screening (no keep)", "S 筛选 (keep 0)")
 STAGE_CLAIM: Final = Msg("X 根拠化 (claim 0)", "X evidence (no claim)", "X 依据化 (claim 0)")

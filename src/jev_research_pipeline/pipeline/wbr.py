@@ -88,7 +88,9 @@ Definitions:
   slots being run.claims_per_question(k) x k at the run's k open questions.
 - Question moved: it holds an O1 paper of the last 14 days (cited on that paper's first
   day). A question that did not is shown with the first stage at 0 over the same 14 days:
-  sources screened for it, of those kept, sources of its claims, sources its prose cited.
+  sources the prefilter passed for it (I intake), of those screened for it (T safety: the
+  triage and trust pass between), of those kept, sources of its claims, sources its prose
+  cited.
   The open questions come from questions/ (questions.open_questions), never from Question
   nodes, which a run stores only when evidence grows.
 - Monitoring samples (pipeline.monitor, monitor_sample): the week's sections with prose
@@ -236,7 +238,7 @@ type Days = tuple[tuple[date, Status], ...]
 in day order."""
 type FactorName = Literal["N_new", "N_ot", "p_sel", "p_ext", "p_wri", "O1_c"]
 type GroupKind = Literal["all", "slot", "supply"]
-type Stage = Literal["screening", "keep", "claim", "cite", "delivered"]
+type Stage = Literal["intake", "safe", "keep", "claim", "cite", "delivered"]
 
 
 # ------------------------------------------------------------------------------- the week
@@ -816,6 +818,9 @@ class QuestionState:
     line: str
     slug: str
     moved: bool
+    on_topic: int = 0
+    """Sources the prefilter passed for the question (through the day's LineRecord order),
+    and every source screened for it: a screened source passed the prefilter first."""
     screened: int = 0
     kept: int = 0
     claimed: int = 0
@@ -824,11 +829,15 @@ class QuestionState:
     @property
     def stopped(self) -> Stage | None:
         """The first stage at 0 for a question that did not move; `delivered` when every
-        stage has a source and the prose cited only papers delivered before."""
+        stage has a source and the prose cited only papers delivered before. No source
+        screened is `intake` when the prefilter passed none for the question (its queries
+        and nets are the fix) and `safe` when triage or trust stopped the ones it passed
+        (the question's sources, not its queries, are the fix)."""
         if self.moved:
             return None
         counts: tuple[tuple[Stage, int], ...] = (
-            ("screening", self.screened),
+            ("intake", self.on_topic),
+            ("safe", self.screened),
             ("keep", self.kept),
             ("claim", self.claimed),
             ("cite", self.cited),
@@ -1086,8 +1095,46 @@ def _moved(line: _Line, question: Question, window: tuple[date, date], firsts: _
     )
 
 
+def _orders(snapshot: Snapshot) -> dict[tuple[str, date, int], tuple[str, ...]]:
+    """(line, run date, n) → the question ids behind q0..q{n-1} of that day's prefilter
+    Judgments (LineRecord.questions; the latest RunRecord of the day wins)."""
+    out: dict[tuple[str, date, int], tuple[str, ...]] = {}
+    for record in sorted(_of(snapshot.pipeline, RunRecord), key=lambda r: r.started_at):
+        for lr in record.line_records:
+            out[(lr.slug, record.run_date, len(lr.questions))] = lr.questions
+    return out
+
+
+def _prefiltered(
+    line: _Line,
+    question: Question,
+    window: tuple[date, date],
+    orders: Mapping[tuple[str, date, int], tuple[str, ...]],
+) -> set[str]:
+    """Sources with text above the screening floor whose prefilter Judgment in the window
+    passed `question`; a Judgment of a day with no LineRecord is not attributed."""
+    start, end = window
+    out: set[str] = set()
+    for j in line.judgments:
+        if j.function != _PREFILTER or not start <= (day := j.judged_at.date()) <= end:
+            continue
+        n = sum(1 for a in j.answers if _ON_TOPIC.match(a.key))
+        order = orders.get((line.slug, day, n), ())
+        source = line.sources.get(j.subjects[0])
+        if question.id not in order or source is None or question_screening.no_abstract(source):
+            continue
+        judged = judged_of(question_prefilter.ask(n), j)
+        if judged is not None and order.index(question.id) in question_prefilter.passing(judged, n):
+            out.add(source.id)
+    return out
+
+
 def _question(
-    line: _Line, question: Question, window: tuple[date, date], firsts: _Firsts
+    line: _Line,
+    question: Question,
+    window: tuple[date, date],
+    firsts: _Firsts,
+    orders: Mapping[tuple[str, date, int], tuple[str, ...]],
 ) -> QuestionState:
     if _moved(line, question, window, firsts):
         return QuestionState(line=line.slug, slug=question.slug, moved=True)
@@ -1107,6 +1154,7 @@ def _question(
         line=line.slug,
         slug=question.slug,
         moved=False,
+        on_topic=len(_prefiltered(line, question, window, orders) | screened),
         screened=len(screened),
         kept=len(kept),
         claimed=len({p.source for p in line.posts if p.question == mine and start <= p.day <= end}),
@@ -1300,6 +1348,7 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         {line.slug: _funnel(line, newer) for line in indexed},
     )
     asked = _asked(snapshot)
+    orders = _orders(snapshot)
     open_now = {spec.slug: len(spec.questions or ()) for spec in inputs.lines}
     slots = [_slots(line, week, asked, open_now[line.slug]) for line in indexed]
     window = (as_of - timedelta(days=QUESTION_DAYS - 1), as_of)
@@ -1317,7 +1366,7 @@ def _review(inputs: Inputs, week: Week, indexed: Sequence[_Line]) -> WeeklyRevie
         groups=_groups(parts, slots),
         slots=tuple(s for s in slots if s.capacity),
         questions=tuple(
-            _question(lines[spec.slug], q, window, firsts)
+            _question(lines[spec.slug], q, window, firsts, orders)
             for spec in inputs.lines
             for q in spec.questions or ()
         ),
@@ -1425,7 +1474,8 @@ FACTOR_WORDS: Final[Mapping[FactorName, Msg]] = {
     "O1_c": t.FACTOR_O1_C,
 }
 STAGE_WORDS: Final[Mapping[Stage, Msg]] = {
-    "screening": t.STAGE_SCREENING,
+    "intake": t.STAGE_INTAKE,
+    "safe": t.STAGE_SAFE,
     "keep": t.STAGE_KEEP,
     "claim": t.STAGE_CLAIM,
     "cite": t.STAGE_CITE,
@@ -1718,7 +1768,7 @@ def _questions(review: WeeklyReview, lang: Lang) -> list[str]:
     if stuck:
         out += [t.WBR_HEAD_QUESTIONS(lang), "|---|---|---|---|"]
         for q in stuck:
-            chain = f"{q.screened} → {q.kept} → {q.claimed} → {q.cited}"
+            chain = f"{q.on_topic} → {q.screened} → {q.kept} → {q.claimed} → {q.cited}"
             stage = STAGE_WORDS[q.stopped or "delivered"](lang)
             out.append(f"| {q.line} | {q.slug} | {stage} | {chain} |")
     else:
@@ -1919,7 +1969,7 @@ def row(review: WeeklyReview, *, generated_at: AwareDatetime) -> dict[str, JsonV
                     "line": q.line,
                     "question": q.slug,
                     "stage": q.stopped,
-                    "chain": [q.screened, q.kept, q.claimed, q.cited],
+                    "chain": [q.on_topic, q.screened, q.kept, q.claimed, q.cited],
                 }
                 for q in review.stuck()
             ],

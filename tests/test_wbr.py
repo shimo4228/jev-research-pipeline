@@ -581,16 +581,47 @@ def test_a_question_that_did_not_move_shows_where_it_stopped(review: WeeklyRevie
     assert sum(q.moved for q in review.questions) == 2  # agent-memory, memory-eval
     assert len(review.questions) == 5  # the dropped question is not open
     chains = {
-        key: (q.screened, q.kept, q.claimed, q.cited, q.stopped)
+        key: (q.on_topic, q.screened, q.kept, q.claimed, q.cited, q.stopped)
         for key, q in states.items()
         if not q.moved
     }
+    # tool-use: 10-27's prefilter has no LineRecord, so only its screened sources count
     assert chains == {
-        ("akc", "tool-use"): (2, 0, 0, 0, "keep"),
-        ("edge", "edge-q"): (1, 1, 1, 1, "delivered"),
-        ("edge", "edge-quiet"): (0, 0, 0, 0, "screening"),
+        ("akc", "tool-use"): (2, 2, 0, 0, 0, "keep"),
+        ("edge", "edge-q"): (1, 1, 1, 1, 1, "delivered"),
+        ("edge", "edge-quiet"): (0, 0, 0, 0, 0, "intake"),
     }
     assert review.unset == ("ans",)
+
+
+def test_a_question_whose_sources_stopped_at_triage_or_trust_is_t_not_i():
+    """edge-quiet: the prefilter passes e1 for it on 11-04 (the day's LineRecord names
+    edge-q, edge-quiet as q0, q1) and nothing is screened for it: T, not I, so the weekly
+    reading does not send an agent to rewrite its queries."""
+    base = inputs()
+    edge = base.snapshot.lines["edge"]
+    e1 = next(n for n in edge.values() if isinstance(n, SourceItem))
+    passed = Judgment.new(
+        function="question_prefilter",
+        subjects=(e1.id,),
+        model="jev-1.13.0",
+        state_sha256=sha256_hex(f"pre {e1.id}"),
+        bundle_sha256=question_prefilter.ask(2).batched("source").sha256,
+        answers=(
+            NoulAnswer(key="q0_on_topic", p_yes=0.1),
+            NoulAnswer(key="q1_on_topic", p_yes=0.9),
+        ),
+        judged_at=at(d(11, 4)),
+    )
+    lines = {**base.snapshot.lines, "edge": {**edge, passed.id: passed}}
+    review = weekly_review(replace(base, snapshot=replace(base.snapshot, lines=lines)), WEEK)
+    quiet = next(q for q in review.questions if q.slug == "edge-quiet")
+    assert (quiet.on_topic, quiet.screened, quiet.stopped) == (1, 0, "safe")
+    text = render(review, "ja")
+    assert (
+        "| edge | edge-quiet | T 安全 (triage・trust を通った資料が 0) | 1 → 0 → 0 → 0 → 0 |"
+        in text
+    )
 
 
 def test_repetition_and_novelty(review: WeeklyReview):
