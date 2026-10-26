@@ -375,6 +375,7 @@ def _s_pairs(line: _Line, out: _Out, since: date) -> None:
             ]
             out.judgments.update({x.id: x for x in refs})
             day = j.judged_at.date()
+            q = line.question(qid)
             out.pairs.append(
                 SPair(
                     id=hashlib.sha256(f"{source.id}|{qid}".encode()).hexdigest()[:32],
@@ -387,13 +388,14 @@ def _s_pairs(line: _Line, out: _Out, since: date) -> None:
                     index=index,
                     triage=triage[source.id].id if source.id in triage else None,
                     trust=trust[source.id].id if source.id in trust else None,
+                    trust_level=q.trust_level if q is not None else "report",
                     screening=tuple(x.id for x in screens.get((source.id, qid), [])),
                     stratum="",
                     gold=line.gold_pairs.get((source.id, qid)),
                 )
             )
             out.sources[source.id] = source
-            if (q := line.question(qid)) is not None:
+            if q is not None:
                 out.questions[qid] = q
     out.rebuild.setdefault(line.slug, {})["prefilter"] = (mapped, tried)
 

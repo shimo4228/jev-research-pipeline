@@ -51,6 +51,10 @@ type DiscoveryNet = Literal["firehose", "recommendation", "citation", "keyword",
 type QuestionStatus = Literal["open", "answered", "dropped"]
 """Cochrane living-review states: a question is retired when its retire_rule is met."""
 
+type TrustLevel = Literal["personal", "report"]
+"""The lowest source_trust level a question takes (jev.source_trust.floor). `report` is
+every question's default; `personal` opens one question to a named author's own writing."""
+
 type LabelProvenance = Literal["question_day", "source", "claim"]
 """Which checkbox the author ticked; a question-day tick propagates to what it cited."""
 
@@ -691,6 +695,12 @@ class Question(StoreNode):
     """What counts as evidence here — e.g. "measured, not claimed"."""
     negative_topics: tuple[str, ...] = ()
     """Neighbouring topics that keep matching and are not this question."""
+    stance: tuple[str, ...] = ()
+    """Sections of the author's research record the question stands on, as written in the
+    file (`[label](url)` or a bare URL). Shown under the note heading; no judge and no
+    writer reads them."""
+    trust_level: TrustLevel = "report"
+    """The lowest source level this question takes (jev.source_trust.floor)."""
     canary_papers: tuple[IRI, ...] = ()
     """Known key papers (SAFE): if screening drops one, the screen has drifted."""
     status: QuestionStatus = "open"

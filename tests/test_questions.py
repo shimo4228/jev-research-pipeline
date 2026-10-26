@@ -129,3 +129,28 @@ def test_todays_own_claims_do_not_join_the_evidence_set_mid_run(tmp_path: Path):
         env, "akc", line=b.LINE_IRI, now=b.T0, stored={stored.id: stored}, evidence_scope=set()
     )
     assert question.evidence == ()
+
+
+STANCE_FILE = """<!-- jrp:questions:desire -->
+
+## 尽きたのは在庫か回路か
+- slug: stock-or-circuit
+- stance: [desire exhaustion](https://github.com/o/r/blob/main/concepts.md#desire-exhaustion)
+- stance: https://github.com/o/r/blob/main/concepts.md#対抗モデル
+- trust: personal
+
+## 既定のままの問い
+- slug: plain
+- trust: anything-else
+"""
+
+
+def test_stance_lines_and_the_trust_level_are_read():
+    first, second = parse_questions(STANCE_FILE, line=b.LINE_IRI, opened_at=b.T0)
+    assert first.stance == (
+        "[desire exhaustion](https://github.com/o/r/blob/main/concepts.md#desire-exhaustion)",
+        "https://github.com/o/r/blob/main/concepts.md#対抗モデル",
+    )
+    assert first.trust_level == "personal"
+    # Only `personal` lowers the floor; anything else keeps every question's default.
+    assert (second.stance, second.trust_level) == ((), "report")

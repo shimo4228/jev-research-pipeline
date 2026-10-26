@@ -20,9 +20,15 @@ Format — one `## ` block per question, fields as `- key: value` lines and list
     - evidence: 測定されたもの。主張だけのものは採らない
     - not: プロンプト技法一般
     - canary: https://arxiv.org/abs/2609.01234
+    - stance: [記憶の定義](https://github.com/<owner>/<repo>/blob/main/concepts.md#memory)
+    - trust: personal
 
 `slug` and `version` identify the Question node; everything else is wording the author
-owns. A missing `slug` is derived from the heading, a missing `version` is 1. A file with
+owns. `stance` (one line per link, `[label](url)` or a bare URL) names the sections of the
+author's research record the question stands on: the note shows them under the question's
+heading, and no judge or writer reads them. `trust: personal` lowers the source_trust floor
+for this question only, so a named author's first-person writing reaches its screening
+(jev.source_trust.floor); any other value, or none, keeps the floor every question has. A missing `slug` is derived from the heading, a missing `version` is 1. A file with
 no open question stops the line's run ("問い未設定") rather than running a question-less
 pipeline that would have nothing to anchor its judgments on.
 
@@ -57,7 +63,13 @@ from typing import Final
 from pydantic import AwareDatetime
 
 from jev_research_pipeline.home import JRP_HOME
-from jev_research_pipeline.model import AdapterKind, GraphNodeType, Question, QuestionStatus
+from jev_research_pipeline.model import (
+    AdapterKind,
+    GraphNodeType,
+    Question,
+    QuestionStatus,
+    TrustLevel,
+)
 
 type AuthoredQueries = tuple[tuple[AdapterKind, str], ...]
 """One question's query lines, (adapter, text), in file order."""
@@ -144,6 +156,10 @@ def _status(raw: str) -> QuestionStatus:
     return raw if raw in ("open", "answered", "dropped") else "open"
 
 
+def _trust_level(raw: str) -> TrustLevel:
+    return "personal" if raw == "personal" else "report"
+
+
 def parse_questions(text: str, *, line: str, opened_at: AwareDatetime) -> list[Question]:
     """Every question in the file, in file order. A block that cannot be a Question
     (no title, or an unusable field) is skipped rather than failing the run."""
@@ -165,6 +181,8 @@ def parse_questions(text: str, *, line: str, opened_at: AwareDatetime) -> list[Q
                     method_constraints=tuple(fields.get("method_constraints", ())),
                     evidence_constraints=tuple(fields.get("evidence_constraints", ())),
                     negative_topics=tuple(fields.get("negative_topics", ())),
+                    stance=tuple(fields.get("stance", ())),
+                    trust_level=_trust_level(one.get("trust", "")),
                     canary_papers=tuple(fields.get("canary", ())),
                     opened_at=_opened(opened, opened_at),
                 )

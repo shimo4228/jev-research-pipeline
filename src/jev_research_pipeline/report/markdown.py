@@ -6,6 +6,7 @@
     ---
     # <line name> — <date>
     ## <question title>                  one section per question that moved today
+    立場: [<label>](url) · …             the question's stance links, if it has any
     ### 今日の変化                          absent when the ladder fell to template: the
     <prose, with [n] and one inference      template sentence stands alone, in italics
      paragraph marked 推論>
@@ -51,7 +52,7 @@ import re
 from collections.abc import Callable
 from datetime import date
 from typing import Final
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from jev_research_pipeline import note_text as t
 from jev_research_pipeline.jev.context import LineContext
@@ -133,6 +134,8 @@ class QuestionSection(Value):
     title: str
     prose: str | None
     evidence: tuple[SourceEntry, ...]
+    stance: tuple[str, ...] = ()
+    """The question's stance lines as the author wrote them (Question.stance)."""
     contradictions: tuple[str, ...] = ()
     """Claims that count against the answer the evidence set supports. They get their own
     block rather than being folded into the day's prose: a contradiction the reader has to
@@ -198,6 +201,28 @@ def qday_mark(question_id: str, run_date: date) -> str:
     return f"{QDAY_MARK}{question_id}:{run_date.isoformat()}"
 
 
+_STANCE_LINK_RE: Final = re.compile(r"^\[(.+)\]\((\S+)\)$")
+
+
+def _stance_link(raw: str) -> str | None:
+    """`[label](url)` or a bare URL → one markdown link; None when the URL is unusable. A
+    bare URL is labelled with its last path segment and its decoded fragment."""
+    m = _STANCE_LINK_RE.match(raw.strip())
+    label, url = (m.group(1), m.group(2)) if m else (None, raw.strip())
+    safe = safe_url(url)
+    if safe is None:
+        return None
+    if label is None:
+        path, _, fragment = url.partition("#")
+        label = path.rstrip("/").rsplit("/", 1)[-1] + (f"#{unquote(fragment)}" if fragment else "")
+    return f"[{_link_text(label)}]({safe})"
+
+
+def _stance_line(stance: tuple[str, ...], lang: Lang) -> list[str]:
+    links = [link for raw in stance if (link := _stance_link(raw)) is not None]
+    return [f"{t.STANCE(lang)}: {' · '.join(links)}", ""] if links else []
+
+
 def _question_section(section: QuestionSection, run_date: date, lang: Lang) -> str:
     body = (
         [f"### {t.CHANGES(lang)}", "", sanitize(section.prose)]
@@ -207,6 +232,7 @@ def _question_section(section: QuestionSection, run_date: date, lang: Lang) -> s
     lines = [
         f"## {sanitize(section.title, one_line=True)}",
         "",
+        *_stance_line(section.stance, lang),
         *body,
         "",
         f"### {t.EVIDENCE(lang)}",

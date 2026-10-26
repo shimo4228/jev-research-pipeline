@@ -35,7 +35,7 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Collection, Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Final, override
 
@@ -330,6 +330,8 @@ class _State:
     decisions: list[Decision] = field(default_factory=list[Decision])
     nodes: list[GraphNodeType] = field(default_factory=list[GraphNodeType])
     notes: list[str] = field(default_factory=list[str])
+    retried: list[str] = field(default_factory=list[str])
+    """Source @ids an earlier run left unjudged that this run asked about again."""
     unjudged: dict[str, UnjudgedEntry] = field(default_factory=dict[str, UnjudgedEntry])
     """Subject @id → what failed on it, for 未判定 (the function is shown with the label)."""
     units: dict[str, Unit] = field(default_factory=dict[str, Unit])
@@ -533,6 +535,60 @@ def same_title_merged(
 def _entry(source: SourceItem, gist: str = "") -> SourceEntry:
     text = gist or _gist(source.text)
     return SourceEntry(source_id=source.id, title=source.title, gist=text, url=source.url)
+
+
+RETRY_DAYS: Final = 14
+"""How long a source stays retried: fetched within this many days of the run."""
+RETRY_MAX: Final = 40
+"""Retried sources per line-run, oldest first."""
+RETRIED: Final = ("question_prefilter", "relevance_triage", "source_trust", "question_screening")
+"""The functions a source passes before the note: an unjudged Decision of one sends the
+source back through all of them; each Judgment it already has is read from the store."""
+
+
+def today_bundles(n_questions: int) -> frozenset[str]:
+    """The bundle sha256 of every RETRIED function as today's run asks it, alone or batched."""
+    asks = (question_prefilter.ask(n_questions), relevance_triage.ASK, source_trust.ASK)
+    single = {a.sha256 for a in asks} | {a.batched(BATCH_SUBJECT).sha256 for a in asks}
+    return frozenset(single | {question_screening.ASK.sha256, question_screening.BATCH_ASK.sha256})
+
+
+def retry_sources(
+    known: Mapping[str, GraphNodeType],
+    *,
+    open_questions: Collection[str],
+    bundles: Collection[str],
+    today: Collection[str],
+    now: AwareDatetime,
+) -> list[SourceItem]:
+    """The stored sources the run asks about again: fetched within RETRY_DAYS and not today,
+    with an unjudged Decision of a RETRIED function that has no judged twin (same function
+    and subjects) asked in today's form (`bundles`), and whose questions are all still open.
+    Oldest first, at most RETRY_MAX.
+
+    A judged retry has the same Decision @id as the unjudged one it answers and replaces it
+    in the store. After a rewording (a new ask version) the old version's unjudged Decision
+    stays, and the judged twin in today's form is what stops it from being retried again."""
+    decisions = [n for n in known.values() if isinstance(n, Decision) and n.function in RETRIED]
+    judged = {
+        (d.function, d.subjects)
+        for d in decisions
+        if d.outcome != "unjudged" and d.bundle_sha256 in bundles
+    }
+    ids = {
+        d.subjects[0]
+        for d in decisions
+        if d.outcome == "unjudged"
+        and (d.function, d.subjects) not in judged
+        and all(q in open_questions for q in d.subjects[1:])
+    }
+    since = now - timedelta(days=RETRY_DAYS)
+    out = [
+        s
+        for i in ids - set(today)
+        if isinstance(s := known.get(i), SourceItem) and s.fetched_at >= since
+    ]
+    return sorted(out, key=lambda s: (s.fetched_at, s.id))[:RETRY_MAX]
 
 
 class LineRun:
@@ -797,7 +853,9 @@ class LineRun:
         prefiltered as soon as its request is in, while later requests sit out their pacing
         gap. Returns the sources and, per source id, the indices of the questions it passed.
         The prefilter reads nothing a later fetch writes and its Decisions are applied in
-        fetch order afterwards, so the overlap changes when, not what."""
+        fetch order afterwards, so the overlap changes when, not what. The stored sources an
+        earlier run left unjudged (retry_sources) join after today's fetch and go the same
+        way; they are not counted as fetched today."""
         n = len(self.questions)
         ask = question_prefilter.ask(n)
         started: list[tuple[list[SourceItem], asyncio.Task[list[Any]]]] = []
@@ -810,6 +868,15 @@ class LineRun:
         with self._stage("fetch", queries=len(queries)):
             try:
                 sources = await self._fetch(queries, on_sources=start)
+                retried = retry_sources(
+                    self.known,
+                    open_questions={q.id for q in self.questions},
+                    bundles=today_bundles(n),
+                    today={s.id for s in sources},
+                    now=self.now,
+                )
+                if retried:
+                    start(retried)
             except BaseException:
                 for _, task in started:
                     task.cancel()  # nothing is waiting on them any more
@@ -828,11 +895,17 @@ class LineRun:
                         passing[s.id] = hits
         self.st.incomplete = sum(1 for s in sources if not self._screenable(s))
         self.st.fetched = {s.url for s in sources}
-        return sources, passing
+        self.st.retried = [s.id for s in retried if self._screenable(s)]
+        return [*sources, *retried], passing
 
-    async def _safe_sources(self, sources: list[SourceItem]) -> list[SourceItem]:
-        """The question-free pass on the sources some question is about: evidence and
-        injection, then trust, each batched. Nothing is accepted before this pass."""
+    async def _safe_sources(
+        self, sources: list[SourceItem], passing: Mapping[str, list[int]]
+    ) -> tuple[list[SourceItem], dict[str, list[int]]]:
+        """The pass on the sources some question is about: evidence and injection, then
+        trust, each batched. Nothing is accepted before this pass. The stored Decisions are
+        question-free (min_trust); a source under min_trust still reaches the questions whose
+        trust floor it clears (source_trust.floor), and only those. Returns the kept sources
+        and `passing` narrowed to them."""
         tri = await self._batched(
             relevance_triage.ASK,
             [((s.id,), relevance_triage.state(self.ctx, s)) for s in sources],
@@ -846,11 +919,24 @@ class LineRun:
             source_trust.ASK, [((s.id,), source_trust.state(s)) for s in evidenced]
         )
         kept: list[SourceItem] = []
+        narrowed: dict[str, list[int]] = {}
+        floored = 0
         for s, result in zip(evidenced, trust, strict=True):
-            if result is not None:
-                if self._decide(source_trust.decision(result), s.title).outcome == "accept":
-                    kept.append(s)
-        return kept
+            if result is None:
+                continue
+            d = self._decide(source_trust.decision(result), s.title)
+            hits = [] if d.score is None else self._over_floor(passing.get(s.id, []), d.score)
+            floored += d.outcome != "accept" and bool(hits)
+            if hits:
+                kept.append(s)
+                narrowed[s.id] = hits
+        if floored:
+            self.st.notes.append(t.TRUST_FLOOR(self.lang, n=floored))
+        return kept, narrowed
+
+    def _over_floor(self, hits: list[int], score: float) -> list[int]:
+        """The questions among `hits` whose trust floor `score` clears."""
+        return [i for i in hits if score >= source_trust.floor(self.questions[i].trust_level)]
 
     async def _screened(
         self, sources: list[SourceItem], passing: Mapping[str, list[int]]
@@ -1091,6 +1177,7 @@ class LineRun:
                 QuestionSection(
                     question_id=question.id,
                     title=question.title,
+                    stance=question.stance,
                     prose=done.text,
                     evidence=tuple(
                         _entry(s) for s in {i.source.id: i.source for i in items}.values()
@@ -1168,6 +1255,7 @@ class LineRun:
         section = QuestionSection(
             question_id=question.id,
             title=question.title,
+            stance=question.stance,
             prose=rendering.prose,
             evidence=tuple(_entry(s) for s in sources),
             contradictions=tuple(i.claim.text for i in items if i.contradicts),
@@ -1336,9 +1424,12 @@ class LineRun:
         if merged:
             self.st.notes.append(t.TITLE_DUPLICATES(self.lang, n=merged))
         with self._stage("triage", sources=len(passing)):
-            safe = await self._safe_sources(candidates)
+            safe, passing = await self._safe_sources(candidates, passing)
         with self._stage("screen", sources=len(safe)):
             screened = await self._screen(safe, passing)
+        if self.st.retried:
+            again = sum(1 for i in self.st.retried if i in self.st.unjudged)
+            self.st.notes.append(t.RETRIED(self.lang, n=len(self.st.retried), again=again))
         with self._stage("claims"):
             detected = await self._claims(screened)
         with self._stage("novelty", claims=len(detected)):

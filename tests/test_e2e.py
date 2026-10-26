@@ -10,7 +10,7 @@ import httpx2
 import pytest
 
 from jev_research_pipeline.jev import rubric_claim
-from jev_research_pipeline.model import Label, Report
+from jev_research_pipeline.model import Decision, Label, Report
 from jev_research_pipeline.pipeline.runner import run_pipeline
 from jev_research_pipeline.report import harvest_text
 from jev_research_pipeline.store import GraphStore
@@ -201,6 +201,46 @@ async def test_the_next_run_counts_what_the_last_one_cited(env: dict[str, str]):
     (second,) = await run_pipeline(env, now=later, http=http, pacing=False, only=["akc"])
     assert first.health.cited > 0
     assert second.health.previous_cited == first.health.cited
+
+
+async def test_a_source_left_unjudged_is_asked_again_the_next_day(env: dict[str, str]):
+    """Day 1: Jev fails every evidence check. Day 2: no upstream answers a fetch, so the
+    only sources are the ones day 1 left unjudged, and Jev answers them. No cassette."""
+    world = fake_world()
+
+    async def triage_fails(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "api.typesafe.ai" and any(
+            k.endswith("contains_evidence") for k in json.loads(request.content)["questions"]
+        ):
+            return httpx2.Response(500, json={"error": {"message": "synthetic failure"}})
+        return await world(request)
+
+    async def nothing_fetched(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host in ("api.typesafe.ai", "dashscope-intl.aliyuncs.com"):
+            return await world(request)
+        return httpx2.Response(503)
+
+    partition = GraphStore(Path(env["JRP_STORE_DIR"])).line("akc")
+
+    def unjudged_triage() -> set[str]:
+        return {
+            d.subjects[0]
+            for d in partition.load().values()
+            if isinstance(d, Decision)
+            and d.function == "relevance_triage"
+            and d.outcome == "unjudged"
+        }
+
+    day1 = httpx2.AsyncClient(transport=httpx2.MockTransport(triage_fails))
+    await run_pipeline(env, now=b.T0, http=day1, pacing=False, only=["akc"])
+    left = unjudged_triage()
+    assert left
+    day2 = httpx2.AsyncClient(transport=httpx2.MockTransport(nothing_fetched))
+    later = b.T0 + timedelta(days=1)
+    (second,) = await run_pipeline(env, now=later, http=day2, pacing=False, only=["akc"])
+    assert unjudged_triage() == set()  # each answer replaced the unjudged Decision
+    text = second.note.read_text(encoding="utf-8")
+    assert f"前回までに未判定だった資料 {len(left)} 件を聞き直した (うち 0 件はまた未判定)" in text
 
 
 async def test_default_prose_model_is_gpt6_luna_on_the_codex_subscription(

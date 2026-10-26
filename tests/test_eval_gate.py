@@ -19,7 +19,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 import pytest
@@ -187,7 +187,13 @@ class Store:
             state=state,
         )
 
-    def safe(self, name: str, *, evidence: float = 0.9) -> None:
+    def safe(
+        self,
+        name: str,
+        *,
+        evidence: float = 0.9,
+        trust: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0),
+    ) -> None:
         sid = self.sources[name].id
         self.judgment(
             "relevance_triage",
@@ -207,7 +213,7 @@ class Store:
                 ScoreAnswer(
                     key="trust",
                     levels=score_levels(source_trust.Trust),
-                    probabilities=(0.0, 0.0, 0.0, 1.0),
+                    probabilities=trust,
                 ),
             ),
             D1,
@@ -477,6 +483,46 @@ def test_the_set_holds_every_prefiltered_pair_and_rebuilds_its_states(gs: gate_s
     assert m.parity["screening"] == (4, 4)
     assert m.parity["x_sections"] == (2, 2)
     assert m.counts["x_days"] == 2
+
+
+def test_a_personal_question_takes_a_named_authors_page_at_its_own_floor():
+    st = Store()
+    for name, levels in (("blog", (0.0, 1.0, 0.0, 0.0)), ("ad", (1.0, 0.0, 0.0, 0.0))):
+        st.source(name)
+        st.prefilter(name, 0.9, 0.1)
+        st.safe(name, trust=levels)  # personal sits at 1/3, anonymous at 0
+    screened = {name: st.screen(name, QA, KEEP).id for name in ("blog", "ad")}
+    read = Judged_({n.id: n for n in st.nodes if isinstance(n, Judgment)})
+
+    def pair(name: str, level: Literal["report", "personal"]) -> SPair:
+        sid = st.sources[name].id
+        of = {
+            n.function: n.id for n in st.nodes if isinstance(n, Judgment) and n.subjects[0] == sid
+        }
+        return SPair(
+            id=f"{name}-{level}",
+            line="akc",
+            source=sid,
+            question=QA.id,
+            day=D1,
+            split="dev",
+            prefilter=of["question_prefilter"],
+            index=0,
+            triage=of["relevance_triage"],
+            trust=of["source_trust"],
+            trust_level=level,
+            screening=(screened[name],),
+            stratum="",
+        )
+
+    assert s_outcome(read, pair("blog", "report"), BASELINE) == "safe"
+    assert s_outcome(read, pair("blog", "personal"), BASELINE) == "keep"
+    assert s_outcome(read, pair("ad", "personal"), BASELINE) == "safe"
+    # a personal floor set above min_trust still takes what a report question takes
+    above = Policy(overrides={"source_trust": {"min_trust_personal": 0.9}})
+    assert source_trust.floor("personal", above.of("source_trust")) == 0.5
+    lower = Policy(overrides={"source_trust": {"min_trust_personal": 0.4}})
+    assert s_outcome(read, pair("blog", "personal"), lower) == "safe"
 
 
 def test_each_pair_lands_where_the_baseline_routes_it(gs: gate_set.GateSet):

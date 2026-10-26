@@ -52,6 +52,7 @@ class Msg(NamedTuple):
 TOPIC: Final = Msg("{line} — {n} 問い", "{line} — {n} questions", "{line} — {n} 个问题")
 CHANGES: Final = Msg("今日の変化", "What changed today", "今日变化")
 EVIDENCE: Final = Msg("証拠", "Evidence", "证据")
+STANCE: Final = Msg("立場", "Stands on", "立足")
 COUNTER_EVIDENCE: Final = Msg("反証", "Counter-evidence", "反证")
 WORTH_READING: Final = Msg("読む価値があった", "Worth reading", "值得一读")
 TEMPLATE_BODY: Final = Msg(
@@ -174,6 +175,16 @@ TITLE_DUPLICATES: Final = Msg(
     "同じタイトルの重複 {n} 件を 1 件にまとめて判定",
     "{n} same-title duplicates judged as one",
     "{n} 条同标题重复合并为 1 条判定",
+)
+RETRIED: Final = Msg(
+    "前回までに未判定だった資料 {n} 件を聞き直した (うち {again} 件はまた未判定)",
+    "{n} sources left unjudged by earlier runs asked again ({again} unjudged again)",
+    "重新询问之前未判定的资料 {n} 条 (其中 {again} 条仍未判定)",
+)
+TRUST_FLOOR: Final = Msg(
+    "個人の記述として {n} 件を通した (trust: personal の問いだけ)",
+    "{n} sources passed as personal writing (trust: personal questions only)",
+    "作为个人记述放行 {n} 条 (仅限 trust: personal 的问题)",
 )
 CLAIMS_SHOWN: Final = Msg(
     "{question}: claim {total} 件のうち {shown} 件を掲載",

@@ -28,7 +28,7 @@ from jev_research_pipeline.jev import (
     source_trust,
 )
 from jev_research_pipeline.jev.core import Judged
-from jev_research_pipeline.model import Judgment, Threshold
+from jev_research_pipeline.model import Judgment, Threshold, TrustLevel
 from jev_research_pipeline.pipeline.run import capped
 
 type Fn = Literal[
@@ -87,6 +87,8 @@ class SPair(Frozen):
     triage: str | None = None
     trust: str | None = None
     """The source's first relevance_triage / source_trust Judgment, if the run asked one."""
+    trust_level: TrustLevel = "report"
+    """The question's trust level: which source_trust floor the pair takes."""
     screening: tuple[str, ...] = ()
     """Current-version screening Judgments of the pair, first one first, within WINDOW_DAYS."""
     stratum: str
@@ -207,6 +209,22 @@ def screen_route(read: Judged_, pair: SPair, policy: Policy) -> str | None:
     return max(routes, key=lambda r: _RANK.get(r, 0)) if routes else None
 
 
+def _safe(read: Judged_, pair: SPair, policy: Policy) -> SOutcome | None:
+    """The question-free pass (triage, then trust at the question's floor): "safe" where it
+    stops the pair, "unasked" where it lacks a Judgment, None where the pair goes on."""
+    triage = read.get("relevance_triage", pair.triage)
+    if triage is None:
+        return "unasked"
+    if not relevance_triage.rule(triage, policy.of("relevance_triage"))[0]:
+        return "safe"
+    trust = read.get("source_trust", pair.trust)
+    if trust is None:
+        return "unasked"
+    if source_trust.trust(trust) < source_trust.floor(pair.trust_level, policy.of("source_trust")):
+        return "safe"
+    return None
+
+
 def s_outcome(read: Judged_, pair: SPair, policy: Policy) -> SOutcome:
     """What `policy` does with the pair, stage by stage (module docstring of
     pipeline.run._gather: prefilter → triage → trust → screen)."""
@@ -216,15 +234,8 @@ def s_outcome(read: Judged_, pair: SPair, policy: Policy) -> SOutcome:
     n = sum(1 for a in pf.judgment.answers if a.key.endswith("_on_topic"))
     if pair.index not in question_prefilter.passing(pf, n, policy.of("question_prefilter")):
         return "prefilter"
-    for fn, jid, rule in (
-        ("relevance_triage", pair.triage, relevance_triage.rule),
-        ("source_trust", pair.trust, source_trust.rule),
-    ):
-        judged = read.get(fn, jid)
-        if judged is None:
-            return "unasked"
-        if not rule(judged, policy.of(fn))[0]:  # pyright: ignore[reportArgumentType]
-            return "safe"
+    if (stopped := _safe(read, pair, policy)) is not None:
+        return stopped
     route = screen_route(read, pair, policy)
     if route is None:
         return "unasked"

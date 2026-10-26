@@ -212,6 +212,38 @@ def test_a_source_title_stays_inside_its_link():
     assert line.startswith("> - [ ] [Borderline \\[v2\\] paper](https://arxiv.org/abs/2) — ")
 
 
+def test_stance_links_sit_under_the_question_heading():
+    section = _section("本文です [1]。", [_entry()]).model_copy(
+        update={
+            "stance": (
+                "[desire exhaustion](https://github.com/o/r/blob/main/concepts.md#de)",
+                "https://github.com/o/r/blob/main/concepts.md#%E5%AF%BE%E6%8A%97",
+                "javascript:alert(1)",
+                "[x](http://evil.example/a]b)",
+            )
+        }
+    )
+    text = render_report(
+        report=b.report().model_copy(update={"prose": "本文です [1]。", "rendering": "prose"}),
+        ctx=CTX,
+        sections=[section],
+        claims=[_entry()],
+        review=[],
+        bridges=[],
+        unjudged=[],
+        operations=[],
+    )
+    lines = text.splitlines()
+    at = lines.index(f"## {b.question().title}")
+    assert lines[at + 2] == (
+        "立場: [desire exhaustion](https://github.com/o/r/blob/main/concepts.md#de)"
+        " · [concepts.md#対抗](https://github.com/o/r/blob/main/concepts.md#%E5%AF%BE%E6%8A%97)"
+        " · [x](http://evil.example/a%5Db)"
+    )
+    # A question without stance lines writes no 立場 line at all.
+    assert "立場:" not in _render([_entry()])
+
+
 def test_a_template_section_has_no_empty_changes_heading():
     text = _render([_entry()], prose=None)
     assert "### 今日の変化" not in text
